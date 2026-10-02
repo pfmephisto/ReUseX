@@ -4,15 +4,18 @@
 
 #include "reusex/core/resource_keys.hpp"
 
+#include "reusex/core/materialepas_enums.hpp"
 #include "reusex/core/materialepas_json_export.hpp"
 #include "reusex/core/survey.hpp"
 
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <limits>
 #include <set>
 
 namespace reusex::core {
@@ -81,6 +84,40 @@ bool is_iso_date(std::string_view v) {
   const int month = (v[5] - '0') * 10 + (v[6] - '0');
   const int day = (v[8] - '0') * 10 + (v[9] - '0');
   return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+std::vector<std::string> material_options() {
+  std::vector<std::string> out;
+  for (const auto name : material_names())
+    out.emplace_back(name);
+  return out;
+}
+
+/// A multiselect value: a JSON array of distinct option strings, returned
+/// compact; an empty array is nullopt (a clear).
+std::optional<std::string> normalise_multiselect(const ResourceKey &key,
+                                                 const std::string &v) {
+  const auto j = nlohmann::json::parse(v, nullptr, /*allow_exceptions=*/false);
+  auto refuse = [&](const std::string &why) {
+    return KeyValueError(key.id,
+                         "'" + key.id + "' " + why + ", got '" + v + "'");
+  };
+  if (j.is_discarded() || !j.is_array())
+    throw refuse("must be a JSON array of strings");
+  std::set<std::string> seen;
+  for (const auto &item : j) {
+    if (!item.is_string())
+      throw refuse("must be a JSON array of strings");
+    const auto &s = item.get_ref<const std::string &>();
+    if (std::find(key.options.begin(), key.options.end(), s) ==
+        key.options.end())
+      throw KeyValueError(key.id, "'" + key.id + "' has no value '" + s + "'");
+    if (!seen.insert(s).second)
+      throw KeyValueError(key.id, "'" + key.id + "' lists '" + s + "' twice");
+  }
+  if (j.empty())
+    return std::nullopt;
+  return j.dump();
 }
 
 /// Built-in keys whose column is NOT NULL with no meaningful empty value.
@@ -187,7 +224,21 @@ std::vector<ResourceKey> leksikon_keys() {
       k.data_type = "enum";
       k.options = {"yes", "no", "unknown"};
       break;
-    default: // String, StringArray, EnumValue, EnumArray: stored as text
+    case PropertyType::EnumValue: // the Material enum (Deserializer default)
+      k.data_type = "enum";
+      k.options = material_options();
+      break;
+    case PropertyType::EnumArray: // std::vector<Material>, a JSON array
+      k.data_type = "multiselect";
+      k.options = material_options();
+      break;
+    case PropertyType::StringArray:
+      // Free-form lists (image paths, documents): nothing to validate an
+      // entry against yet, so read-only until an editor exists for them.
+      k.data_type = "text";
+      k.editable = false;
+      break;
+    default: // String
       k.data_type = "text";
       break;
     }
@@ -262,7 +313,11 @@ normalise_value(const ResourceKey &key,
                 const std::optional<std::string> &value) {
   if (!key.editable)
     throw KeyValueError(key.id, "'" + key.id + "' is read-only");
-  const bool blank = !value || (value->empty() && key.data_type != "text");
+  // "" clears every key but a built-in text one, whose NOT NULL column
+  // stores "" (sys:note, sys:room, ...).
+  const bool blank =
+      !value || (value->empty() &&
+                 (key.data_type != "text" || key.source != KeySource::builtin));
   if (blank) {
     if (!clearable(key))
       throw KeyValueError(key.id, "'" + key.id + "' cannot be cleared");
@@ -277,6 +332,12 @@ normalise_value(const ResourceKey &key,
     if (key.integer && std::floor(*n) != *n)
       throw KeyValueError(
           key.id, "'" + key.id + "' must be a whole number, got '" + v + "'");
+    // Leksikon Integer fields are read back as int (std::from_chars).
+    if (key.integer &&
+        (*n < static_cast<double>(std::numeric_limits<int>::min()) ||
+         *n > static_cast<double>(std::numeric_limits<int>::max())))
+      throw KeyValueError(key.id,
+                          "'" + key.id + "' is out of range, got '" + v + "'");
     if (key.id == "sys:quantity" && *n < 0.0)
       throw KeyValueError(key.id, "'sys:quantity' must be a number >= 0");
     return format_number(*n);
@@ -293,6 +354,8 @@ normalise_value(const ResourceKey &key,
       return v;
     throw KeyValueError(key.id, "'" + key.id + "' has no value '" + v + "'");
   }
+  if (key.data_type == "multiselect")
+    return normalise_multiselect(key, v);
   if (key.data_type == "date") {
     if (is_iso_date(v))
       return v;

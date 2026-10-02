@@ -63,6 +63,15 @@ std::optional<std::string> builtin_value(const ResourceKey &k,
   return std::nullopt;
 }
 
+/// add_material_passport stores every field, the unset ones as "", "[]"
+/// or (TriState) "unknown" — the same as having no value.
+bool is_blank_stored(const ResourceKey &k, const std::string &v) {
+  if (v.empty() || v == "[]")
+    return true;
+  return k.source == KeySource::leksikon && k.data_type == "enum" &&
+         v == "unknown";
+}
+
 Resource build(const ProjectDB &db, const Context &c,
                const ProjectDB::SurveyPartRecord &p,
                const std::optional<std::vector<std::string>> &keys) {
@@ -76,8 +85,9 @@ Resource build(const ProjectDB &db, const Context &c,
     if (k.source == KeySource::builtin)
       return builtin_value(k, p, t, e);
     const auto it = stored.find(k.field);
-    return it == stored.end() ? std::nullopt
-                              : std::optional<std::string>(it->second);
+    if (it == stored.end() || is_blank_stored(k, it->second))
+      return std::nullopt;
+    return it->second;
   };
   if (keys) {
     for (const auto &id : *keys) {
@@ -287,10 +297,30 @@ void delete_resource(ProjectDB &db, std::string_view code) {
 
 ProjectDB::PropertyDefinition create_column(ProjectDB &db,
                                             ProjectDB::PropertyDefinition def) {
+  // Check and insert in one transaction: no second writer can take the
+  // name in between.
+  ProjectDB::Transaction tx(db);
   check_column_name(db, def.name, "");
   def.id = db.add_property_definition(def.name, def.type, def.options,
                                       def.sort_order, def.width);
+  tx.commit();
   return def;
+}
+
+void delete_column(ProjectDB &db, const std::string &id) {
+  const auto defs = db.list_property_definitions();
+  const auto it = std::find_if(defs.begin(), defs.end(),
+                               [&](const auto &d) { return d.id == id; });
+  if (it == defs.end())
+    throw std::out_of_range("no column '" + id + "'");
+  ProjectDB::Transaction tx(db);
+  const auto values = db.delete_passport_field_values(it->name);
+  db.delete_property_definition(id);
+  tx.commit();
+  if (values > 0)
+    reusex::warn("delete_column: deleted column '{}' ({}) and its {} stored "
+                 "value(s)",
+                 it->name, id, values);
 }
 
 ProjectDB::PropertyDefinition

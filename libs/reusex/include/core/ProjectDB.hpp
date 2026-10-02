@@ -1107,6 +1107,11 @@ class ProjectDB {
   /// (a leksikon name_en or a user column's display name) — including
   /// values a deleted user column left behind.
   [[nodiscard]] bool has_passport_field_values(std::string_view name) const;
+  /// Call inside a Transaction. Deletes every value stored under the user
+  /// column field name @p name, and its "custom:" definition, so the name
+  /// is free again. Leksikon fields are never touched. Returns the number
+  /// of values deleted.
+  std::size_t delete_passport_field_values(std::string_view name);
   /// True when a survey part or an instance link still references @p guid.
   [[nodiscard]] bool is_passport_linked(std::string_view guid) const;
 

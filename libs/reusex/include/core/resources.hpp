@@ -38,7 +38,8 @@ std::optional<std::string> value_of(const Resource &r, std::string_view key);
 /// One per survey part, by code. With @p keys, `values` holds exactly those
 /// keys in that order (null when unset or unknown); without, every
 /// built-in key plus each catalogue key the part's passport stores, in
-/// catalogue order. Passport fields with no catalogue key are skipped.
+/// catalogue order. Passport fields with no catalogue key are skipped, and
+/// stored blanks ("", "[]", a leksikon TriState's "unknown") read as unset.
 std::vector<Resource> list_resources(
     const ProjectDB &db,
     const std::optional<std::vector<std::string>> &keys = std::nullopt);
@@ -99,6 +100,10 @@ struct ColumnPatch {
 ///         std::invalid_argument for an empty name.
 ProjectDB::PropertyDefinition create_column(ProjectDB &db,
                                             ProjectDB::PropertyDefinition def);
+/// Delete a user column and, in the same transaction, every value stored
+/// under its name (logged at warn with the count), so the name can be used
+/// again. @throws std::out_of_range (no column).
+void delete_column(ProjectDB &db, const std::string &id);
 /// A rename moves the stored values in the same transaction.
 /// @throws std::out_of_range (no column), NameConflictError (name taken, or
 ///         any passport already stores values under it — even when this

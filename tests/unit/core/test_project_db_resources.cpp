@@ -320,9 +320,32 @@ TEST_CASE("ResourceStore_SetInstanceMaterial_LogsUnreferencedOldPassport",
   CHECK(db.survey_part("RX-001")->material_guid ==
         std::optional<std::string>("guid-new"));
   CHECK_FALSE(db.is_passport_linked(a));
+  // It held a value someone edited: losing track of it is a warn (§5).
+  CHECK(log.count(core::LogLevel::warn, a) == 1);
+  CHECK(log.count(core::LogLevel::warn, "guid-new") == 1);
+  CHECK(log.count(core::LogLevel::warn, "RX-001") == 1);
+  CHECK(log.count(core::LogLevel::warn, "1 stored value") == 1);
+}
+
+TEST_CASE("ResourceStore_SetInstanceMaterial_EmptyOldPassportIsInfo",
+          "[ProjectDB][resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t, 1u);
+  std::string a;
+  {
+    ProjectDB::Transaction tx(db);
+    a = db.ensure_resource_passport("RX-001");
+    tx.commit();
+  }
+  make_passport(db, "guid-new");
+  LogCapture log;
+  db.set_instance_material("instances", 1, "guid-new");
   CHECK(log.count(core::LogLevel::info, a) == 1);
-  CHECK(log.count(core::LogLevel::info, "guid-new") == 1);
-  CHECK(log.count(core::LogLevel::info, "1 stored value") == 1);
+  CHECK(log.count(core::LogLevel::info, "0 stored value") == 1);
+  CHECK(log.count(core::LogLevel::warn, a) == 0);
 }
 
 TEST_CASE("ResourceStore_EnsurePassport_RestoresLinkLostToInstancesRerun",

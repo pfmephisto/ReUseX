@@ -36,9 +36,12 @@ struct ResourceKey {
   std::string label;
   std::string category;
   KeyScope scope = KeyScope::part;
-  std::string data_type = "text";   ///< text | number | enum | boolean | date
+  /// text | number | enum | multiselect | boolean | date. A multiselect
+  /// value is a JSON array of option strings (the MaterialEPAS storage
+  /// form), e.g. ["concrete","steel"].
+  std::string data_type = "text";
   std::string unit;                 ///< "" when none
-  std::vector<std::string> options; ///< enum choices
+  std::vector<std::string> options; ///< enum / multiselect choices
   bool editable = true;
   KeySource source = KeySource::builtin;
   /// Storage name: the sys name ("quantity"), the leksikon field name_en
@@ -92,11 +95,14 @@ std::optional<double> parse_number(std::string_view text);
 std::string format_number(double v);
 
 /// Validate @p value for @p key and return it normalised for storage
-/// (numbers with '.', booleans "true"/"false"); nullopt means clear. "" on a
-/// number/enum/boolean/date key also means clear.
+/// (numbers with '.', booleans "true"/"false", multiselect arrays compact
+/// JSON); nullopt means clear. "" clears any key except a built-in text key
+/// (stored as ""); an empty multiselect array "[]" clears too.
 /// @throws KeyValueError when the key is read-only, the value does not fit
-///         its data_type/options, sys:quantity is negative, sys:name is
-///         empty, or a clear hits sys:name/quantity/unit/treatment/starred.
+///         its data_type/options (a multiselect wants a JSON array of
+///         distinct options; a leksikon whole number must fit an int),
+///         sys:quantity is negative, sys:name or sys:unit is empty, or a
+///         clear hits sys:name/quantity/unit/treatment/starred.
 std::optional<std::string>
 normalise_value(const ResourceKey &key,
                 const std::optional<std::string> &value);

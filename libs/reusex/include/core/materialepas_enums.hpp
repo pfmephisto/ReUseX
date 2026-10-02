@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace reusex::core {
 
@@ -221,6 +222,9 @@ enum class TransactionType {
  */
 [[nodiscard]] auto material_from_string(std::string_view str)
     -> std::optional<Material>;
+
+/** @brief Every Material string identifier, in enum order. */
+[[nodiscard]] auto material_names() -> std::vector<std::string_view>;
 
 /** @brief Convert TriState enum to its string identifier. */
 [[nodiscard]] auto to_string(TriState value) -> std::string_view;

@@ -4252,11 +4252,16 @@ class ProjectDB::Impl {
         StmtGuard n_guard(n);
         bind_text(n, 1, before->second);
         sqlite3_step(n);
-        reusex::info("set_instance_material: survey part '{}' moved from "
-                     "passport '{}' to '{}'; '{}' ({} stored value(s)) is "
-                     "now unreferenced",
-                     before->first, before->second, materialGuid,
-                     before->second, sqlite3_column_int64(n, 0));
+        const auto values = sqlite3_column_int64(n, 0);
+        // Values on it (user edits, possibly) are now out of reach: warn.
+        // An empty one loses nothing.
+        reusex::log(values > 0 ? reusex::core::LogLevel::warn
+                               : reusex::core::LogLevel::info,
+                    "set_instance_material: survey part '{}' moved from "
+                    "passport '{}' to '{}'; '{}' ({} stored value(s)) is "
+                    "now unreferenced",
+                    before->first, before->second, materialGuid, before->second,
+                    values);
       }
       sqlite3_stmt *chk = prepare_or_throw(
           db,
@@ -5569,16 +5574,13 @@ class ProjectDB::Impl {
 
     reusex::core::MaterialPassportMetadata metadata;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-      metadata.document_guid =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      metadata.creation_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-      metadata.revision_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
-      metadata.version_number =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-      metadata.version_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+      // NULL reads as "" (column_text): rows written by hand or before
+      // ensure_resource_passport filled every column hold NULLs.
+      metadata.document_guid = column_text(stmt, 0);
+      metadata.creation_date = column_text(stmt, 1);
+      metadata.revision_date = column_text(stmt, 2);
+      metadata.version_number = column_text(stmt, 3);
+      metadata.version_date = column_text(stmt, 4);
     } else {
       sqlite3_finalize(stmt);
       throw std::runtime_error("Material passport not found: " +
@@ -5655,21 +5657,16 @@ class ProjectDB::Impl {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       reusex::core::TransactionLogEntry entry;
 
-      const char *entry_type =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
-      if (auto type = reusex::core::transaction_type_from_string(entry_type)) {
+      if (auto type = reusex::core::transaction_type_from_string(
+              column_text(stmt, 0))) {
         entry.type = *type;
       }
 
-      entry.guid = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
-      entry.edited_by =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
-      entry.edited_date =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-      entry.old_value =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
-      entry.new_value =
-          reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+      entry.guid = column_text(stmt, 1);
+      entry.edited_by = column_text(stmt, 2);
+      entry.edited_date = column_text(stmt, 3);
+      entry.old_value = column_text(stmt, 4);
+      entry.new_value = column_text(stmt, 5);
 
       entries.push_back(std::move(entry));
     }
@@ -8779,9 +8776,11 @@ std::string ProjectDB::ensure_resource_passport(std::string_view code) {
     guid = core::generate_guid();
     sqlite3_stmt *s = prepare_or_throw(
         impl_->db,
+        // Every metadata column gets a value: the passport readers and the
+        // MaterialEPAS export expect text, not NULL, in each one.
         "INSERT INTO material_passports (id, document_guid, created_at, "
-        "version_number) VALUES (?1, ?1, "
-        "strftime('%Y-%m-%dT%H:%M:%SZ','now'), '0.1.0');",
+        "revised_at, version_number, version_date) VALUES (?1, ?1, "
+        "strftime('%Y-%m-%dT%H:%M:%SZ','now'), '', '0.1.0', '');",
         "ensure_resource_passport");
     StmtGuard guard(s);
     bind_text(s, 1, guid);
@@ -8844,6 +8843,29 @@ bool ProjectDB::has_passport_field_values(std::string_view name) const {
   StmtGuard guard(s);
   bind_text(s, 1, name);
   return sqlite3_step(s) == SQLITE_ROW;
+}
+
+std::size_t ProjectDB::delete_passport_field_values(std::string_view name) {
+  impl_->checkWritable();
+  sqlite3 *db = impl_->db;
+  Savepoint sp(db, "delete_passport_field_values");
+  std::optional<std::size_t> deleted; // the values statement's count
+  for (const char *sql :
+       {"DELETE FROM passport_property_values WHERE property_id IN (SELECT id "
+        "FROM property_definitions WHERE name_en = ? AND id LIKE 'custom:%');",
+        "DELETE FROM property_definitions WHERE name_en = ? AND id LIKE "
+        "'custom:%';"}) {
+    sqlite3_stmt *s = prepare_or_throw(db, sql, "delete_passport_field_values");
+    StmtGuard guard(s);
+    bind_text(s, 1, name);
+    if (sqlite3_step(s) != SQLITE_DONE)
+      throw std::runtime_error("delete_passport_field_values: " +
+                               std::string(sqlite3_errmsg(db)));
+    if (!deleted)
+      deleted = static_cast<std::size_t>(sqlite3_changes(db));
+  }
+  sp.release();
+  return *deleted;
 }
 
 void ProjectDB::rename_passport_field(std::string_view old_name,

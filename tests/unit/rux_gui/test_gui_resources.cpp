@@ -204,6 +204,48 @@ TEST_CASE("GuiResources_Columns_ConflictIs409", "[gui][resources][columns]") {
   CHECK(status_of([&] { delete_material_column(db, "nope"); }) == 404);
   delete_material_column(db, b.at("id"));
   CHECK(status_of([&] { delete_material_column(db, b.at("id")); }) == 404);
+  // A deleted column takes its stored values with it, so its name is free.
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  const std::string a_id = a.at("id");
+  patch_resource_json(db, "RX-001", {},
+                      R"({"values":{"col:)" + a_id + R"(":"God"}})");
+  delete_material_column(db, a_id);
+  const auto again =
+      create_material_column(db, R"({"name":"Stand","type":"text"})");
+  const std::string again_id = again.at("id");
+  CHECK(resources_json(db, {}).at("resources")[0].at("values").contains(
+            "col:" + again_id) == false);
+}
+
+TEST_CASE("GuiResources_LazyPassport_ExportsStillRun",
+          "[gui][resources][materialepas]") {
+  // One PATCH on a part without a passport used to leave NULL metadata that
+  // crashed GET /exports/csv (and with it the whole server).
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  patch_resource_json(db, "RX-001", {},
+                      R"({"values":{"lex:2_mYRkA$9EcwXAxqBGoMrM":"Dør"}})");
+  create_resource_json(db, R"({"type_id":)" + std::to_string(t) +
+                               R"(,"name":"Branddør"})");
+  const auto blob = export_csv_blob(db, {});
+  CHECK_FALSE(blob.data.empty());
+  // A leksikon enum array refuses free text (400) and writes nothing.
+  CHECK(status_of([&] {
+          patch_resource_json(
+              db, "RX-001", {},
+              R"({"values":{"lex:1R_z75Gd52OQYxVkJ$E3ZU":"træ"}})");
+        }) == 400);
+  CHECK(resources_json(db, {}).at("resources")[0].at("values").contains(
+            "lex:1R_z75Gd52OQYxVkJ$E3ZU") == false);
+  const auto ok = patch_resource_json(
+      db, "RX-001", {},
+      R"({"values":{"lex:1R_z75Gd52OQYxVkJ$E3ZU":"[\"concrete\"]"}})");
+  CHECK(ok.at("resource").at("values").at("lex:1R_z75Gd52OQYxVkJ$E3ZU") ==
+        R"(["concrete"])");
+  CHECK_FALSE(export_csv_blob(db, {}).data.empty());
 }
 
 TEST_CASE("GuiTemplates_ListShape", "[gui][templates]") {

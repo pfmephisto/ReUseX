@@ -7,15 +7,22 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <core/MaterialPassport.hpp>
 #include <core/ProjectDB.hpp>
+#include <core/logging.hpp>
+#include <core/materialepas_json_export.hpp>
 #include <core/resource_keys.hpp>
 #include <core/resources.hpp>
 
 #include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
+#include <nlohmann/json.hpp>
+#include <sqlite3.h>
+
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 using reusex::ProjectDB;
@@ -33,6 +40,60 @@ std::string lex(const char *field) {
   FAIL("no leksikon field " << field);
   return {};
 }
+const ResourceKey &lex_key(const char *field) {
+  static const auto keys = leksikon_keys();
+  for (const auto &k : keys)
+    if (k.field == field)
+      return k;
+  FAIL("no leksikon key " << field);
+  return keys.front();
+}
+/// Every passport through the path `rux export materialepas` takes.
+void export_all(const ProjectDB &db) {
+  for (const auto &p : db.all_material_passports())
+    (void)json_export::to_json_with_defaults(p);
+}
+/// A value @p k accepts.
+std::string valid_value(const ResourceKey &k) {
+  if (k.data_type == "number")
+    return "3";
+  if (k.data_type == "boolean")
+    return "true";
+  if (k.data_type == "enum")
+    return k.options.front();
+  if (k.data_type == "multiselect")
+    return nlohmann::json::array({k.options.front(), k.options.back()}).dump();
+  if (k.data_type == "date")
+    return "2026-10-02";
+  return "tekst";
+}
+void raw_exec(const reusex::test_support::TempPath &t, const char *sql) {
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open(t.path.string().c_str(), &raw) == SQLITE_OK);
+  REQUIRE(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+  sqlite3_close(raw);
+}
+/// Captures library log lines for the scope of one test.
+struct LogCapture {
+  std::vector<std::pair<LogLevel, std::string>> lines;
+  LogLevel saved = get_log_level();
+  LogCapture() {
+    set_log_handler([this](LogLevel l, std::string_view m) {
+      lines.emplace_back(l, std::string(m));
+    });
+    set_log_level(LogLevel::info);
+  }
+  ~LogCapture() {
+    reset_log_handler();
+    set_log_level(saved);
+  }
+  std::size_t count(LogLevel l, std::string_view needle) const {
+    return static_cast<std::size_t>(
+        std::count_if(lines.begin(), lines.end(), [&](const auto &e) {
+          return e.first == l && e.second.find(needle) != std::string::npos;
+        }));
+  }
+};
 } // namespace
 
 TEST_CASE("Resources_List_NoTemplate_BuiltinsPlusStored", "[resources]") {
@@ -294,4 +355,204 @@ TEST_CASE("Resources_Delete_KeepsPassportLinkedElsewhere", "[resources]") {
   const auto guids = db.list_passport_guids();
   CHECK(std::find(guids.begin(), guids.end(), *guid) != guids.end());
   CHECK(db.instance_material_guid("instances", 1) == guid);
+}
+
+TEST_CASE("Resources_LazyPassport_MaterialepasExportReadsIt",
+          "[resources][materialepas]") {
+  // A passport created on the first write (PATCH, POST {name}) must not
+  // leave NULL metadata the passport readers copy into std::string.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t, 1u);
+  patch_resource(db, "RX-001", {{lex("width_mm"), "600"}});
+  create_resource(db, t, std::string("Branddør"));
+  const auto passports = db.all_material_passports();
+  REQUIRE(passports.size() == 2);
+  for (const auto &p : passports) {
+    CHECK_FALSE(p.metadata.creation_date.empty());
+    CHECK(p.metadata.revision_date.empty());
+    CHECK(p.metadata.version_date.empty());
+    CHECK_FALSE(p.metadata.version_number.empty());
+  }
+  export_all(db);
+}
+
+TEST_CASE("Resources_PassportReader_NullMetadataReadsEmpty",
+          "[resources][materialepas]") {
+  // Rows written before the fix (or by hand) can still hold NULLs.
+  TempDB tmp;
+  {
+    ProjectDB db(tmp.path);
+    const auto t = make_type(db, "Døre");
+    make_part(db, "RX-001", t);
+    patch_resource(db, "RX-001", {{lex("width_mm"), "600"}});
+  }
+  raw_exec(tmp, "UPDATE material_passports SET created_at = NULL, "
+                "revised_at = NULL, version_number = NULL, "
+                "version_date = NULL;");
+  ProjectDB db(tmp.path);
+  const auto passports = db.all_material_passports();
+  REQUIRE(passports.size() == 1);
+  CHECK(passports[0].metadata.creation_date.empty());
+  CHECK(passports[0].metadata.version_number.empty());
+  CHECK(passports[0].dimensions.width_mm == 600.0);
+  export_all(db);
+}
+
+TEST_CASE("Resources_EveryEditableLeksikonKey_SurvivesTheMaterialepasExport",
+          "[resources][materialepas]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  std::vector<ResourceWrite> writes;
+  for (const auto &k : leksikon_keys())
+    if (k.editable)
+      writes.push_back({k.id, valid_value(k)});
+  REQUIRE(writes.size() > 40);
+  patch_resource(db, "RX-001", writes);
+  const auto passports = db.all_material_passports();
+  REQUIRE(passports.size() == 1);
+  CHECK(passports[0].description.materials.size() == 2);
+  export_all(db);
+  const auto r = resource(db, "RX-001");
+  for (const auto &w : writes) {
+    INFO(w.key);
+    CHECK(value_of(r, w.key) == w.value);
+  }
+}
+
+TEST_CASE("Resources_LeksikonKeys_RefuseWhatTheExportCannotParse",
+          "[resources][materialepas]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  const auto &materials = lex_key("materials");
+  CHECK(materials.data_type == "multiselect");
+  CHECK(materials.editable);
+  CHECK(materials.options.size() == 43);
+  CHECK(materials.options.front() == "natural_stone");
+  for (const char *bad : {"træ", R"(["træ"])", "[1]", R"({"a":1})",
+                          R"("concrete")", "[\"concrete\""}) {
+    INFO(bad);
+    CHECK_THROWS_AS(patch_resource(db, "RX-001", {{materials.id, bad}}),
+                    KeyValueError);
+  }
+  std::size_t read_only = 0;
+  for (const auto &k : leksikon_keys()) {
+    INFO(k.id << " " << k.field);
+    if (!k.editable) {
+      ++read_only;
+      CHECK_THROWS_AS(patch_resource(db, "RX-001", {{k.id, R"(["x"])"}}),
+                      KeyValueError);
+    } else if (k.data_type != "text") {
+      CHECK_THROWS_AS(patch_resource(db, "RX-001", {{k.id, "ikke gyldig"}}),
+                      KeyValueError);
+    }
+  }
+  CHECK_FALSE(lex_key("images").editable); // string arrays: read-only
+  CHECK(read_only > 0);
+  CHECK_THROWS_AS(
+      patch_resource(db, "RX-001",
+                     {{lex("year_of_installation"), "99999999999"}}),
+      KeyValueError);
+  // Nothing was written: no passport was even created.
+  CHECK_FALSE(db.survey_part("RX-001")->material_guid.has_value());
+  // A valid array is stored compact; an empty one clears.
+  patch_resource(db, "RX-001",
+                 {{materials.id, R"( [ "steel" , "concrete" ] )"}});
+  CHECK(value_of(resource(db, "RX-001"), materials.id) ==
+        R"(["steel","concrete"])");
+  export_all(db);
+  patch_resource(db, "RX-001", {{materials.id, "[]"}});
+  const auto guid = db.survey_part("RX-001")->material_guid;
+  REQUIRE(guid.has_value());
+  CHECK(db.passport_stored_properties(*guid).count("materials") == 0);
+  export_all(db);
+}
+
+TEST_CASE("Resources_BlankStoredValues_ReadAsUnset", "[resources]") {
+  // add_material_passport stores every field, blank ones as "", "[]" or the
+  // TriState default "unknown"; a read must not report them as values.
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  make_instance_cloud(db, 1);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t, 1u);
+  make_passport(db, "guid-p");
+  db.set_instance_material("instances", 1, "guid-p");
+  REQUIRE(db.survey_part("RX-001")->material_guid ==
+          std::optional<std::string>("guid-p"));
+  const auto stored = db.passport_stored_properties("guid-p");
+  REQUIRE(stored.at("designation").empty());
+  REQUIRE(stored.at("materials") == "[]");
+  const auto all = resource(db, "RX-001");
+  CHECK(all.values.size() == builtin_keys().size());
+  const auto picked =
+      resource(db, "RX-001",
+               std::vector<std::string>{lex("designation"), lex("materials"),
+                                        lex("contains_reach_substances")});
+  for (const auto &v : picked.values) {
+    INFO(v.key);
+    CHECK_FALSE(v.value.has_value());
+  }
+}
+
+TEST_CASE("Resources_EmptyStringClearsTextLeksikonAndColumnKeys",
+          "[resources]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  ProjectDB::PropertyDefinition def;
+  def.name = "Farve";
+  def.type = "text";
+  const auto col = create_column(db, def);
+  patch_resource(db, "RX-001",
+                 {{lex("designation"), "Branddør"}, {"col:" + col.id, "rød"}});
+  const auto guid = *db.survey_part("RX-001")->material_guid;
+  patch_resource(db, "RX-001",
+                 {{lex("designation"), ""}, {"col:" + col.id, ""}});
+  const auto stored = db.passport_stored_properties(guid);
+  CHECK(stored.count("designation") == 0);
+  CHECK(stored.count("Farve") == 0);
+  const auto r = resource(db, "RX-001");
+  CHECK_FALSE(value_of(r, lex("designation")).has_value());
+  CHECK_FALSE(value_of(r, "col:" + col.id).has_value());
+  // Built-in text keys keep "" (their columns are NOT NULL).
+  CHECK(value_of(r, "sys:note") == "");
+}
+
+TEST_CASE("Resources_DeleteColumn_PurgesItsValues_NameReusable",
+          "[resources][columns]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto t = make_type(db, "Døre");
+  make_part(db, "RX-001", t);
+  make_part(db, "RX-002", t);
+  ProjectDB::PropertyDefinition def;
+  def.name = "Farve";
+  def.type = "text";
+  const auto col = create_column(db, def);
+  patch_resource(db, "RX-001", {{"col:" + col.id, "rød"}});
+  patch_resource(db, "RX-002", {{"col:" + col.id, "blå"}});
+  {
+    LogCapture log;
+    delete_column(db, col.id);
+    CHECK(log.count(LogLevel::warn, "2 stored value") == 1);
+    CHECK(log.count(LogLevel::warn, "Farve") == 1);
+  }
+  CHECK(db.list_property_definitions().empty());
+  CHECK_FALSE(db.has_passport_field_values("Farve"));
+  const auto again = create_column(db, def); // the name is free again
+  CHECK_FALSE(value_of(resource(db, "RX-001"), "col:" + again.id).has_value());
+  {
+    LogCapture log;
+    delete_column(db, again.id); // nothing stored: no warning
+    CHECK(log.count(LogLevel::warn, "") == 0);
+  }
+  CHECK_THROWS_AS(delete_column(db, "nope"), std::out_of_range);
 }

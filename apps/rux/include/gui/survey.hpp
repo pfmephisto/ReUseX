@@ -16,11 +16,15 @@
 #include "gui/api.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/core/survey.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -60,11 +64,21 @@ nlohmann::json survey_summary_json(const reusex::ProjectDB &db);
 /// waste report.
 nlohmann::json survey_fractions_json(const reusex::ProjectDB &db);
 
+/// Per-instance photo evidence of one instance cloud; @p wanted are the ids
+/// the caller will look up. The server passes its PhotoEvidenceCache.
+using InstancePhotoSource =
+    std::function<std::map<std::uint32_t, reusex::core::PartPhotos>(
+        const reusex::ProjectDB &db, const std::string &cloud,
+        const std::set<std::uint32_t> &wanted)>;
+
 /// `GET /survey/photos`: `{parts: {<code>: {count, best_frame_id|null}}}` for
-/// every instance-backed part, computed in one pass (core::survey_part_photos).
-/// Parts without an instance link, or whose instance has no points, are
-/// absent.
-nlohmann::json survey_photos_json(const reusex::ProjectDB &db);
+/// every instance-backed part — occlusion-aware (core::instance_photos), so
+/// it agrees with `GET /instances/{cloud}/{id}/frames`. Parts without an
+/// instance link, or whose instance has no points, are absent; a cloud whose
+/// evidence cannot be computed is skipped with a warning. @p source defaults
+/// to computing directly (core::instance_photos).
+nlohmann::json survey_photos_json(const reusex::ProjectDB &db,
+                                  const InstancePhotoSource &source = {});
 
 /// `GET /samples`: every environmental sample with its linked survey types.
 nlohmann::json samples_json(const reusex::ProjectDB &db);

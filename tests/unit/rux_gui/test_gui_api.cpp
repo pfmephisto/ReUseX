@@ -13,6 +13,7 @@
 
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
+#include <gui/photo_cache.hpp>
 #include <gui/point_lod.hpp>
 #include <gui/survey.hpp>
 
@@ -2131,4 +2132,65 @@ TEST_CASE("SegmentPanoramaResultJson_NoClassNames_EmptyLabelsObject",
   CHECK(body.at("labeled_pixels") == 0);
   CHECK(body.at("labels").is_object());
   CHECK(body.at("labels").empty());
+}
+
+// ===========================================================================
+// Photo evidence cache (GET /survey/photos)
+// ===========================================================================
+
+TEST_CASE("PhotoEvidenceCache_HitsUntilRevisionOrInstancesChange",
+          "[gui][survey]") {
+  const TempPath project("gui_photo_cache");
+  {
+    reusex::ProjectDB db(project.path);
+    save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+    save_evidence_instances(db);
+  }
+  reusex::ProjectDB db(project.path);
+  PhotoEvidenceCache cache;
+
+  const auto first = cache.get(db, "instances", {1});
+  CHECK(cache.computations() == 1);
+  CHECK(first.at(1).count == 1);
+  CHECK(first.at(1).best_frame_id == 1);
+
+  SECTION("a second request is served from memory") {
+    CHECK(cache.get(db, "instances", {1, 2}).at(1).count == 1);
+    CHECK(cache.computations() == 1);
+  }
+
+  SECTION("an instance the cache has never seen forces a recompute") {
+    cache.get(db, "instances", {1, 99});
+    CHECK(cache.computations() == 2);
+  }
+
+  SECTION("invalidate() and a new frame both change the revision") {
+    cache.invalidate();
+    cache.get(db, "instances", {1});
+    CHECK(cache.computations() == 2);
+    const auto before = photo_revision(db, "instances", 0);
+    save_visibility_frame(db, 2, 0.3, 0.0, 0.0);
+    CHECK(photo_revision(db, "instances", 0) != before);
+    CHECK(cache.get(db, "instances", {1}).at(1).count == 2);
+    CHECK(cache.computations() == 3);
+  }
+
+  SECTION("survey_photos_json maps parts onto the source's results") {
+    reusex::ProjectDB::SurveyTypeRecord type;
+    type.name = "Vinduer";
+    const auto type_id = db.add_survey_type(type).id;
+    reusex::ProjectDB::SurveyPartRecord part;
+    part.code = "RX-001";
+    part.type_id = type_id;
+    part.cloud_name = "instances";
+    part.instance_id = 1u;
+    db.add_survey_part(part);
+    const auto body = survey_photos_json(
+        db, [&](const reusex::ProjectDB &conn, const std::string &cloud,
+                const std::set<std::uint32_t> &wanted) {
+          return cache.get(conn, cloud, wanted);
+        });
+    CHECK(body.at("parts").at("RX-001").at("count") == 1);
+    CHECK(cache.computations() == 1);
+  }
 }

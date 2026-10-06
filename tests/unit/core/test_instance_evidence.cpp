@@ -130,6 +130,9 @@ TEST_CASE("VisibleFramesBatch_MatchesPerPointQuery", "[core][evidence]") {
   }
 }
 
+// Frames with no depth image cannot be occlusion-tested; by default they fall
+// back to the frustum test, so on this depth-less fixture the batch must give
+// exactly what per-instance visible_frames gives.
 TEST_CASE("SurveyPartPhotos_CountsMatchPerInstanceVisibleFrames",
           "[core][evidence]") {
   const TempPath tmp("survey_part_photos");
@@ -168,6 +171,110 @@ TEST_CASE("SurveyPartPhotos_CountsMatchPerInstanceVisibleFrames",
   CHECK(photos.at("RX-002").best_frame_id == 5);
   CHECK(photos.at("RX-003").count == 0);
   CHECK(photos.count("RX-004") == 0);
+}
+
+namespace {
+
+/// Frame looking down +z from (x, 0, 0) at a wall `wall` metres away: a
+/// constant depth image at HALF the intrinsics' resolution (64x64 for a
+/// 128x128 camera), so the depth lookup must scale u, v.
+void frame_with_wall(ProjectDB &db, int id, double x, double wall) {
+  cv::Mat color(128, 128, CV_8UC3, cv::Scalar(40, 90, 160));
+  cv::Mat depth(64, 64, CV_16UC1,
+                cv::Scalar(static_cast<double>(
+                    static_cast<std::uint16_t>(wall * 1000.0))));
+  db.save_sensor_frame(id, color, depth, cv::Mat(), at(x, 0.0, 0.0), pinhole(),
+                       static_cast<double>(id), -1);
+}
+
+} // namespace
+
+TEST_CASE("VisibleFramesOccluded_DepthDecidesVisibility", "[core][evidence]") {
+  const TempPath tmp("visible_frames_occluded");
+  ProjectDB db(tmp.path);
+  frame_with_wall(db, 1, 0.0, 2.0); // wall at z = 2
+  frame(db, 2, 0.3, 0.0, 0.0);      // no depth image
+
+  const VisibilityProbe on_wall{{0.0, 0.0, 2.05}, {}};
+  const VisibilityProbe behind_wall{{0.0, 0.0, 4.0}, {}};
+  // Centroid in the air in front of the wall (z = 1.5); one sample on it.
+  const VisibilityProbe hollow{{0.0, 0.0, 1.5}, {{0.1, 0.0, 2.0}}};
+
+  SECTION("a point on the depth surface is seen, one behind it is not") {
+    const auto r = visible_frames_occluded(db, {on_wall, behind_wall, hollow});
+    REQUIRE(r.size() == 3);
+    REQUIRE(r[0].size() == 2); // frame 1 by depth, frame 2 without depth
+    CHECK(r[0][0].frame_id == 1);
+    REQUIRE(r[1].size() == 1); // behind the wall: only the depth-less frame
+    CHECK(r[1][0].frame_id == 2);
+    // The centroid alone fails the depth test; its sample passes.
+    REQUIRE(r[2].size() == 2);
+  }
+
+  SECTION("frames without depth can be dropped instead") {
+    OcclusionQuery q;
+    q.keep_frames_without_depth = false;
+    const auto r = visible_frames_occluded(db, {on_wall, behind_wall}, q);
+    CHECK(r[0].size() == 1);
+    CHECK(r[1].empty());
+  }
+
+  SECTION("the tolerance is the option, not a constant") {
+    OcclusionQuery q;
+    q.keep_frames_without_depth = false;
+    q.depth_tolerance = 0.01; // 5 cm off the wall is now too far
+    CHECK(visible_frames_occluded(db, {on_wall}, q)[0].empty());
+    q.depth_tolerance =
+        2.5; // and with a huge tolerance, the wall hides nothing
+    CHECK(visible_frames_occluded(db, {behind_wall}, q)[0].size() == 1);
+  }
+
+  SECTION("without samples a hollow instance is not seen through depth") {
+    OcclusionQuery q;
+    q.keep_frames_without_depth = false;
+    const VisibilityProbe centroid_only{hollow.anchor, {}};
+    CHECK(visible_frames_occluded(db, {centroid_only}, q)[0].empty());
+    CHECK(visible_frames_occluded(db, {hollow}, q)[0].size() == 1);
+  }
+}
+
+TEST_CASE("SurveyPartPhotos_OccludedInstance_HasNoPhotos", "[core][evidence]") {
+  const TempPath tmp("survey_part_photos_occluded");
+  ProjectDB db(tmp.path);
+  // Wall at z = 1 in front of every instance of seed_instances (z = 2 and
+  // beyond): nothing is visible through it. A second camera with the wall at
+  // 2 m sees instance 1 (on its wall).
+  frame_with_wall(db, 1, 0.0, 1.0);
+  frame_with_wall(db, 2, 0.0, 2.0);
+  seed_instances(db);
+  const auto type_id = make_type(db, "Vinduer");
+  make_part(db, "RX-001", type_id, 1u);
+  make_part(db, "RX-002", type_id, 2u);
+
+  const auto photos = survey_part_photos(db);
+  CHECK(photos.at("RX-001").count == 1);
+  CHECK(photos.at("RX-001").best_frame_id == 2);
+  // Instance 2 at x = 0.6 also lies on the 2 m wall of frame 2.
+  CHECK(photos.at("RX-002").count == 1);
+
+  // The single-instance ranking agrees with the batch.
+  const auto probes = instance_probes(db, "instances");
+  const auto one = visible_frames_occluded(db, {probes.at(1).probe()});
+  CHECK(one.at(0).size() == photos.at("RX-001").count);
+}
+
+TEST_CASE("InstanceProbes_SamplesSpreadOverThePoints", "[core][evidence]") {
+  const TempPath tmp("instance_probes");
+  ProjectDB db(tmp.path);
+  seed_instances(db);
+  const auto probes = instance_probes(db, "instances", "cloud", 8);
+  // Instances with fewer points than requested keep all of them.
+  CHECK(probes.at(1).samples.size() == 2);
+  CHECK(probes.at(1).centroid.point_count == 2);
+  CHECK(probes.at(3).samples.size() == 1);
+  CHECK(instance_probes(db, "instances", "cloud", 0).at(1).samples.empty());
+  const auto one = instance_probes(db, "instances", "cloud", 1).at(2);
+  REQUIRE(one.samples.size() == 1);
 }
 
 TEST_CASE("SurveyPartPhotos_NoPositionsCloud_IsEmptyNotFatal",

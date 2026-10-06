@@ -1463,11 +1463,11 @@ json frames_visibility_json(const reusex::ProjectDB &db, const Params &params) {
 
 namespace {
 
-/// One instance's centroid over the base `cloud` positions, with the HTTP
-/// errors both instance evidence endpoints share.
-reusex::core::InstanceCentroid instance_centroid_of(const reusex::ProjectDB &db,
-                                                    const std::string &cloud,
-                                                    int instance_id) {
+/// One instance's probe (centroid + surface samples) over the base `cloud`
+/// positions, with the HTTP errors both instance evidence endpoints share.
+reusex::core::InstanceProbe instance_probe_of(const reusex::ProjectDB &db,
+                                              const std::string &cloud,
+                                              int instance_id) {
   if (!db.has_point_cloud(cloud))
     not_found("cloud", cloud);
 
@@ -1482,16 +1482,16 @@ reusex::core::InstanceCentroid instance_centroid_of(const reusex::ProjectDB &db,
                              "' point cloud for positions, which this project "
                              "does not have");
 
-  std::map<std::uint32_t, reusex::core::InstanceCentroid> centroids;
+  std::map<std::uint32_t, reusex::core::InstanceProbe> probes;
   try {
-    centroids = reusex::core::instance_centroids(db, cloud, kPositions);
+    probes = reusex::core::instance_probes(db, cloud, kPositions);
   } catch (const std::runtime_error &e) {
     throw HttpError(409, e.what());
   }
   const auto it = instance_id > 0
-                      ? centroids.find(static_cast<std::uint32_t>(instance_id))
-                      : centroids.end();
-  if (it == centroids.end())
+                      ? probes.find(static_cast<std::uint32_t>(instance_id))
+                      : probes.end();
+  if (it == probes.end())
     not_found("instance", cloud + "/" + std::to_string(instance_id));
   return it->second;
 }
@@ -1500,9 +1500,14 @@ reusex::core::InstanceCentroid instance_centroid_of(const reusex::ProjectDB &db,
 
 json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
                           int instance_id, const Params &params) {
-  const auto c = instance_centroid_of(db, cloud, instance_id);
+  const auto probe = instance_probe_of(db, cloud, instance_id);
+  const auto &c = probe.centroid;
+  // Occlusion-aware, with the same options as GET /survey/photos, so the
+  // dialog's photo strip and the table's "n fotos" agree.
+  reusex::core::OcclusionQuery query = reusex::core::PhotoQuery{}.occlusion;
+  query.visibility = visibility_query_of(params);
   const auto frames =
-      reusex::core::visible_frames(db, c.centroid, visibility_query_of(params));
+      reusex::core::visible_frames_occluded(db, {probe.probe()}, query).at(0);
 
   json out = visibility_json({c.centroid.x(), c.centroid.y(), c.centroid.z()},
                              frames, params);
@@ -1531,7 +1536,7 @@ json instance_panoramas_json(const reusex::ProjectDB &db,
     }
   }
 
-  const auto c = instance_centroid_of(db, cloud, instance_id);
+  const auto c = instance_probe_of(db, cloud, instance_id).centroid;
   const auto hits = reusex::core::panoramas_for_point(db, c.centroid, query);
 
   json arr = json::array();

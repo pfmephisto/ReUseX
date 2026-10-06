@@ -514,9 +514,13 @@ void delete_material_column(reusex::ProjectDB &db, const std::string &id);
 nlohmann::json instances_json(const reusex::ProjectDB &db,
                               const std::string &cloud, const Params &params);
 
-/// Sensor frames that see one instance's centroid, ranked most-central-first
-/// (#453). The centroid is taken over the base `cloud` positions index-aligned
-/// with the instance-label @p cloud. Same body shape as
+/// Sensor frames that see one instance, ranked most-central-first by its
+/// centroid (#453). The centroid is taken over the base `cloud` positions
+/// index-aligned with the instance-label @p cloud. Occlusion-aware: a frame
+/// counts only when its depth image confirms the centroid or one of the
+/// instance's surface samples (core::visible_frames_occluded with the
+/// core::PhotoQuery defaults — the same rule as GET /survey/photos). Same body
+/// shape as
 /// frames_visibility_json(), plus `cloud`, `instance_id` and
 /// `instance_point_count`.
 ///

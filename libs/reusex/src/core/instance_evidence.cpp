@@ -30,20 +30,20 @@ bool finite(const std::array<double, 16> &pose) {
 
 } // namespace
 
-std::map<std::uint32_t, InstanceCentroid>
-instance_centroids(const ProjectDB &db, std::string_view label_cloud,
-                   std::string_view positions_cloud) {
+std::map<std::uint32_t, InstanceProbe>
+instance_probes(const ProjectDB &db, std::string_view label_cloud,
+                std::string_view positions_cloud, std::size_t samples) {
   if (!db.has_point_cloud(label_cloud))
-    throw std::invalid_argument("instance_centroids: no point cloud '" +
+    throw std::invalid_argument("instance_probes: no point cloud '" +
                                 std::string(label_cloud) + "'");
   if (!db.has_point_cloud(positions_cloud))
-    throw std::invalid_argument("instance_centroids: no positions cloud '" +
+    throw std::invalid_argument("instance_probes: no positions cloud '" +
                                 std::string(positions_cloud) + "'");
 
   const auto positions = db.point_cloud_xyzrgb(positions_cloud);
   const auto labels = db.point_cloud_label(label_cloud);
   if (!positions || !labels)
-    throw std::runtime_error("instance_centroids: could not load '" +
+    throw std::runtime_error("instance_probes: could not load '" +
                              std::string(positions_cloud) + "' or '" +
                              std::string(label_cloud) + "'");
   if (positions->size() != labels->size())
@@ -53,37 +53,79 @@ instance_centroids(const ProjectDB &db, std::string_view label_cloud,
         std::string(positions_cloud) + "' has " +
         std::to_string(positions->size()) + " — they are not index-aligned");
 
-  struct Sum {
-    double x = 0, y = 0, z = 0;
-    std::size_t n = 0;
-  };
-  std::map<std::uint32_t, Sum> sums;
+  // Finite point indices per instance; label 0 is unlabeled (STANDARDS §3).
+  std::map<std::uint32_t, std::vector<std::size_t>> members;
   for (std::size_t i = 0; i < labels->size(); ++i) {
     const auto label = labels->points[i].label;
-    if (label == 0) // unlabeled (STANDARDS §3)
+    if (label == 0)
       continue;
     const auto &p = positions->points[i];
     // One NaN must not poison the average.
     if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
       continue;
-    auto &s = sums[label];
-    s.x += p.x;
-    s.y += p.y;
-    s.z += p.z;
-    ++s.n;
+    members[label].push_back(i);
   }
 
+  std::map<std::uint32_t, InstanceProbe> out;
+  for (const auto &[label, idx] : members) {
+    InstanceProbe probe;
+    Eigen::Vector3d sum = Eigen::Vector3d::Zero();
+    for (const auto i : idx) {
+      const auto &p = positions->points[i];
+      sum += Eigen::Vector3d(p.x, p.y, p.z);
+    }
+    probe.centroid.point_count = idx.size();
+    probe.centroid.centroid = sum / static_cast<double>(idx.size());
+
+    const std::size_t k = std::min(samples, idx.size());
+    probe.samples.reserve(k);
+    for (std::size_t j = 0; j < k; ++j) {
+      // Middle of the j-th of k equal slices of the point list.
+      const auto &p =
+          positions->points[idx[(2 * j + 1) * idx.size() / (2 * k)]];
+      probe.samples.emplace_back(p.x, p.y, p.z);
+    }
+    out.emplace(label, std::move(probe));
+  }
+  return out;
+}
+
+std::map<std::uint32_t, InstanceCentroid>
+instance_centroids(const ProjectDB &db, std::string_view label_cloud,
+                   std::string_view positions_cloud) {
   std::map<std::uint32_t, InstanceCentroid> out;
-  for (const auto &[label, s] : sums) {
-    const double n = static_cast<double>(s.n);
-    out.emplace(label, InstanceCentroid{
-                           Eigen::Vector3d(s.x / n, s.y / n, s.z / n), s.n});
+  for (auto &[label, probe] :
+       instance_probes(db, label_cloud, positions_cloud, 0))
+    out.emplace(label, probe.centroid);
+  return out;
+}
+
+std::map<std::uint32_t, PartPhotos>
+instance_photos(const ProjectDB &db, std::string_view label_cloud,
+                const PhotoQuery &query, std::string_view positions_cloud) {
+  const auto by_instance = instance_probes(db, label_cloud, positions_cloud,
+                                           query.samples_per_instance);
+  std::vector<VisibilityProbe> probes;
+  std::vector<std::uint32_t> ids;
+  probes.reserve(by_instance.size());
+  for (const auto &[id, probe] : by_instance) {
+    probes.push_back(probe.probe());
+    ids.push_back(id);
+  }
+  const auto ranked = visible_frames_occluded(db, probes, query.occlusion);
+  std::map<std::uint32_t, PartPhotos> out;
+  for (std::size_t i = 0; i < ranked.size(); ++i) {
+    PartPhotos photos;
+    photos.count = ranked[i].size();
+    if (!ranked[i].empty())
+      photos.best_frame_id = ranked[i].front().frame_id;
+    out.emplace(ids[i], photos);
   }
   return out;
 }
 
 std::map<std::string, PartPhotos>
-survey_part_photos(const ProjectDB &db, const VisibilityQuery &query,
+survey_part_photos(const ProjectDB &db, const PhotoQuery &query,
                    std::string_view positions_cloud) {
   // Instance-backed parts, grouped by the cloud their instance lives in.
   std::map<std::string, std::vector<std::pair<std::string, std::uint32_t>>>
@@ -95,37 +137,18 @@ survey_part_photos(const ProjectDB &db, const VisibilityQuery &query,
   }
 
   std::map<std::string, PartPhotos> out;
-  if (by_cloud.empty())
-    return out;
-
-  // Every centroid of every cloud, in one list, so the frames are read once.
-  std::vector<Eigen::Vector3d> points;
-  std::vector<std::string> owners; // part code per point
   for (const auto &[cloud, parts] : by_cloud) {
-    std::map<std::uint32_t, InstanceCentroid> centroids;
+    std::map<std::uint32_t, PartPhotos> photos;
     try {
-      centroids = instance_centroids(db, cloud, positions_cloud);
+      photos = instance_photos(db, cloud, query, positions_cloud);
     } catch (const std::exception &e) {
       reusex::warn("survey_part_photos: skipping {} part(s) on cloud '{}': {}",
                    parts.size(), cloud, e.what());
       continue;
     }
-    for (const auto &[code, id] : parts) {
-      const auto it = centroids.find(id);
-      if (it == centroids.end())
-        continue; // the instance has no points (orphaned part)
-      points.push_back(it->second.centroid);
-      owners.push_back(code);
-    }
-  }
-
-  const auto ranked = visible_frames_batch(db, points, query);
-  for (std::size_t i = 0; i < ranked.size(); ++i) {
-    PartPhotos photos;
-    photos.count = ranked[i].size();
-    if (!ranked[i].empty())
-      photos.best_frame_id = ranked[i].front().frame_id;
-    out.emplace(owners[i], photos);
+    for (const auto &[code, id] : parts)
+      if (const auto it = photos.find(id); it != photos.end())
+        out.emplace(code, it->second); // absent: instance has no points
   }
   return out;
 }

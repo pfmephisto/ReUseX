@@ -2008,9 +2008,17 @@ paths:
       operationId: instanceVisibility
       summary: Sensor frames that see an instance's centroid, ranked by centrality
       description: |
-        Convenience wrapper over `/frames/visibility` (#453): computes the
-        **centroid** of one instance and returns the frames that see it, ranked
-        most-central-first, for a one-click "best source image" of an object.
+        Computes the **centroid** of one instance and returns the frames that
+        see the instance, ranked most-central-first by the centroid, for a
+        one-click "best source image" of an object (#453).
+
+        Unlike `/frames/visibility` this is **occlusion-aware**, with the same
+        rule as `GET /survey/photos` (so the Kortlægning count and photo strip
+        agree): a frame whose frustum contains the centroid is kept only when
+        its depth image confirms the centroid or one of the instance's surface
+        samples within 0.15 m; frames without depth fall back to the frustum
+        test. The reported `u`, `v`, `depth` and `centrality` are the
+        centroid's.
 
         The centroid is averaged over the points of the base `cloud` (the
         positions the instance-label cloud was segmented from, index-aligned
@@ -2893,15 +2901,23 @@ paths:
       summary: Photo count and best sensor frame per instance-backed survey part
       description: |
         For every survey part linked to an instance: how many posed sensor
-        frames see its instance centroid, and the most central of them — the
-        same numbers `/instances/{cloud}/{id}/frames` gives one part at a
-        time (`total` and `frames[0]`), computed in one pass (each instance
-        cloud and the frames' poses are read once) so the Kortlægning table
-        never makes one request per row. Parts without an instance link, or
-        whose instance has no points, are absent. A cloud that cannot be used
-        (no base `cloud`, misaligned) is skipped with a server warning, not an
-        error. Measured on a 3876-frame, 155-instance, 1.2M-point project:
-        ~1.2 s cold, ~0.45 s warm.
+        frames actually see it, and the most central of them — the same
+        numbers `/instances/{cloud}/{id}/frames` gives one part at a time
+        (`total` and `frames[0]`). **Occlusion-aware:** a frame whose frustum
+        contains the instance centroid counts only when its depth image
+        confirms the centroid or one of 8 surface samples of the instance
+        (within 0.15 m; `core::PhotoQuery` / `core::OcclusionQuery`); a frame
+        without a depth image falls back to the frustum test. Parts without an
+        instance link, or whose instance has no points, are absent. A cloud that
+        cannot be used (no base `cloud`, misaligned) is skipped with a server
+        warning, not an error.
+
+        Computing it decodes every relevant depth image once (about 3.5–3.9 s
+        on a 3876-frame, 155-instance, 1.2M-point project), so `rux gui`
+        computes it in the background at startup and keeps the per-instance
+        result in memory until a pipeline job finishes, the newest
+        pipeline-log entry or the sensor-frame count changes, or a part refers
+        to an instance it has not computed. Cached responses take ~10 ms.
       responses:
         "200":
           description: Photo evidence per part code

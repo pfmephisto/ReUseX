@@ -11,6 +11,7 @@
 #include "gui/assets.hpp"
 #include "gui/edits.hpp"
 #include "gui/gsplat.hpp"
+#include "gui/photo_cache.hpp"
 #include "gui/resources.hpp"
 #include "gui/survey.hpp"
 
@@ -22,10 +23,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -341,10 +344,38 @@ class Server::Impl {
         options_.project, options_.stage_executor
                               ? options_.stage_executor
                               : pipeline::default_stage_executor());
-    listener_ = runner_->add_listener(
-        [this](const pipeline::JobEvent &event) { broadcast(event); });
+    listener_ = runner_->add_listener([this](const pipeline::JobEvent &event) {
+      // A finished stage may have rewritten instances, poses or depth.
+      if (event.type == pipeline::JobEvent::Type::finished)
+        photo_cache_.invalidate();
+      broadcast(event);
+    });
 
     register_routes();
+    start_photo_warmup();
+  }
+
+  /// Compute the photo evidence of every instance cloud the survey uses on a
+  /// background thread at startup, so the first visit to Kortlægning does not
+  /// pay for it (seconds on a real scan). Best-effort: a failure is logged
+  /// and the first request computes instead.
+  void start_photo_warmup() {
+    warmup_ = std::thread([this] {
+      try {
+        reusex::ProjectDB db(options_.project, /*readOnly=*/true);
+        std::map<std::string, std::set<std::uint32_t>> clouds;
+        for (const auto &part : db.survey_parts())
+          if (part.cloud_name && part.instance_id && *part.instance_id != 0)
+            clouds[*part.cloud_name].insert(*part.instance_id);
+        for (const auto &[cloud, wanted] : clouds) {
+          if (stopping_)
+            return;
+          photo_cache_.get(db, cloud, wanted);
+        }
+      } catch (const std::exception &e) {
+        spdlog::warn("Photo evidence warm-up skipped: {}", e.what());
+      }
+    });
   }
 
   ~Impl() {
@@ -354,6 +385,9 @@ class Server::Impl {
     // which may be mid-broadcast. Doing this here — rather than relying on
     // member destruction order alone — keeps the shutdown sequence explicit.
     app_.stop();
+    stopping_ = true;
+    if (warmup_.joinable())
+      warmup_.join();
     if (runner_) {
       runner_->remove_listener(listener_);
       runner_.reset();
@@ -1339,7 +1373,13 @@ class Server::Impl {
     });
     get("/api/v1/survey/photos")([this](const crow::request &) {
       return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, survey_photos_json(db));
+        return json_response(
+            200, survey_photos_json(
+                     db, [this](const reusex::ProjectDB &conn,
+                                const std::string &cloud,
+                                const std::set<std::uint32_t> &wanted) {
+                       return photo_cache_.get(conn, cloud, wanted);
+                     }));
       });
     });
     get("/api/v1/survey/fractions")([this](const crow::request &) {
@@ -1597,6 +1637,12 @@ class Server::Impl {
   /// Optional evidence-render renderer (#265 Phase 2 Task 8). Not owned;
   /// lifetime must exceed the server's. nullptr ⟹ 503.
   IViewRenderer *view_renderer_ = nullptr;
+
+  /// Occlusion-aware photo evidence behind GET /survey/photos (seconds to
+  /// compute), invalidated when a job finishes; warmed at startup.
+  PhotoEvidenceCache photo_cache_;
+  std::atomic<bool> stopping_{false};
+  std::thread warmup_;
 
   /// Read-write connection that keeps the project's WAL index alive between
   /// requests and checkpoints on shutdown (see the constructor). Never

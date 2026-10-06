@@ -9,10 +9,13 @@
 #include "core/logging.hpp"
 
 #include <Eigen/Dense>
+#include <opencv2/core.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 
 namespace reusex::core {
 
@@ -86,47 +89,45 @@ CameraSet load_cameras(const ProjectDB &db) {
   return set;
 }
 
-/// Rank the cameras that see @p world_point, best-first.
-std::vector<FrameVisibility> rank(const CameraSet &set,
-                                  const Eigen::Vector3d &world_point,
-                                  const VisibilityQuery &query) {
-  std::vector<FrameVisibility> visible;
-  const Eigen::Vector4d p_world(world_point.x(), world_point.y(),
-                                world_point.z(), 1.0);
+/// Project @p world_point into one camera: the visibility record when it is
+/// in front, within `max_depth` and inside the (margin-shrunk) image.
+std::optional<FrameVisibility> project(const FrameCamera &cam,
+                                       const Eigen::Vector3d &world_point,
+                                       const VisibilityQuery &query) {
+  const Eigen::Vector4d p_cam_h =
+      cam.world_to_camera *
+      Eigen::Vector4d(world_point.x(), world_point.y(), world_point.z(), 1.0);
+  const double z = p_cam_h.z();
 
-  for (const auto &cam : set.cameras) {
-    const Eigen::Vector4d p_cam_h = cam.world_to_camera * p_world;
-    const double z = p_cam_h.z();
+  // Behind the camera (or exactly on the plane): not visible.
+  if (!(z > 0.0))
+    return std::nullopt;
+  if (query.max_depth > 0.0 && z > query.max_depth)
+    return std::nullopt;
 
-    // Behind the camera (or exactly on the plane): not visible.
-    if (!(z > 0.0))
-      continue;
-    if (query.max_depth > 0.0 && z > query.max_depth)
-      continue;
+  const double inv_z = 1.0 / z;
+  const double u = cam.fx * p_cam_h.x() * inv_z + cam.cx;
+  const double v = cam.fy * p_cam_h.y() * inv_z + cam.cy;
 
-    const double inv_z = 1.0 / z;
-    const double u = cam.fx * p_cam_h.x() * inv_z + cam.cx;
-    const double v = cam.fy * p_cam_h.y() * inv_z + cam.cy;
+  // Frustum bounds test, optionally shrunk by a pixel margin.
+  const double m = query.margin_px;
+  if (u < m || u >= static_cast<double>(cam.width) - m || v < m ||
+      v >= static_cast<double>(cam.height) - m)
+    return std::nullopt;
 
-    // Frustum bounds test, optionally shrunk by a pixel margin.
-    const double m = query.margin_px;
-    if (u < m || u >= static_cast<double>(cam.width) - m || v < m ||
-        v >= static_cast<double>(cam.height) - m)
-      continue;
+  const double du = u - cam.cx;
+  const double dv = v - cam.cy;
+  const double w = static_cast<double>(cam.width);
+  const double h = static_cast<double>(cam.height);
+  // half_diag is > 0 because width/height are > 0 (checked on load).
+  const double half_diag = 0.5 * std::sqrt(w * w + h * h);
+  const double centrality = std::sqrt(du * du + dv * dv) / half_diag;
+  return FrameVisibility{cam.id, u, v, z, centrality};
+}
 
-    const double du = u - cam.cx;
-    const double dv = v - cam.cy;
-    const double w = static_cast<double>(cam.width);
-    const double h = static_cast<double>(cam.height);
-    // half_diag is > 0 because width/height are > 0 (checked on load).
-    const double half_diag = 0.5 * std::sqrt(w * w + h * h);
-    const double centrality = std::sqrt(du * du + dv * dv) / half_diag;
-
-    visible.push_back(FrameVisibility{cam.id, u, v, z, centrality});
-  }
-
-  // Most central first; nearer depth then lower id break ties so the order is
-  // total and reproducible (STANDARDS §6).
+/// Most central first; nearer depth then lower id break ties so the order is
+/// total and reproducible (STANDARDS §6).
+void sort_best_first(std::vector<FrameVisibility> &visible) {
   std::sort(visible.begin(), visible.end(),
             [](const FrameVisibility &a, const FrameVisibility &b) {
               if (a.centrality != b.centrality)
@@ -135,7 +136,47 @@ std::vector<FrameVisibility> rank(const CameraSet &set,
                 return a.depth < b.depth;
               return a.frame_id < b.frame_id;
             });
+}
+
+/// Rank the cameras that see @p world_point, best-first.
+std::vector<FrameVisibility> rank(const CameraSet &set,
+                                  const Eigen::Vector3d &world_point,
+                                  const VisibilityQuery &query) {
+  std::vector<FrameVisibility> visible;
+  for (const auto &cam : set.cameras)
+    if (auto hit = project(cam, world_point, query))
+      visible.push_back(*hit);
+  sort_best_first(visible);
   return visible;
+}
+
+/// True when @p world_point lands on the surface @p depth measured (CV_16U
+/// millimetres), within the tolerance, looking up to the search radius.
+bool on_depth_surface(const FrameCamera &cam, const cv::Mat &depth,
+                      const Eigen::Vector3d &world_point,
+                      const OcclusionQuery &query) {
+  // The probe itself only needs to be in front and in the image; the margin
+  // and range limits are the anchor's frustum test, already passed.
+  const auto hit = project(cam, world_point, VisibilityQuery{});
+  if (!hit)
+    return false;
+  const double sx = static_cast<double>(depth.cols) / cam.width;
+  const double sy = static_cast<double>(depth.rows) / cam.height;
+  const int px = static_cast<int>(hit->u * sx);
+  const int py = static_cast<int>(hit->v * sy);
+  const int r = std::max(0, query.depth_search_radius);
+  for (int y = std::max(0, py - r); y <= std::min(depth.rows - 1, py + r);
+       ++y) {
+    const auto *row = depth.ptr<std::uint16_t>(y);
+    for (int x = std::max(0, px - r); x <= std::min(depth.cols - 1, px + r);
+         ++x) {
+      if (row[x] == 0) // no measurement
+        continue;
+      if (std::abs(hit->depth - row[x] * 1e-3) <= query.depth_tolerance)
+        return true;
+    }
+  }
+  return false;
 }
 
 /// The end-of-call diagnostic (STANDARDS §5): a caller staring at an empty
@@ -187,6 +228,64 @@ visible_frames_batch(const ProjectDB &db,
       ++seen;
   }
   report(set, world_points.size(), seen);
+  return out;
+}
+
+std::vector<std::vector<FrameVisibility>>
+visible_frames_occluded(const ProjectDB &db,
+                        const std::vector<VisibilityProbe> &probes,
+                        const OcclusionQuery &query) {
+  std::vector<std::vector<FrameVisibility>> out(probes.size());
+  if (probes.empty())
+    return out;
+  const auto set = load_cameras(db);
+
+  std::size_t depth_tested = 0, no_depth = 0, frustum_hits = 0, occluded = 0;
+  std::vector<std::pair<std::size_t, FrameVisibility>> candidates;
+  for (const auto &cam : set.cameras) {
+    candidates.clear();
+    for (std::size_t i = 0; i < probes.size(); ++i)
+      if (auto hit = project(cam, probes[i].anchor, query.visibility))
+        candidates.emplace_back(i, *hit);
+    if (candidates.empty())
+      continue; // no depth decode for a frame that sees nothing
+    frustum_hits += candidates.size();
+
+    cv::Mat depth = db.sensor_frame_depth(cam.id);
+    if (depth.empty() || depth.type() != CV_16UC1) {
+      ++no_depth;
+      if (query.keep_frames_without_depth)
+        for (const auto &[i, hit] : candidates)
+          out[i].push_back(hit);
+      else
+        occluded += candidates.size();
+      continue;
+    }
+    ++depth_tested;
+    for (const auto &[i, hit] : candidates) {
+      bool seen = on_depth_surface(cam, depth, probes[i].anchor, query);
+      for (std::size_t k = 0; !seen && k < probes[i].samples.size(); ++k)
+        seen = on_depth_surface(cam, depth, probes[i].samples[k], query);
+      if (seen)
+        out[i].push_back(hit);
+      else
+        ++occluded;
+    }
+  }
+  for (auto &visible : out)
+    sort_best_first(visible);
+
+  std::size_t seen = 0;
+  for (const auto &visible : out)
+    if (!visible.empty())
+      ++seen;
+  report(set, probes.size(), seen);
+  reusex::debug("visible_frames_occluded: {} frames depth-tested, {} without "
+                "depth ({}), {} of {} frustum hits rejected by depth "
+                "(tolerance {} m)",
+                depth_tested, no_depth,
+                query.keep_frames_without_depth ? "kept" : "dropped", occluded,
+                frustum_hits, query.depth_tolerance);
   return out;
 }
 

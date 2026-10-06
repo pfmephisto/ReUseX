@@ -53,20 +53,65 @@ std::map<std::uint32_t, InstanceCentroid>
 instance_centroids(const ProjectDB &db, std::string_view label_cloud,
                    std::string_view positions_cloud = "cloud");
 
+/// Tunables for the photo evidence of an instance.
+struct PhotoQuery {
+  /// How a frame decides it sees the instance (depth tolerance etc.).
+  OcclusionQuery occlusion{};
+  /// Surface points per instance tested besides the centroid (spread evenly
+  /// over the instance's points). The centroid of a door frame or a chair is
+  /// in the air; these are what let the depth test find it. `0` tests the
+  /// centroid alone.
+  std::size_t samples_per_instance = 8;
+};
+
+/// An instance's centroid plus evenly spread samples of its points.
+struct InstanceProbe {
+  InstanceCentroid centroid;
+  std::vector<Eigen::Vector3d> samples;
+  [[nodiscard]] VisibilityProbe probe() const {
+    return {centroid.centroid, samples};
+  }
+};
+
+/**
+ * @brief `instance_centroids()` plus up to @p samples points per instance,
+ * taken at evenly spaced positions in the instance's (finite) point list —
+ * spatially spread, since the clouds are stored in Morton order (#394). An
+ * instance with fewer points keeps all of them. Same throws as
+ * `instance_centroids()`.
+ */
+std::map<std::uint32_t, InstanceProbe>
+instance_probes(const ProjectDB &db, std::string_view label_cloud,
+                std::string_view positions_cloud = "cloud",
+                std::size_t samples = PhotoQuery{}.samples_per_instance);
+
 /// The photo evidence of one survey part.
 struct PartPhotos {
-  std::size_t count = 0;            ///< Sensor frames that see the centroid.
+  std::size_t count = 0;            ///< Sensor frames that see the instance.
   std::optional<int> best_frame_id; ///< Most central of them, if any.
 };
 
 /**
+ * @brief Photo count and best frame for every instance of @p label_cloud that
+ * has points: `visible_frames_occluded` over all its probes in one pass over
+ * the frames (each depth image decoded at most once).
+ *
+ * @throws as `instance_probes()`.
+ */
+std::map<std::uint32_t, PartPhotos>
+instance_photos(const ProjectDB &db, std::string_view label_cloud,
+                const PhotoQuery &query = {},
+                std::string_view positions_cloud = "cloud");
+
+/**
  * @brief Photo count and best frame for every instance-backed survey part.
  *
- * Loads each instance cloud the parts refer to (and the positions cloud)
- * once, takes every instance's centroid and ranks the posed sensor frames for
- * all centroids together with `visible_frames_batch`. The result for a part
- * is exactly what `visible_frames(db, centroid, query)` would give for it —
- * the count is its size and the best frame its first entry.
+ * `instance_photos()` for each instance cloud the parts refer to, so a frame
+ * whose depth shows a wall in front of the part does not count. The
+ * result for a part is exactly `visible_frames_occluded(db, {probe},
+ * query.occlusion)` for its instance — the count is its size and the best
+ * frame its first entry — which is what `GET /instances/{cloud}/{id}/frames`
+ * returns, so the table's count and the dialog's strip agree.
  *
  * Parts without an instance link, or whose instance has no points, are
  * absent from the map. A cloud that cannot be used (missing positions,
@@ -76,7 +121,7 @@ struct PartPhotos {
  * @return Keyed on the part code.
  */
 std::map<std::string, PartPhotos>
-survey_part_photos(const ProjectDB &db, const VisibilityQuery &query = {},
+survey_part_photos(const ProjectDB &db, const PhotoQuery &query = {},
                    std::string_view positions_cloud = "cloud");
 
 /// Tunables for `panoramas_for_point()`.

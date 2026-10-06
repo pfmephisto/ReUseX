@@ -102,17 +102,29 @@ missing_onnx_files(const std::filesystem::path &onnx_dir);
 /// Files the engine directory still lacks before it is loadable (empty ⟹
 /// ready): the required_engines(), an engine for every optional graph whose
 /// ONNX is present, ``tokenizer.json``, and — when a tracker engine is present
-/// and the ONNX dir carries one — ``tracker-meta.json``. Pure disk check; no
+/// and the ONNX dir carries one — ``tracker-meta.json``. A stale engine (see
+/// stale_engines()) counts as missing, so it is rebuilt. Pure disk check; no
 /// TensorRT needed.
 std::vector<std::string>
 missing_engine_files(const std::filesystem::path &onnx_dir,
                      const std::filesystem::path &engine_dir);
 
 /// The engine-build recipe for an ONNX dir: its own ``engine-build.json`` when
-/// present, else the canonical recipe embedded at build time
-/// (EngineBuildProfiles::builtin()).
+/// present and at least as new (``recipe_version``) as the canonical recipe
+/// embedded at build time, else that built-in recipe
+/// (EngineBuildProfiles::builtin()). The newer-wins rule lets a recipe change
+/// reach managed installs whose downloaded bundle ships an older recipe.
 EngineBuildProfiles
 load_engine_build_profiles(const std::filesystem::path &onnx_dir);
+
+/// Built engines (names, without ``.engine``) whose recipe differs from the
+/// one load_engine_build_profiles() now selects. An engine directory records
+/// the recipe its engines were built from as ``engine-build.json``; a
+/// directory built before that stamp existed is compared with the ONNX dir's
+/// own ``engine-build.json`` (what the builder used then), and with no such
+/// file is assumed current. Engines not built yet are missing, not stale.
+std::vector<std::string> stale_engines(const std::filesystem::path &onnx_dir,
+                                       const std::filesystem::path &engine_dir);
 
 /// Non-blocking status probe: is the managed model already loadable, and in
 /// what state? Does no downloading or building, and knows nothing about work

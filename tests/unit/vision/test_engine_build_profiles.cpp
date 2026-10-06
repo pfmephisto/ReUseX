@@ -123,3 +123,47 @@ TEST_CASE("canonical engine-build.json is valid and fp32-safe",
   SKIP("REUSEX_SOURCE_DIR not defined");
 #endif
 }
+
+TEST_CASE("EngineBuildProfiles reads recipe_version, defaulting to 1",
+          "[vision][sam3]") {
+  CHECK(EngineBuildProfiles::from_string(kSample).recipe_version == 1);
+  CHECK(EngineBuildProfiles::from_string(
+            R"({"recipe_version": 7, "engines": {"e": {}}})")
+            .recipe_version == 7);
+  CHECK_THROWS(EngineBuildProfiles::from_string(
+      R"({"recipe_version": 0, "engines": {"e": {}}})"));
+}
+
+TEST_CASE("EngineBuildProfiles round-trips through to_json", "[vision][sam3]") {
+  const auto a = EngineBuildProfiles::from_string(kSample);
+  const auto b = EngineBuildProfiles::from_string(a.to_json());
+  CHECK(b.schema_version == a.schema_version);
+  CHECK(b.recipe_version == a.recipe_version);
+  CHECK(b.engines == a.engines);
+
+  auto changed = b;
+  changed.engines["text-encoder"].shapes["input_ids"].max = {8, 32};
+  CHECK_FALSE(changed.engines == a.engines);
+}
+
+// The built-in (canonical) recipe must let box prompts reach the decoder: a
+// geometry encoder that takes a single box and a decoder whose prompt_len
+// leaves room for box + CLS tokens after the 32 text tokens (recipe v2).
+TEST_CASE("built-in recipe supports geometry prompts", "[vision][sam3]") {
+  const auto &p = EngineBuildProfiles::builtin();
+  CHECK(p.recipe_version >= 2);
+
+  const auto geo = p.find("geometry-encoder");
+  REQUIRE(geo.has_value());
+  const auto &boxes = geo->shapes.at("input_boxes");
+  CHECK(boxes.min[1] == 1);
+  CHECK(boxes.max[1] >= 1);
+
+  const auto dec = p.find("decoder");
+  REQUIRE(dec.has_value());
+  const auto &pf = dec->shapes.at("prompt_features");
+  CHECK(pf.min[1] == 32); // text-only annotate path unchanged
+  CHECK(pf.opt[1] == 32);
+  CHECK(pf.max[1] == 32 + boxes.max[1] + 1);
+  CHECK(dec->shapes.at("prompt_mask").max[1] == pf.max[1]);
+}

@@ -42,6 +42,11 @@ EngineBuildProfiles parse(const nlohmann::json &root) {
     throw std::runtime_error(fmt::format(
         "engine-build.json: unsupported schema_version {} (expected 1)",
         out.schema_version));
+  out.recipe_version = root.value("recipe_version", 1);
+  if (out.recipe_version < 1)
+    throw std::runtime_error(
+        fmt::format("engine-build.json: recipe_version must be >= 1 (got {})",
+                    out.recipe_version));
 
   auto engines_it = root.find("engines");
   if (engines_it == root.end() || !engines_it->is_object())
@@ -106,6 +111,22 @@ const EngineBuildProfiles &EngineBuildProfiles::builtin() {
   static const EngineBuildProfiles profiles =
       from_string(detail::kDefaultEngineBuildJson);
   return profiles;
+}
+
+std::string EngineBuildProfiles::to_json() const {
+  nlohmann::json engines_json = nlohmann::json::object();
+  for (const auto &[name, prof] : engines) {
+    nlohmann::json shapes = nlohmann::json::object();
+    for (const auto &[input, sp] : prof.shapes)
+      shapes[input] = {{"min", sp.min}, {"opt", sp.opt}, {"max", sp.max}};
+    engines_json[name] = {{"precision", prof.precision},
+                          {"workspace_mb", prof.workspace_mb},
+                          {"shapes", shapes}};
+  }
+  return nlohmann::json{{"schema_version", schema_version},
+                        {"recipe_version", recipe_version},
+                        {"engines", engines_json}}
+      .dump(2);
 }
 
 std::optional<EngineProfile>

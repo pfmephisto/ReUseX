@@ -1,6 +1,7 @@
 {
   "_comment": "SINGLE SOURCE OF TRUTH for SAM 3.1 TensorRT engine builds. Emitted by python/reusex_sam3/build_engines.py from its in-code tables (SHAPE_PROFILES / FP32_ENGINES / FP32_WORKSPACE_MB / FP32_SHAPE_OVERRIDES) with the fp32-vision-encoder rule already resolved, and shipped in the model bundle. Read verbatim by both the python trtexec driver and the native C++ EngineBuilder (libs/reusex/.../tensor_rt/common/EngineBuildProfiles.*). Do not hand-edit: run `python -m reusex_sam3.build_engines --emit-profiles`.",
   "schema_version": 1,
+  "recipe_version": 2,
   "engines": {
     "vision-encoder": {
       "precision": "fp32",
@@ -69,12 +70,12 @@
         "input_boxes": {
           "min": [
             1,
-            8,
+            1,
             4
           ],
           "opt": [
             1,
-            8,
+            1,
             4
           ],
           "max": [
@@ -86,11 +87,11 @@
         "input_boxes_labels": {
           "min": [
             1,
-            8
+            1
           ],
           "opt": [
             1,
-            8
+            1
           ],
           "max": [
             4,
@@ -236,7 +237,7 @@
           ],
           "max": [
             4,
-            32,
+            41,
             256
           ]
         },
@@ -251,7 +252,7 @@
           ],
           "max": [
             4,
-            32
+            41
           ]
         }
       }

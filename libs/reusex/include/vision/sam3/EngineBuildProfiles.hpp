@@ -36,6 +36,8 @@ struct EngineProfile {
     std::vector<int> min;
     std::vector<int> opt;
     std::vector<int> max;
+
+    bool operator==(const ShapeProfile &) const = default;
   };
 
   /// "fp16" or "fp32". The bf16-native vision-encoder MUST be "fp32": fp16
@@ -49,6 +51,8 @@ struct EngineProfile {
   /// static engine.
   std::map<std::string, ShapeProfile> shapes;
 
+  bool operator==(const EngineProfile &) const = default;
+
   [[nodiscard]] bool is_fp16() const { return precision == "fp16"; }
   [[nodiscard]] bool is_fp32() const { return precision == "fp32"; }
 };
@@ -56,6 +60,10 @@ struct EngineProfile {
 /// The full set of per-engine build recipes.
 struct EngineBuildProfiles {
   int schema_version = 1;
+  /// Revision of the recipe's contents (``recipe_version``, absent ⟹ 1).
+  /// Bumped by ``build_engines.py`` whenever a profile changes, so a newer
+  /// built-in recipe can supersede the one an older model bundle shipped.
+  int recipe_version = 1;
   std::map<std::string, EngineProfile> engines;
 
   /// Parse ``engine-build.json`` from disk. Throws ``std::runtime_error`` on a
@@ -69,6 +77,10 @@ struct EngineBuildProfiles {
   /// at build time. The fallback when an ONNX directory does not ship its own
   /// ``engine-build.json`` (a bare ``make -C python export`` does not).
   static const EngineBuildProfiles &builtin();
+
+  /// Serialize back to ``engine-build.json`` form (no ``_comment``). Used to
+  /// stamp an engine directory with the recipe its engines were built from.
+  [[nodiscard]] std::string to_json() const;
 
   /// Look up one engine's recipe, or ``std::nullopt`` if absent.
   [[nodiscard]] std::optional<EngineProfile>

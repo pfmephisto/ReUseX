@@ -531,12 +531,20 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
                  "skipping: {}",
                  join(skipped));
 
+  // Engines built from an older recipe are rebuilt in place (the builder
+  // writes atomically, so the old engine stays loadable until replaced).
+  const auto stale = stale_engines(onnx_dir, engine_dir);
+  if (!stale.empty())
+    reusex::info("SAM3 engine build: recipe changed, rebuilding: {}",
+                 join(stale));
+
   const std::size_t n = to_build.size();
   for (std::size_t i = 0; i < n; ++i) {
     const std::string &name = to_build[i];
     const fs::path engine = engine_dir / (name + ".engine");
-    if (fs::exists(engine))
-      continue; // already built for this device/TRT
+    if (fs::exists(engine) &&
+        std::find(stale.begin(), stale.end(), name) == stale.end())
+      continue; // already built for this device/TRT and recipe
     throw_if_cancelled(cancel, "engine build");
     report(cb, PrepState::building, float(i) / float(n),
            fmt::format("building {} engine ({}/{})", name, i + 1, n));
@@ -546,6 +554,15 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
     req.engine_path = engine; // EngineBuilder writes atomically
     req.profile = *profiles.find(name);
     tensor_rt::build_engine(req);
+  }
+
+  // Stamp LAST: it vouches that every engine matches this recipe, so a crash
+  // mid-build leaves the old (or no) stamp and the next run rebuilds.
+  {
+    const fs::path stamp = engine_dir / kEngineBuild;
+    const fs::path tmp = unique_sibling(stamp, "part");
+    std::ofstream(tmp) << profiles.to_json() << '\n';
+    fs::rename(tmp, stamp);
   }
 
   const auto missing = missing_engine_files(onnx_dir, engine_dir);
@@ -567,11 +584,54 @@ const std::vector<std::string> &required_engines() {
 
 EngineBuildProfiles load_engine_build_profiles(const fs::path &onnx_dir) {
   const fs::path own = onnx_dir / kEngineBuild;
-  if (fs::exists(own))
-    return EngineBuildProfiles::from_file(own);
+  const auto &builtin = EngineBuildProfiles::builtin();
+  if (fs::exists(own)) {
+    auto profiles = EngineBuildProfiles::from_file(own);
+    if (profiles.recipe_version >= builtin.recipe_version)
+      return profiles;
+    reusex::debug("SAM3: {} carries recipe v{}; the built-in recipe v{} "
+                  "supersedes it",
+                  own.string(), profiles.recipe_version,
+                  builtin.recipe_version);
+    return builtin;
+  }
   reusex::debug("SAM3: {} has no {}; using the built-in canonical recipe",
                 onnx_dir.string(), kEngineBuild);
-  return EngineBuildProfiles::builtin();
+  return builtin;
+}
+
+std::vector<std::string> stale_engines(const fs::path &onnx_dir,
+                                       const fs::path &engine_dir) {
+  const auto current = load_engine_build_profiles(onnx_dir);
+
+  // What the engines on disk were built from: the dir's stamp, else (a dir
+  // built before stamps) the bundle's own recipe, else assume current.
+  std::optional<EngineBuildProfiles> built_with;
+  for (const fs::path &p :
+       {engine_dir / kEngineBuild, onnx_dir / kEngineBuild}) {
+    if (!fs::exists(p))
+      continue;
+    try {
+      built_with = EngineBuildProfiles::from_file(p);
+    } catch (const std::exception &e) {
+      reusex::warn("SAM3: unreadable engine recipe {} ({}); rebuilding",
+                   p.string(), e.what());
+      built_with = EngineBuildProfiles{}; // empty: every engine is stale
+    }
+    break;
+  }
+  if (!built_with)
+    return {};
+
+  std::vector<std::string> stale;
+  for (const auto &[name, profile] : current.engines) {
+    if (!fs::exists(engine_dir / (name + ".engine")))
+      continue;
+    const auto was = built_with->find(name);
+    if (!was || !(*was == profile))
+      stale.push_back(name);
+  }
+  return stale;
 }
 
 std::vector<std::string> missing_onnx_files(const fs::path &onnx_dir) {
@@ -614,12 +674,17 @@ std::vector<std::string> missing_engine_files(const fs::path &onnx_dir,
     return {kEngineBuild};
   }
 
+  const auto stale = stale_engines(onnx_dir, engine_dir);
+  auto absent_or_stale = [&](const std::string &name) {
+    return !fs::exists(engine_dir / (name + ".engine")) ||
+           std::find(stale.begin(), stale.end(), name) != stale.end();
+  };
   for (const auto &name : required_engines())
-    if (!fs::exists(engine_dir / (name + ".engine")))
+    if (absent_or_stale(name))
       missing.push_back(name + ".engine");
   const auto optional = present_optional_engines(onnx_dir, profiles);
   for (const auto &name : optional)
-    if (!fs::exists(engine_dir / (name + ".engine")))
+    if (absent_or_stale(name))
       missing.push_back(name + ".engine");
 
   if (!fs::exists(engine_dir / kTokenizer))

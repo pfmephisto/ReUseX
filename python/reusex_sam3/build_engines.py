@@ -32,10 +32,21 @@ DEFAULT_ONNX_DIR = Path(__file__).resolve().parent.parent / "onnx"
 DEFAULT_ENGINE_DIR = Path(__file__).resolve().parent.parent / "engines"
 
 # Per-engine min/opt/max shape profiles. Format: {input_name: (min, opt, max)}.
-# Static inputs are given identical min==opt==max. Batch B=1..4, N boxes 1..64,
-# prompt L 1..300 (200 queries + text/geo), memory length fixed to the bank size.
+# Static inputs are given identical min==opt==max. Batch B=1..4, geometry boxes
+# N=1..GEOM_MAX_BOXES, prompt L=TEXT_LEN..TEXT_LEN+GEOM_MAX_BOXES+1 (text +
+# geometry tokens), memory length fixed to the bank size.
 _MEM_TOKENS = 5184
 _MEM_LEN = _MEM_TOKENS * 7  # mem_bank_max * mem_tokens_per_frame
+
+# Text tokens per prompt (the text encoder's fixed sequence length).
+TEXT_LEN = 32
+# Most boxes one geometry prompt may carry (the geometry-encoder profile max).
+GEOM_MAX_BOXES = 8
+# Bumped whenever a profile above changes. The C++ provider prefers its built-in
+# recipe over an older one shipped in a model bundle, and rebuilds any cached
+# engine whose recipe differs, so a recipe change reaches managed installs
+# without a new ONNX release.
+RECIPE_VERSION = 2
 
 SHAPE_PROFILES = {
     "vision-encoder": {
@@ -46,11 +57,14 @@ SHAPE_PROFILES = {
         "attention_mask": ((1, 32), (1, 32), (4, 32)),
     },
     "geometry-encoder": {
-        # num_boxes is baked (constant-folded) into the attention head-reshape,
-        # so it is fixed at GEOM_NUM_BOXES=8 (matches export_detector). Only the
-        # image batch is dynamic.
-        "input_boxes": ((1, 8, 4), (1, 8, 4), (4, 8, 4)),
-        "input_boxes_labels": ((1, 8), (1, 8), (4, 8)),
+        # num_boxes is dynamic: the released sam3.1-onnx-v1 graph runs at
+        # N=1/3/8 under onnxruntime (the export traces at GEOM_NUM_BOXES=8, but
+        # no reshape bakes N). The C++ runs one prompt per call with its exact
+        # box count (no padding: the exported graph has no box mask, so a pad
+        # box would leak into the geometry self-attention). opt N=1 is the GUI's
+        # one-box selection.
+        "input_boxes": ((1, 1, 4), (1, 1, 4), (4, GEOM_MAX_BOXES, 4)),
+        "input_boxes_labels": ((1, 1), (1, 1), (4, GEOM_MAX_BOXES)),
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         "fpn_pos_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
     },
@@ -59,10 +73,20 @@ SHAPE_PROFILES = {
         "fpn_feat_1": ((1, 256, 144, 144), (1, 256, 144, 144), (4, 256, 144, 144)),
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         "fpn_pos_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
-        # prompt_len is fixed at 32 (the text encoder emits 32 tokens and the
-        # attention head-reshape bakes this constant); only batch is dynamic.
-        "prompt_features": ((1, 32, 256), (1, 32, 256), (4, 32, 256)),
-        "prompt_mask": ((1, 32), (1, 32), (4, 32)),
+        # prompt_len = 32 text tokens, plus N+1 geometry tokens (N boxes + CLS)
+        # when the prompt carries boxes. Dynamic in the released graph (runs at
+        # L=32/34/41 under onnxruntime); opt stays at the text-only 32 that
+        # `rux create annotate` uses for every frame.
+        "prompt_features": (
+            (1, TEXT_LEN, 256),
+            (1, TEXT_LEN, 256),
+            (4, TEXT_LEN + GEOM_MAX_BOXES + 1, 256),
+        ),
+        "prompt_mask": (
+            (1, TEXT_LEN),
+            (1, TEXT_LEN),
+            (4, TEXT_LEN + GEOM_MAX_BOXES + 1),
+        ),
     },
     "tracker-memory-encoder": {
         # num_objects is baked to multiplex_count(16) by the SimpleMaskEncoder's
@@ -280,6 +304,7 @@ def build_profiles(
             "--emit-profiles`."
         ),
         "schema_version": 1,
+        "recipe_version": RECIPE_VERSION,
         "engines": {
             e: _resolved_engine_profile(e, fp16, workspace_mb) for e in ALL_ENGINES
         },

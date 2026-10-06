@@ -228,12 +228,99 @@ TEST_CASE("Sam3Assets_LoadEngineBuildProfiles_FallsBackToBuiltinRecipe",
   REQUIRE(builtin.find("vision-encoder").has_value());
   CHECK(builtin.find("vision-encoder")->is_fp32()); // the fp16-corruption rule
 
+  // An ONNX dir's own recipe wins when it is at least as new as the built-in.
   write_file(tmp.path / "engine-build.json",
-             R"({"schema_version":1,"engines":{"vision-encoder":
-                 {"precision":"fp32","workspace_mb":1024}}})");
+             R"({"schema_version":1,"recipe_version":99,"engines":{
+                 "vision-encoder":{"precision":"fp32","workspace_mb":1024}}})");
   const auto own = sam3::load_engine_build_profiles(tmp.path);
   CHECK(own.engines.size() == 1);
   CHECK(own.find("vision-encoder")->workspace_mb == 1024);
+}
+
+TEST_CASE("Sam3Assets_LoadEngineBuildProfiles_NewerBuiltinSupersedesBundle",
+          "[vision][sam3][assets]") {
+  // sam3.1-onnx-v1 ships a recipe_version-less (v1) engine-build.json whose
+  // decoder takes text tokens only; the built-in v2 recipe must replace it so
+  // managed installs get box prompts without a new ONNX release.
+  TempDir tmp("sam3_assets");
+  write_detector_export(tmp.path);
+  write_file(tmp.path / "engine-build.json",
+             R"({"schema_version":1,"engines":{"vision-encoder":
+                 {"precision":"fp32","workspace_mb":1024}}})");
+  const auto chosen = sam3::load_engine_build_profiles(tmp.path);
+  const auto &builtin = sam3::EngineBuildProfiles::builtin();
+  CHECK(chosen.recipe_version == builtin.recipe_version);
+  CHECK(chosen.engines == builtin.engines);
+}
+
+// --- stale engines -----------------------------------------------------------
+
+namespace {
+
+/// A built engine dir for @p onnx: every required engine + tokenizer.
+void write_built_engines(const fs::path &eng) {
+  for (const auto &name : sam3::required_engines())
+    write_file(eng / (name + ".engine"), "engine");
+  write_file(eng / "tokenizer.json", "{}");
+}
+
+/// The built-in recipe re-labelled as an older version with a text-only
+/// (L=32) decoder: what sam3.1-onnx-v1 shipped.
+std::string old_bundle_recipe() {
+  auto old = sam3::EngineBuildProfiles::builtin();
+  old.recipe_version = 1;
+  for (const char *in : {"prompt_features", "prompt_mask"})
+    old.engines.at("decoder").shapes.at(in).max[1] = 32;
+  return old.to_json();
+}
+
+} // namespace
+
+TEST_CASE("Sam3Assets_StaleEngines_UnstampedDirComparesWithBundleRecipe",
+          "[vision][sam3][assets]") {
+  TempDir tmp("sam3_assets");
+  const fs::path onnx = tmp.path / "onnx";
+  const fs::path eng = tmp.path / "engines";
+  write_detector_export(onnx);
+  write_built_engines(eng);
+
+  // Engines built before recipe stamps existed came from the bundle's own
+  // recipe; only the engines whose profile changed since are stale.
+  write_file(onnx / "engine-build.json", old_bundle_recipe());
+  CHECK(sam3::stale_engines(onnx, eng) == std::vector<std::string>{"decoder"});
+  CHECK(sam3::missing_engine_files(onnx, eng) ==
+        std::vector<std::string>{"decoder.engine"});
+}
+
+TEST_CASE("Sam3Assets_StaleEngines_StampMatchingTheRecipeIsFresh",
+          "[vision][sam3][assets]") {
+  TempDir tmp("sam3_assets");
+  const fs::path onnx = tmp.path / "onnx";
+  const fs::path eng = tmp.path / "engines";
+  write_detector_export(onnx);
+  write_built_engines(eng);
+  write_file(onnx / "engine-build.json", old_bundle_recipe());
+
+  write_file(eng / "engine-build.json",
+             sam3::EngineBuildProfiles::builtin().to_json());
+  CHECK(sam3::stale_engines(onnx, eng).empty());
+  CHECK(sam3::missing_engine_files(onnx, eng).empty());
+
+  // A stamp from an older recipe marks the changed engines stale again.
+  write_file(eng / "engine-build.json", old_bundle_recipe());
+  CHECK(sam3::stale_engines(onnx, eng) == std::vector<std::string>{"decoder"});
+}
+
+TEST_CASE("Sam3Assets_StaleEngines_UnbuiltEnginesAreMissingNotStale",
+          "[vision][sam3][assets]") {
+  TempDir tmp("sam3_assets");
+  const fs::path onnx = tmp.path / "onnx";
+  const fs::path eng = tmp.path / "engines";
+  write_detector_export(onnx);
+  write_file(onnx / "engine-build.json", old_bundle_recipe());
+  write_file(eng / "tokenizer.json", "{}");
+  CHECK(sam3::stale_engines(onnx, eng).empty());
+  CHECK(contains(sam3::missing_engine_files(onnx, eng), "decoder.engine"));
 }
 
 // --- status probe

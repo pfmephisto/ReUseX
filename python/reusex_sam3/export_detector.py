@@ -31,9 +31,10 @@ from .wrappers_detector import (
 OPSET = 17
 DEFAULT_ONNX_DIR = Path(__file__).resolve().parent.parent / "onnx"
 
-# Fixed number of geometry (box) prompts baked into the geometry-encoder graph.
-# The attention head-reshape constant-folds this value, so the engine is built
-# at exactly this count (see build_engines.SHAPE_PROFILES["geometry-encoder"]).
+# Number of geometry (box) prompts in the tracing example. The exported graph
+# keeps num_boxes dynamic (the released sam3.1-onnx-v1 geometry encoder runs at
+# N=1/3/8 under onnxruntime), so this only picks the trace shape; the engine
+# range is build_engines.SHAPE_PROFILES["geometry-encoder"].
 GEOM_NUM_BOXES = 8
 
 
@@ -76,11 +77,9 @@ def _example_inputs(engine: str):
         mask = torch.ones(1, 32, dtype=torch.long)
         return (ids, mask)
     if engine == "geometry-encoder":
-        # num_boxes is baked as a constant into the attention head-reshape by the
-        # TorchScript exporter (same failure mode as the decoder prompt_len), so
-        # it must be fixed. We use GEOM_NUM_BOXES; a geometry-prompted decoder
-        # must then be built with prompt_len = 32 + GEOM_NUM_BOXES + 1 (the
-        # text-only path here uses prompt_len=32 and does not invoke geometry).
+        # num_boxes stays dynamic in the exported graph (checked on the
+        # released bundle at N=1/3/8); GEOM_NUM_BOXES is only the trace shape.
+        # A geometry-prompted decoder call uses prompt_len = 32 + N + 1.
         n = GEOM_NUM_BOXES
         boxes = torch.rand(1, n, 4)          # N boxes cxcywh in [0,1]
         labels = torch.ones(1, n, dtype=torch.long)
@@ -92,10 +91,9 @@ def _example_inputs(engine: str):
         f1 = torch.randn(1, 256, 144, 144)
         f2 = torch.randn(1, 256, 72, 72)
         p2 = torch.randn(1, 256, 72, 72)
-        # L is baked as a constant into the attention head-reshape by the
-        # TorchScript ONNX exporter, so it must match what the C++ sends: the
-        # text encoder emits exactly 32 tokens (make_ids pads to 32), and the
-        # text-prompted path uses no geometry, so prompt_len is always 32.
+        # Traced at the text-only L=32 (make_ids pads to 32 tokens). prompt_len
+        # stays dynamic in the exported graph (checked on the released bundle at
+        # L=32/34/41), so geometry prompts append their N+1 tokens.
         L = 32
         prompt = torch.randn(1, L, 256)
         pmask = torch.zeros(1, L, dtype=torch.bool)

@@ -124,6 +124,12 @@ struct VisibilityProbe {
   std::vector<Eigen::Vector3d> samples;
 };
 
+/// Thrown by `visible_frames_occluded()` when its cancel flag is raised.
+class OperationCancelled : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
 /**
  * @brief Occlusion-aware `visible_frames_batch()`: frames that actually see
  * each probe, not merely frames whose frustum contains it.
@@ -144,12 +150,6 @@ struct VisibilityProbe {
  *        call throw `OperationCancelled` within one frame's work (a server
  *        shutting down mid-computation does not wait for the whole pass).
  */
-/// Thrown by `visible_frames_occluded()` when its cancel flag is raised.
-class OperationCancelled : public std::runtime_error {
-    public:
-  using std::runtime_error::runtime_error;
-};
-
 std::vector<std::vector<FrameVisibility>>
 visible_frames_occluded(const ProjectDB &db,
                         const std::vector<VisibilityProbe> &probes,

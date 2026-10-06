@@ -81,6 +81,8 @@ export interface DetailPanelProps {
   /** The selected part was added by hand: it can be deleted (spec §4.4). */
   manual: boolean;
   onDeleteResource: () => void;
+  /** Open the part's best frame in Segmentering (also the S key); absent when not scan-backed. */
+  onSegment?: () => void;
   /** The selected part's values; null for a type. */
   resource: Resource | null;
   catalogue: ResourceKey[];
@@ -146,6 +148,7 @@ export function DetailPanel({
   onDone,
   manual,
   onDeleteResource,
+  onSegment,
   resource,
   catalogue,
   onCellCommit,
@@ -310,6 +313,16 @@ export function DetailPanel({
             }}
           >
             {armed ? `Bekræft: slet ${part.code}` : 'Slet ressource'}
+          </button>
+        )}
+        {onSegment && (
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={onSegment}
+            title="Åbn ressourcens bedste billede i Segmentering (S)"
+          >
+            Segmentér
           </button>
         )}
         <div className={styles.spacer} />

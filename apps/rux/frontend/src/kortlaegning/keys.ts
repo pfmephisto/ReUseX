@@ -20,6 +20,7 @@ export type KortAction =
   | { type: 'approveNext' }
   | { type: 'reject' }
   | { type: 'star' }
+  | { type: 'segment' }
   | { type: 'evidence'; tab: EvidenceTab }
   | { type: 'blur' }
   | { type: 'close' };
@@ -73,6 +74,9 @@ export function tableAction(k: KeyInput): KortAction | null {
       return { type: 'collapse' };
     case 'Enter':
       return { type: 'open' };
+    case 's':
+    case 'S':
+      return { type: 'segment' };
     default:
       return letterAction(k.key);
   }

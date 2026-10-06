@@ -15,6 +15,7 @@ import {
   geometryHint,
   maskRgba,
   newTypeLabel,
+  offscreenRunError,
   pointBox,
   resourceBlockReason,
   resourceRequest,
@@ -216,5 +217,11 @@ describe('clampNeighborCount', () => {
     expect(clampNeighborCount('')).toBe(0);
     expect(clampNeighborCount('abc')).toBe(0);
     expect(clampNeighborCount('2.9')).toBe(2);
+  });
+});
+
+describe('offscreenRunError', () => {
+  it('names the frame the failed run was for', () => {
+    expect(offscreenRunError(1500, 'SAM3 svarede ikke')).toBe('Segmentering af billede 1500 fejlede: SAM3 svarede ikke');
   });
 });

@@ -222,6 +222,14 @@ export function geometryHint(classes: readonly ResultClass[], prompts: readonly 
     : 'Boksen fandt intet objekt. Træk den tættere om objektet, eller skriv et klassenavn.';
 }
 
+/**
+ * The toast for a run that failed after the user moved to another frame: the
+ * page no longer shows that frame's error line, so the failure is named here.
+ */
+export function offscreenRunError(frameId: number, message: string): string {
+  return `Segmentering af billede ${frameId} fejlede: ${message}`;
+}
+
 /** Why "Opret ressource fra markering" cannot run on this frame, or null. */
 export function resourceBlockReason(frame: FrameInfo | undefined): string | null {
   if (!frame) return 'Billedet indlæses…';

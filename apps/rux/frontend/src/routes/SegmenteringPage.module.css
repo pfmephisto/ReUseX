@@ -181,7 +181,9 @@
 }
 
 /* Touch-only: "Tegn boks" switches a finger drag on the image from scrolling
-   the page to drawing a box. A mouse or pen draws boxes without it. */
+   the page to drawing a box. A mouse or pen draws boxes without it. Hidden only
+   when no pointer is coarse: `any-pointer` (not `pointer`) so a touchscreen
+   laptop or a tablet with a trackpad still gets the toggle for its finger. */
 .touchOnly {
   composes: textBtn;
 }
@@ -191,7 +193,7 @@
   font-weight: var(--font-weight-bold);
 }
 
-@media (pointer: fine) {
+@media not (any-pointer: coarse) {
   .touchOnly {
     display: none;
   }

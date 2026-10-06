@@ -50,6 +50,7 @@ import {
   buildRequestPrompts,
   clampNeighborCount,
   NEIGHBOR_MAX,
+  offscreenRunError,
   pointBox,
   resourceBlockReason,
   geometryHint,
@@ -218,13 +219,19 @@ export function SegmenteringPage() {
           }
         }
       } catch (e) {
-        if (e instanceof SegmentCancelled || !stillHere()) return;
-        setError(e instanceof SegmentRunError ? e.message : errorText(e));
+        if (e instanceof SegmentCancelled) return;
+        const message = e instanceof SegmentRunError ? e.message : errorText(e);
+        // Its frame is off screen, so its error line would never be seen.
+        if (!stillHere()) {
+          toast.show(offscreenRunError(id, message));
+          return;
+        }
+        setError(message);
       } finally {
         setRunningFrame(null);
       }
     });
-  }, [frameId, running, prompts, confidence, runQueue, sam3]);
+  }, [frameId, running, prompts, confidence, runQueue, sam3, toast]);
 
   const enqueue = useCallback(() => {
     if (frameId === null) return;

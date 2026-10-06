@@ -1485,7 +1485,9 @@ reusex::core::InstanceProbe instance_probe_of(const reusex::ProjectDB &db,
   std::map<std::uint32_t, reusex::core::InstanceProbe> probes;
   try {
     probes = reusex::core::instance_probes(db, cloud, kPositions);
-  } catch (const std::runtime_error &e) {
+  } catch (const reusex::core::CloudMisalignedError &e) {
+    // A conflict with the project's state; a cloud that fails to load is a
+    // plain 500 (with_db's default).
     throw HttpError(409, e.what());
   }
   const auto it = instance_id > 0
@@ -1499,13 +1501,31 @@ reusex::core::InstanceProbe instance_probe_of(const reusex::ProjectDB &db,
 } // namespace
 
 json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
-                          int instance_id, const Params &params) {
+                          int instance_id, const Params &params,
+                          const CachedInstanceEvidence &cached) {
+  const auto visibility = visibility_query_of(params);
+  // The cache holds the default query's ranking, so it answers only a
+  // request without its own range limit.
+  if (cached && instance_id > 0 && !(visibility.max_depth > 0.0)) {
+    if (const auto hit =
+            cached(db, cloud, static_cast<std::uint32_t>(instance_id))) {
+      const auto &c = hit->centroid;
+      json out =
+          visibility_json({c.centroid.x(), c.centroid.y(), c.centroid.z()},
+                          hit->frames, params);
+      out["cloud"] = cloud;
+      out["instance_id"] = instance_id;
+      out["instance_point_count"] = c.point_count;
+      return out;
+    }
+  }
+
   const auto probe = instance_probe_of(db, cloud, instance_id);
   const auto &c = probe.centroid;
   // Occlusion-aware, with the same options as GET /survey/photos, so the
   // dialog's photo strip and the table's "n fotos" agree.
   reusex::core::OcclusionQuery query = reusex::core::PhotoQuery{}.occlusion;
-  query.visibility = visibility_query_of(params);
+  query.visibility = visibility;
   const auto frames =
       reusex::core::visible_frames_occluded(db, {probe.probe()}, query).at(0);
 

@@ -29,6 +29,7 @@
 #include <pcl/point_types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -1748,6 +1749,60 @@ TEST_CASE("InstancePanoramas_RankedWithEquirectUv", "[gui][routes]") {
   }
 }
 
+TEST_CASE("InstanceFrames_ServedFromCacheWhenGiven", "[gui][routes]") {
+  const TempPath project("gui_instance_frames_cached");
+  reusex::ProjectDB db(project.path);
+  save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+  save_evidence_instances(db);
+
+  reusex::core::InstanceEvidence fake;
+  fake.centroid.centroid = Eigen::Vector3d(9, 9, 9);
+  fake.centroid.point_count = 7;
+  fake.frames.push_back({42, 1.0, 2.0, 3.0, 0.1});
+  int calls = 0;
+  const CachedInstanceEvidence cached =
+      [&](const reusex::ProjectDB &, const std::string &,
+          std::uint32_t id) -> std::optional<reusex::core::InstanceEvidence> {
+    ++calls;
+    if (id == 1)
+      return fake;
+    return std::nullopt;
+  };
+
+  const auto hit = instance_frames_json(db, "instances", 1, Params{}, cached);
+  CHECK(hit.at("frames").at(0).at("frame_id") == 42);
+  CHECK(hit.at("instance_point_count") == 7);
+
+  // A miss computes: instance 2 is behind the only camera.
+  const auto miss = instance_frames_json(db, "instances", 2, Params{}, cached);
+  CHECK(miss.at("total") == 0);
+
+  // A request with its own range limit never uses the cache.
+  const auto ranged = instance_frames_json(
+      db, "instances", 1, params_of({{"max_depth", "10"}}), cached);
+  CHECK(ranged.at("frames").at(0).at("frame_id") == 1);
+  CHECK(calls == 2);
+}
+
+TEST_CASE("InstanceFrames_MisalignedClouds_Is409", "[gui][routes]") {
+  const TempPath project("gui_instance_frames_misaligned");
+  reusex::ProjectDB db(project.path);
+  save_evidence_instances(db);
+  reusex::CloudL longer;
+  for (int i = 0; i < 5; ++i) {
+    pcl::Label l;
+    l.label = 1;
+    longer.push_back(l);
+  }
+  db.save_point_cloud("instances", longer, "test", "{}");
+  try {
+    instance_frames_json(db, "instances", 1, Params{});
+    FAIL("expected HttpError");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 409);
+  }
+}
+
 TEST_CASE("SurveyPhotos_CountsPerInstanceBackedPart", "[gui][survey]") {
   const TempPath project("gui_survey_photos");
   reusex::ProjectDB db(project.path);
@@ -2161,6 +2216,33 @@ TEST_CASE("PhotoEvidenceCache_HitsUntilRevisionOrInstancesChange",
 
   SECTION("an instance the cache has never seen forces a recompute") {
     cache.get(db, "instances", {1, 99});
+    CHECK(cache.computations() == 2);
+    // 99 has no points: remembered as absent, so the same request hits.
+    const auto again = cache.get(db, "instances", {1, 99});
+    CHECK(cache.computations() == 2);
+    CHECK(again.count(99) == 0);
+  }
+
+  SECTION("peek serves one instance's ranked frames only while warm") {
+    const auto hit = cache.peek(db, "instances", 1);
+    REQUIRE(hit.has_value());
+    REQUIRE(hit->frames.size() == 1);
+    CHECK(hit->frames[0].frame_id == 1);
+    CHECK(hit->centroid.point_count == 2);
+    CHECK_FALSE(cache.peek(db, "instances", 99).has_value());
+    cache.invalidate();
+    CHECK_FALSE(cache.peek(db, "instances", 1).has_value());
+    CHECK(cache.computations() == 1); // peek never computes
+  }
+
+  SECTION("a raised cancel flag aborts the computation and stores nothing") {
+    cache.invalidate();
+    std::atomic<bool> cancel{true};
+    CHECK_THROWS_AS(cache.get(db, "instances", {1}, &cancel),
+                    reusex::core::OperationCancelled);
+    CHECK(cache.computations() == 1);
+    CHECK_FALSE(cache.peek(db, "instances", 1).has_value());
+    cache.get(db, "instances", {1});
     CHECK(cache.computations() == 2);
   }
 

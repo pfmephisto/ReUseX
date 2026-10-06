@@ -6,6 +6,8 @@
 
 #include <Eigen/Core>
 
+#include <atomic>
+#include <stdexcept>
 #include <vector>
 
 namespace reusex {
@@ -137,10 +139,21 @@ struct VisibilityProbe {
  *
  * Logs (debug) how many frames were depth-tested, had no depth, and how many
  * frustum hits the depth test removed; warns when no frame is usable.
+ *
+ * @param cancel when non-null, checked once per frame; raising it makes the
+ *        call throw `OperationCancelled` within one frame's work (a server
+ *        shutting down mid-computation does not wait for the whole pass).
  */
+/// Thrown by `visible_frames_occluded()` when its cancel flag is raised.
+class OperationCancelled : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
 std::vector<std::vector<FrameVisibility>>
 visible_frames_occluded(const ProjectDB &db,
                         const std::vector<VisibilityProbe> &probes,
-                        const OcclusionQuery &query = {});
+                        const OcclusionQuery &query = {},
+                        const std::atomic<bool> *cancel = nullptr);
 
 } // namespace reusex::core

@@ -13,9 +13,12 @@
 
 #include <reusex/core/instance_evidence.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -40,31 +43,52 @@ class PhotoEvidenceCache {
   explicit PhotoEvidenceCache(reusex::core::PhotoQuery query = {})
       : query_(query) {}
 
-  /// Per-instance photos of @p cloud. Served from the cache when the
-  /// revision matches and every id in @p wanted is present (an instance
-  /// created since — e.g. from a segmentation — forces a recompute);
-  /// otherwise computed with core::instance_photos and stored. Concurrent
-  /// misses compute once: the second caller waits and then hits.
-  /// @throws as core::instance_photos.
+  /// Count + best frame per instance of @p cloud. Served from the cache when
+  /// the revision matches and every id in @p wanted was covered by the last
+  /// computation — found, or found to have no points (absent ids are
+  /// remembered, so an orphaned part does not defeat the cache). An id the
+  /// last computation never saw (an instance created since, e.g. from a
+  /// segmentation) forces a recompute. Concurrent misses compute once: the
+  /// second caller waits and then hits.
+  /// @param cancel checked once per frame while computing; raising it throws
+  ///        reusex::core::OperationCancelled and stores nothing.
+  /// @throws as core::instance_evidence.
   InstancePhotos get(const reusex::ProjectDB &db, const std::string &cloud,
-                     const std::set<std::uint32_t> &wanted = {});
+                     const std::set<std::uint32_t> &wanted = {},
+                     const std::atomic<bool> *cancel = nullptr);
+
+  /// The cached ranked frames of one instance, when the cache is warm for
+  /// @p cloud at the current revision and holds @p instance_id; nullopt
+  /// otherwise (never computes). Backs GET /instances/{cloud}/{id}/frames.
+  std::optional<reusex::core::InstanceEvidence>
+  peek(const reusex::ProjectDB &db, const std::string &cloud,
+       std::uint32_t instance_id);
 
   /// Forget everything: call after the server itself changes geometry
-  /// (label edits, a finished pipeline job).
+  /// (a finished pipeline job).
   void invalidate();
 
   /// How many times get() computed rather than hit (for tests and logs).
   std::size_t computations() const;
 
+  /// The PhotoQuery the cache computes with (so a direct computation can use
+  /// the same rule).
+  const reusex::core::PhotoQuery &query() const noexcept { return query_; }
+
     private:
   struct Entry {
     std::string revision;
-    InstancePhotos photos;
+    std::map<std::uint32_t, reusex::core::InstanceEvidence> evidence;
+    std::set<std::uint32_t> absent; ///< Asked for, but no points.
   };
+  std::shared_ptr<const Entry> current(const std::string &cloud,
+                                       const std::string &revision) const;
+  std::uint64_t generation() const;
+
   reusex::core::PhotoQuery query_;
   mutable std::mutex mutex_; ///< guards entries_, generation_, computations_
   std::mutex compute_mutex_; ///< serialises computations
-  std::map<std::string, Entry> entries_;
+  std::map<std::string, std::shared_ptr<const Entry>> entries_;
   std::uint64_t generation_ = 0;
   std::size_t computations_ = 0;
 };

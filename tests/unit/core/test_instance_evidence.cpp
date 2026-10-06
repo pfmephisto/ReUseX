@@ -23,6 +23,7 @@
 #include <pcl/point_types.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -209,6 +210,12 @@ TEST_CASE("VisibleFramesOccluded_DepthDecidesVisibility", "[core][evidence]") {
     CHECK(r[1][0].frame_id == 2);
     // The centroid alone fails the depth test; its sample passes.
     REQUIRE(r[2].size() == 2);
+  }
+
+  SECTION("a raised cancel flag stops the pass") {
+    std::atomic<bool> cancel{true};
+    CHECK_THROWS_AS(visible_frames_occluded(db, {on_wall}, {}, &cancel),
+                    OperationCancelled);
   }
 
   SECTION("frames without depth can be dropped instead") {

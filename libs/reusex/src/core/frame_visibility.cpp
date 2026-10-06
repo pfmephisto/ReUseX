@@ -231,10 +231,9 @@ visible_frames_batch(const ProjectDB &db,
   return out;
 }
 
-std::vector<std::vector<FrameVisibility>>
-visible_frames_occluded(const ProjectDB &db,
-                        const std::vector<VisibilityProbe> &probes,
-                        const OcclusionQuery &query) {
+std::vector<std::vector<FrameVisibility>> visible_frames_occluded(
+    const ProjectDB &db, const std::vector<VisibilityProbe> &probes,
+    const OcclusionQuery &query, const std::atomic<bool> *cancel) {
   std::vector<std::vector<FrameVisibility>> out(probes.size());
   if (probes.empty())
     return out;
@@ -243,6 +242,8 @@ visible_frames_occluded(const ProjectDB &db,
   std::size_t depth_tested = 0, no_depth = 0, frustum_hits = 0, occluded = 0;
   std::vector<std::pair<std::size_t, FrameVisibility>> candidates;
   for (const auto &cam : set.cameras) {
+    if (cancel && cancel->load(std::memory_order_relaxed))
+      throw OperationCancelled("visible_frames_occluded: cancelled");
     candidates.clear();
     for (std::size_t i = 0; i < probes.size(); ++i)
       if (auto hit = project(cam, probes[i].anchor, query.visibility))

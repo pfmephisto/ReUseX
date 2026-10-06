@@ -18,6 +18,7 @@
 #include "FrameSegmenter.hpp"
 #include "ViewRenderer.hpp"
 
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
 #include <reusex/pipeline/stages.hpp>
 #include <reusex/vision/sam3_prompt.hpp>
@@ -528,9 +529,19 @@ nlohmann::json instances_json(const reusex::ProjectDB &db,
 /// @throws HttpError(404) when the cloud or instance id is unknown,
 ///         HttpError(409) when the base positions cloud is missing or not
 ///         index-aligned with the instance labels.
+/// A cached ranking for one instance, or nullopt to compute it (the server
+/// passes its PhotoEvidenceCache::peek).
+using CachedInstanceEvidence =
+    std::function<std::optional<reusex::core::InstanceEvidence>(
+        const reusex::ProjectDB &db, const std::string &cloud,
+        std::uint32_t instance_id)>;
+
+/// @param cached consulted first when the request has no `max_depth`; a hit
+///        skips the depth decoding (~0.7 s on a large scan).
 nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
                                     const std::string &cloud, int instance_id,
-                                    const Params &params);
+                                    const Params &params,
+                                    const CachedInstanceEvidence &cached = {});
 
 /// Placeable 360 panoramas near one instance's centroid, nearest first, each
 /// with the equirect `u,v` (0..1) the centroid lands on (spec A5). Body:

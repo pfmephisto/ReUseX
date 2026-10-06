@@ -47,7 +47,7 @@ instance_probes(const ProjectDB &db, std::string_view label_cloud,
                              std::string(positions_cloud) + "' or '" +
                              std::string(label_cloud) + "'");
   if (positions->size() != labels->size())
-    throw std::runtime_error(
+    throw CloudMisalignedError(
         "instance-label cloud '" + std::string(label_cloud) + "' has " +
         std::to_string(labels->size()) + " points but base cloud '" +
         std::string(positions_cloud) + "' has " +
@@ -100,27 +100,31 @@ instance_centroids(const ProjectDB &db, std::string_view label_cloud,
   return out;
 }
 
-std::map<std::uint32_t, PartPhotos>
-instance_photos(const ProjectDB &db, std::string_view label_cloud,
-                const PhotoQuery &query, std::string_view positions_cloud) {
+std::map<std::uint32_t, InstanceEvidence>
+instance_evidence(const ProjectDB &db, std::string_view label_cloud,
+                  const PhotoQuery &query, std::string_view positions_cloud,
+                  const std::atomic<bool> *cancel) {
   const auto by_instance = instance_probes(db, label_cloud, positions_cloud,
                                            query.samples_per_instance);
   std::vector<VisibilityProbe> probes;
-  std::vector<std::uint32_t> ids;
   probes.reserve(by_instance.size());
-  for (const auto &[id, probe] : by_instance) {
+  for (const auto &[id, probe] : by_instance)
     probes.push_back(probe.probe());
-    ids.push_back(id);
-  }
-  const auto ranked = visible_frames_occluded(db, probes, query.occlusion);
+  auto ranked = visible_frames_occluded(db, probes, query.occlusion, cancel);
+  std::map<std::uint32_t, InstanceEvidence> out;
+  std::size_t i = 0;
+  for (const auto &[id, probe] : by_instance)
+    out.emplace(id, InstanceEvidence{probe.centroid, std::move(ranked[i++])});
+  return out;
+}
+
+std::map<std::uint32_t, PartPhotos>
+instance_photos(const ProjectDB &db, std::string_view label_cloud,
+                const PhotoQuery &query, std::string_view positions_cloud) {
   std::map<std::uint32_t, PartPhotos> out;
-  for (std::size_t i = 0; i < ranked.size(); ++i) {
-    PartPhotos photos;
-    photos.count = ranked[i].size();
-    if (!ranked[i].empty())
-      photos.best_frame_id = ranked[i].front().frame_id;
-    out.emplace(ids[i], photos);
-  }
+  for (const auto &[id, evidence] :
+       instance_evidence(db, label_cloud, query, positions_cloud))
+    out.emplace(id, evidence.photos());
   return out;
 }
 

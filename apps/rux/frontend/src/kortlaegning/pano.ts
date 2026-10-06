@@ -12,10 +12,12 @@
 
 import type { InstancePanorama } from '../api/types';
 
-/** Edge length asked of the server for the pannable strip (an equirect is 2:1). */
+/**
+ * Edge length asked of the server for the pannable strip (an equirect is
+ * 2:1). The dialog's 360° thumbnail uses the same URL on purpose, so the image
+ * is downloaded once.
+ */
 export const PANO_STRIP_MAX_SIZE = 2048;
-/** Edge length for the dialog's 360° thumbnail. */
-export const PANO_THUMB_MAX_SIZE = 480;
 
 export const PANO_TEXT = {
   unlinked: 'Ingen 360° — bygningsdelen er ikke koblet til en instans.',

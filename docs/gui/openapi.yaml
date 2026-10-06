@@ -3343,7 +3343,7 @@ paths:
       summary: Server-rendered view of the project, optionally highlighting one instance
       description: |
         Renders a view of the project with VTK's headless renderer and
-        answers PNG bytes. Backs the Plan / Punktsky / Rum-model evidence
+        answers PNG bytes. Backs the Plan / Punktsky / Rum evidence
         tabs in Kortlægning: a reviewer can call out one instance (an
         element, a room) against the rest of the scan without opening the
         interactive viewport.

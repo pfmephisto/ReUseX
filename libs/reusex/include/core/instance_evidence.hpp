@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,6 +34,14 @@ class ProjectDB;
 namespace reusex::core {
 
 /// Mean position of one instance's points.
+/// An instance-label cloud and its positions cloud differ in size, so they
+/// cannot be read point for point. A conflict with the project's state (the
+/// GUI answers 409), unlike a cloud that fails to load.
+class CloudMisalignedError : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
 struct InstanceCentroid {
   Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
   std::size_t point_count = 0; ///< Finite points averaged.
@@ -47,7 +56,8 @@ struct InstanceCentroid {
  * over the clouds, whatever the number of instances.
  *
  * @throws std::invalid_argument when either cloud is not in the project.
- * @throws std::runtime_error    when the clouds are not index-aligned.
+ * @throws CloudMisalignedError  when the clouds are not index-aligned.
+ * @throws std::runtime_error    when a cloud cannot be loaded.
  */
 std::map<std::uint32_t, InstanceCentroid>
 instance_centroids(const ProjectDB &db, std::string_view label_cloud,
@@ -91,13 +101,37 @@ struct PartPhotos {
   std::optional<int> best_frame_id; ///< Most central of them, if any.
 };
 
+/// Everything the photo evidence knows about one instance: where it is and
+/// the frames that see it, best first (`visible_frames_occluded`).
+struct InstanceEvidence {
+  InstanceCentroid centroid;
+  std::vector<FrameVisibility> frames;
+  [[nodiscard]] PartPhotos photos() const {
+    PartPhotos p;
+    p.count = frames.size();
+    if (!frames.empty())
+      p.best_frame_id = frames.front().frame_id;
+    return p;
+  }
+};
+
 /**
- * @brief Photo count and best frame for every instance of @p label_cloud that
- * has points: `visible_frames_occluded` over all its probes in one pass over
- * the frames (each depth image decoded at most once).
+ * @brief The ranked, occlusion-aware frames of every instance of
+ * @p label_cloud that has points: `visible_frames_occluded` over all its
+ * probes in one pass over the frames (each depth image decoded at most once).
+ * Instances without finite points are absent.
  *
+ * @param cancel passed to `visible_frames_occluded` (throws
+ *        `OperationCancelled` when raised).
  * @throws as `instance_probes()`.
  */
+std::map<std::uint32_t, InstanceEvidence>
+instance_evidence(const ProjectDB &db, std::string_view label_cloud,
+                  const PhotoQuery &query = {},
+                  std::string_view positions_cloud = "cloud",
+                  const std::atomic<bool> *cancel = nullptr);
+
+/// `instance_evidence()` reduced to count + best frame per instance.
 std::map<std::uint32_t, PartPhotos>
 instance_photos(const ProjectDB &db, std::string_view label_cloud,
                 const PhotoQuery &query = {},

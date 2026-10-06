@@ -97,11 +97,20 @@ every changed screen in both themes and at 390px width.
   replicate the bearing math with a test pinning it against the frontend's
   `bearingToUv`.
 - Evidence tabs become **Plan · 360° · Foto · Punktsky · Rum** (keys 1–5,
-  hint text updated). 360° renders the nearest panorama's equirect as a
+  hint text updated). 360° renders the chosen panorama's equirect as a
   horizontally scrollable/pannable strip centred on the part's `u`, with a
   marker at `(u,v)`, the caption "<rum> · 360°", and a link "Åbn i viewport"
   (`/viewport?pano=<id>`). Empty state when no panorama is placeable:
   "Ingen 360°-optagelse nær denne ressource".
+- **Ruling (2026-10-06, review of Task 3):** the endpoint stays sorted by
+  distance, but the UI shows the nearest **resected** panorama (`rux align
+  360` measured its heading, so `u` and the marker point at the part). Only
+  when no resected panorama is in range does it fall back to the nearest
+  levelled one (position borrowed from the matched frame, heading unknown):
+  shown **without a marker** and captioned "<rum> · 360° · retning ukendt".
+  Reason: on NewOffice the nearest panorama is often levelled while a
+  resected one stands a few metres further off, and a marker on a guessed
+  heading points at the wrong wall.
 - The dialog's evidence stage shows the same 5 sources.
 
 ---

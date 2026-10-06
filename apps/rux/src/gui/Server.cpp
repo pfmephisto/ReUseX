@@ -370,8 +370,10 @@ class Server::Impl {
         for (const auto &[cloud, wanted] : clouds) {
           if (stopping_)
             return;
-          photo_cache_.get(db, cloud, wanted);
+          photo_cache_.get(db, cloud, wanted, &stopping_);
         }
+      } catch (const reusex::core::OperationCancelled &) {
+        spdlog::debug("Photo evidence warm-up cancelled by shutdown");
       } catch (const std::exception &e) {
         spdlog::warn("Photo evidence warm-up skipped: {}", e.what());
       }
@@ -1194,7 +1196,12 @@ class Server::Impl {
           const Params params = params_of(req);
           return with_db([&](const reusex::ProjectDB &db) {
             return json_response(
-                200, instance_frames_json(db, cloud, instance_id, params));
+                200, instance_frames_json(
+                         db, cloud, instance_id, params,
+                         [this](const reusex::ProjectDB &conn,
+                                const std::string &c, std::uint32_t id) {
+                           return photo_cache_.peek(conn, c, id);
+                         }));
           });
         });
 

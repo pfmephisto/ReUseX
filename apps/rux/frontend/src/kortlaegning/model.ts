@@ -131,6 +131,23 @@ export function nextInQueue(
   return pick ? { typeId: pick.id, partCode: null } : null;
 }
 
+export interface ReopenedView {
+  tab: Tab;
+  selection: Selection;
+}
+
+/**
+ * What "Genåbn" (Afvist or Godkendt → queue) switches to: the queue tab,
+ * with the type — and its selected part, if any — still selected. Genåbn
+ * always sets `review_status` to `'queue'`, so the Afvist/Godkendt tab it
+ * was reviewed in no longer shows the type; switching to the tab it moved
+ * into keeps the selection visible instead of leaving it pointing at a row
+ * the current tab has dropped.
+ */
+export function reopenedView(typeId: number, partCode: string | null): ReopenedView {
+  return { tab: 'queue', selection: { typeId, partCode } };
+}
+
 export function typeOf(types: SurveyType[], sel: Selection): SurveyType | null {
   return sel ? (types.find((t) => t.id === sel.typeId) ?? null) : null;
 }

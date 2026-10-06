@@ -56,6 +56,7 @@ import {
   partOf,
   removePart,
   removeType,
+  reopenedView,
   replacePart,
   replaceType,
   roomOptions,
@@ -386,10 +387,14 @@ export function KortlaegningPage() {
 
   function reopen() {
     const t = selType;
+    const p = selPart;
     if (!t) return;
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, { review_status: 'queue' });
       setTypes((prev) => replaceType(prev, body));
+      const view = reopenedView(t.id, p?.code ?? null);
+      setTab(view.tab);
+      select(view.selection);
     });
   }
 
@@ -545,8 +550,9 @@ export function KortlaegningPage() {
         toast.show(`${p.code} slettet`);
       } else {
         const r = await api.deleteSurveyType(t.id);
-        setTypes((prev) => removeType(prev, t.id));
+        const next = setTypes((prev) => removeType(prev, t.id));
         toast.show(typeDeletedMessage(t.name, r.parts_deleted));
+        select(nextInQueue(next, t.id, shownIn(next)));
       }
       await reread(async () => {
         const [s, list] = await Promise.all([api.survey(), api.resources()]);

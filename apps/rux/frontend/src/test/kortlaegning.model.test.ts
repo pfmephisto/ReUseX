@@ -15,6 +15,7 @@ import {
   partOf,
   removePart,
   removeType,
+  reopenedView,
   replacePart,
   replaceType,
   roomName,
@@ -162,6 +163,27 @@ describe('kortlægning model', () => {
     const list = [type(10, 'a'), type(11, 'b', { review_status: 'approved' }), type(12, 'c')];
     const shown = visibleTypes(list, 'queue', NO_FILTERS); // 11 is no longer in it
     expect(nextInQueue(list, 11, shown)).toEqual({ typeId: 12, partCode: null });
+  });
+
+  it('switches to the queue tab on "Genåbn" so the reopened type stays selected and visible', () => {
+    expect(reopenedView(4, null)).toEqual({ tab: 'queue', selection: { typeId: 4, partCode: null } });
+    // A selected part under the reopened type stays selected too.
+    expect(reopenedView(4, 'RX-030')).toEqual({ tab: 'queue', selection: { typeId: 4, partCode: 'RX-030' } });
+  });
+
+  it('picks a queued type to select after "Slet type", the same composition the page uses', () => {
+    // "Slet type" removes the type entirely (unlike approve/reject, which only
+    // change its review_status), so `afterTypeId` is gone from `next` too —
+    // nextInQueue must still land on a queued type instead of nothing.
+    const list = [type(1, 'a'), type(2, 'b'), type(3, 'c', { review_status: 'approved' })];
+    const next = removeType(list, 1);
+    expect(nextInQueue(next, 1, visibleTypes(next, 'queue', NO_FILTERS))).toEqual({
+      typeId: 2,
+      partCode: null,
+    });
+    // Deleting the last queued type leaves nothing to select.
+    const onlyOne = removeType(next, 2);
+    expect(nextInQueue(onlyOne, 2, visibleTypes(onlyOne, 'queue', NO_FILTERS))).toBeNull();
   });
 
   it('labels a part by code and room, falling back to the room id', () => {

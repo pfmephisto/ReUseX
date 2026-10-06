@@ -30,10 +30,13 @@
 
 #include <sqlite3.h>
 
+#include <opencv2/core.hpp>
+
 #include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
 #include <core/ProjectDB.hpp>
+#include <core/SensorIntrinsics.hpp>
 #include <core/resources.hpp>
 
 #include <algorithm>
@@ -586,4 +589,61 @@ TEST_CASE("RunningServer_EditThenShutdown_LeavesTheEditInTheMainFile",
   sqlite3_finalize(stmt);
   sqlite3_close(raw);
   CHECK(stored == name);
+}
+
+TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
+          "[gui][server][socket][segment]") {
+  // POST /frames/<id>/segment/resource sits under /frames/<id>/segment; both
+  // must route. Frame 1 is posed with depth and a saved mask whose label 0
+  // covers the one cloud point; frame 2 has a colour image only.
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempPath project("test_gui_server_socket", ".rux");
+  {
+    reusex::ProjectDB db(project.path);
+    reusex::core::SensorIntrinsics in;
+    in.fx = in.fy = 50.0;
+    in.cx = in.cy = 32.0;
+    in.width = in.height = 64;
+    db.save_sensor_frame(1, cv::Mat(64, 64, CV_8UC3, cv::Scalar(0)),
+                         cv::Mat(64, 64, CV_16UC1, cv::Scalar(2000)), cv::Mat(),
+                         {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, in,
+                         1.0, -1);
+    db.save_segmentation_image(1, cv::Mat(64, 64, CV_32S, cv::Scalar(0)));
+    db.save_sensor_frame(2, cv::Mat(8, 8, CV_8UC3, cv::Scalar(0)));
+    reusex::Cloud cloud;
+    reusex::PointT p;
+    p.x = 0.0f;
+    p.y = 0.0f;
+    p.z = 2.0f;
+    cloud.push_back(p);
+    db.save_point_cloud("cloud", cloud);
+  }
+  ServerOptions options;
+  options.project = project.path;
+  options.port = free_port();
+  options.open_browser = false;
+  options.threads = 2;
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  const std::string route = "/api/v1/frames/1/segment/resource";
+  CHECK(connection.send_json("POST", route, "not json").status == 400);
+  CHECK(connection.send_json("POST", route, R"({"mask_label":0})").status ==
+        400);
+  CHECK(connection
+            .send_json("POST", "/api/v1/frames/2/segment/resource",
+                       R"({"mask_label":0,"class_name":"Dør"})")
+            .status == 422);
+  CHECK(connection
+            .send_json("POST", "/api/v1/frames/99/segment/resource",
+                       R"({"mask_label":0,"class_name":"Dør"})")
+            .status == 404);
+  const Response created = connection.send_json(
+      "POST", route, R"({"mask_label":0,"class_name":"Dør"})");
+  INFO(created.body);
+  CHECK(created.status == 201);
+  CHECK(created.body.find("\"resource_code\":\"RX-001\"") != std::string::npos);
+  // The sibling segment route still answers (no segmenter registered here).
+  CHECK(connection.send_json("POST", "/api/v1/frames/1/segment", "{}").status ==
+        503);
 }

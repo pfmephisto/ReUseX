@@ -278,6 +278,28 @@ the count and codes (`SurveySyncReport::parts_orphaned` /
 orphaned part — re-file it under a new instance, or drop it — is a Phase 3
 product decision.
 
+### Editor write: segment resource (rux gui, POST /frames/{id}/segment/resource)
+
+<!-- No backticks in this heading: test_stage_contract parses backticked
+     `### ` headings as pipeline stages, and this is not one. -->
+
+Turn one label of a frame's saved segmentation into a labelled selection, a new
+instance and a survey part. An editor write, not a pipeline stage: it is logged
+in `pipeline_log` as `segment_resource` but is not a `Stage` and has no
+`rux validate --stage` entry.
+
+| | |
+|---|---|
+| Consumes | `cloud`, the frame's `segmentation_images` row, its stored pose, intrinsics and depth image |
+| Produces | `labels` and `instances` (created all-zero when absent, cloud-sized), one `instances` row, label definitions for both, one `survey_parts` row (and a `survey_types` row when needed) |
+| Options  | `MaskProjectionOptions`, `MaskSelectionOptions` (`libs/reusex/include/core/mask_selection.hpp`) |
+| Checks   | frame posed with depth; `labels`/`instances`, when present, index-aligned with `cloud` |
+
+Existing `instances` rows are updated in place (point counts), never deleted
+and re-inserted, so `instance_materials` links survive. A later
+`rux create instances` re-clusters from `labels`; the hand-made instance keeps
+its GUID (and its part's link) only when reconciliation matches it by overlap.
+
 ### `attributes` (`rux create attributes`)
 
 Describe each material by cropping its linked instance(s) out of their best

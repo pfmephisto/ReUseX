@@ -130,9 +130,10 @@ struct MaskSelectionResult {
  * Existing instance rows are never deleted and re-inserted, so material links
  * (`instance_materials` cascades on that delete) survive.
  *
- * @throws std::invalid_argument for an empty/blank `class_name`, an index out
- *         of range, or a clouds-out-of-sync size mismatch.
- * @throws MaskSelectionError for an empty selection or a missing base cloud.
+ * @throws std::invalid_argument for an empty/blank `class_name` or an index
+ *         out of range.
+ * @throws MaskSelectionError for an empty selection, a missing base cloud, or
+ *         a label cloud whose size differs from the base cloud's.
  * @throws std::out_of_range when `opts.type_id` names no survey type.
  */
 MaskSelectionResult

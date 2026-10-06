@@ -1021,11 +1021,21 @@ paths:
                     default class list (18 architectural classes for TRT).
                   items:
                     type: object
-                    required: [text]
+                    description: |
+                      A prompt needs a non-empty `text`, at least one box, or
+                      both.
                     properties:
                       text:
                         type: string
-                        description: Open-vocabulary class name, e.g. "wall".
+                        description: |
+                          Open-vocabulary class name, e.g. "wall". May be
+                          omitted, null or "" when the prompt has at least one
+                          box: SAM3 then segments what the box encloses, and
+                          the prompt is sent to the model as the text
+                          `"visual"` — the upstream SAM3 convention for a
+                          geometry-only prompt. Its entry in the response's
+                          `labels` reads `"visual"`. Without a box an empty
+                          text is a 400.
                       boxes:
                         type: array
                         description: |
@@ -1085,8 +1095,8 @@ paths:
         "400":
           description: |
             `model_path` omitted on a server with no managed SAM3 model,
-            a non-string `model_path`, malformed prompts, or invalid box
-            format.
+            a non-string `model_path`, malformed prompts (including a prompt
+            with neither text nor a box), or invalid box format.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1114,6 +1124,114 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /frames/{id}/segment/resource:
+    post:
+      tags: [frames]
+      operationId: segmentFrameResource
+      summary: Project one label of a frame's saved mask into the cloud as a new instance and survey part
+      description: |
+        Takes the pixels of label `mask_label` in frame `{id}`'s **saved**
+        segmentation image (the prompt index from a
+        `POST /frames/{id}/segment` run with `save: true`), projects the base
+        cloud `cloud` through the frame's pose and pinhole intrinsics (rescaled
+        to the mask size) and keeps the points that land on the mask and agree
+        with the frame's own depth image within 0.10 m (points beyond 8 m are
+        ignored). The selection is then, in one transaction
+        (`core::apply_mask_selection`):
+
+        * labelled `class_name` in the semantic cloud `labels` — the class id
+          whose label definition is exactly that name, else a new one; the
+          cloud is created all-zero when the project has none;
+        * made one new instance in `instances` (created when absent) with a
+          fresh GUID and an `SM<class>-<id> (<n>p)` label definition; the
+          instances that gave up points have their point counts updated
+          (existing instance rows, and so their material links, are kept);
+        * filed as a new survey part (resource) linked to the new instance, in
+          `type_id` when given, else the survey type `POST /survey/sync` uses
+          for this class, else a type named `class_name` (created when
+          absent). `POST /survey/sync` will not add a second part for it.
+
+        A `pipeline_log` row with stage `segment_resource` records the run.
+        On success the server broadcasts a `clouds.changed` WebSocket message
+        naming `labels` and `instances` (see `docs/gui/websocket-events.md`).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mask_label, class_name]
+              properties:
+                mask_label:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Label value in the saved segmentation (API encoding, the
+                    prompt index; -1 is background and not selectable).
+                class_name:
+                  type: string
+                  minLength: 1
+                  description: Semantic class name; surrounding whitespace is trimmed.
+                type_id:
+                  type: [integer, "null"]
+                  description: |
+                    Survey type for the new part. Omitted or null ⟹ chosen
+                    as described above.
+      responses:
+        "201":
+          description: The instance and the survey part were created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resource_code, type_id, type_created, instance_id,
+                           instance_guid, point_count, label_id,
+                           label_created, clouds]
+                properties:
+                  resource_code: { type: string, example: "RX-042" }
+                  type_id: { type: integer }
+                  type_created:
+                    type: boolean
+                    description: True when the survey type was created by this call.
+                  instance_id: { type: integer, minimum: 1 }
+                  instance_guid: { type: string }
+                  point_count: { type: integer, minimum: 1 }
+                  label_id:
+                    type: integer
+                    minimum: 1
+                    description: The class id in `labels` (a CloudL value, 0 = unlabeled).
+                  label_created:
+                    type: boolean
+                    description: True when the class was new to `labels`.
+                  clouds:
+                    type: array
+                    items: { type: string }
+                    description: The clouds that were rewritten (`labels`, `instances`).
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404":
+          description: No such sensor frame, or `type_id` names no survey type.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: |
+            The frame cannot be turned into a resource: it has no saved
+            segmentation, `mask_label` has no pixels in it, the frame has no
+            stored pose or no depth image, the project has no `cloud`, the
+            mask covers no visible point, or the label clouds are out of sync
+            with `cloud`. Nothing was written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- panoramas ----

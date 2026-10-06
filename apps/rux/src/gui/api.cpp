@@ -13,6 +13,8 @@
 #include <reusex/core/component_record.hpp>
 #include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
+#include <reusex/core/label_semantics.hpp>
+#include <reusex/core/mask_selection.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/report_version_json.hpp>
 #include <reusex/core/resource_keys.hpp>
@@ -678,6 +680,9 @@ const std::vector<Endpoint> &endpoint_table() {
        "An encoded image for one sensor frame", true},
       {"POST", "/api/v1/frames/<int>/segment",
        "Run SAM3 on one frame and store the label mask"},
+      {"POST", "/api/v1/frames/<int>/segment/resource",
+       "Project one label of a frame's saved mask into the cloud as a new "
+       "instance and survey part"},
       {"GET", "/api/v1/panoramas", "All 360 panoramas with pose provenance"},
       {"GET", "/api/v1/panoramas/<int>", "One panorama's metadata"},
       {"GET", "/api/v1/panoramas/<int>/image", "The equirectangular image",
@@ -1601,9 +1606,14 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
     return prompts;
 
   for (const auto &p : body["prompts"]) {
-    const std::string text = p.value("text", "");
-    if (text.empty())
-      throw HttpError(400, "each prompt must have a non-empty 'text'");
+    if (!p.is_object())
+      throw HttpError(400, "each prompt must be an object");
+    std::string text;
+    if (const auto t = p.find("text"); t != p.end() && !t->is_null()) {
+      if (!t->is_string())
+        throw HttpError(400, "a prompt's 'text' must be a string");
+      text = t->get<std::string>();
+    }
 
     std::vector<reusex::vision::SegmentBox> boxes;
     if (allow_boxes && p.contains("boxes") && p["boxes"].is_array()) {
@@ -1619,6 +1629,16 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
                                     b[1][2].get<float>(), b[1][3].get<float>()};
         boxes.emplace_back(lbl, coords);
       }
+    }
+    // A box-only prompt is valid: SAM3 segments what the box encloses. It
+    // goes to the model with the geometry-only text convention.
+    if (text.empty()) {
+      if (boxes.empty())
+        throw HttpError(400, allow_boxes
+                                 ? "each prompt needs a non-empty 'text' or "
+                                   "at least one box"
+                                 : "each prompt must have a non-empty 'text'");
+      text = std::string(kGeometryOnlyPromptText);
     }
     const float per_conf = p.value("confidence", -1.0f);
     prompts.emplace_back(text, std::move(boxes), per_conf);
@@ -1738,6 +1758,88 @@ nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
 
   return segment_panorama_result_json(pano_id, result.label_map,
                                       result.class_names, saved);
+}
+
+// ===========================================================================
+// mask -> resource (Segmentering, spec B2)
+// ===========================================================================
+
+SegmentResourceRequest parse_segment_resource_request(std::string_view body) {
+  auto j = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (j.is_discarded() || !j.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  SegmentResourceRequest req;
+  const auto m = j.find("mask_label");
+  if (m == j.end() || !m->is_number_integer() || m->get<int64_t>() < 0 ||
+      m->get<int64_t>() > reusex::core::kMaxStorableLabel)
+    throw HttpError(400, "'mask_label' is required: the label (prompt index, "
+                         ">= 0) in the frame's saved segmentation");
+  req.mask_label = m->get<int>();
+
+  const auto c = j.find("class_name");
+  if (c == j.end() || !c->is_string())
+    throw HttpError(400, "'class_name' is required and must be a string");
+  std::string name = c->get<std::string>();
+  const auto b = name.find_first_not_of(" \t\r\n");
+  if (b == std::string::npos)
+    throw HttpError(400, "'class_name' must not be blank");
+  name = name.substr(b, name.find_last_not_of(" \t\r\n") - b + 1);
+  req.class_name = std::move(name);
+
+  if (const auto t = j.find("type_id"); t != j.end() && !t->is_null()) {
+    if (!t->is_number_integer())
+      throw HttpError(400, "'type_id' must be an integer or null");
+    req.type_id = t->get<int64_t>();
+  }
+  return req;
+}
+
+json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
+                              const SegmentResourceRequest &req) {
+  if (!db.has_sensor_frame(frame_id))
+    not_found("sensor frame", std::to_string(frame_id));
+  if (!db.has_segmentation_image(frame_id))
+    throw HttpError(422, "frame " + std::to_string(frame_id) +
+                             " has no saved segmentation; run POST "
+                             "/frames/{id}/segment with save=true first");
+  const cv::Mat seg = db.segmentation_image(frame_id); // CV_32S, -1 = bg
+  const cv::Mat mask = seg == req.mask_label;
+  if (cv::countNonZero(mask) == 0)
+    throw HttpError(
+        422, "the saved segmentation of frame " + std::to_string(frame_id) +
+                 " has no pixels with label " + std::to_string(req.mask_label));
+
+  reusex::core::MaskSelectionOptions opts;
+  opts.type_id = req.type_id;
+  opts.frame_id = frame_id;
+  try {
+    return map_library_errors([&] {
+      const auto indices = reusex::core::project_frame_mask(db, frame_id, mask);
+      const auto r =
+          reusex::core::apply_mask_selection(db, indices, req.class_name, opts);
+      return json{
+          {"resource_code", r.resource_code},
+          {"type_id", r.type_id},
+          {"type_created", r.type_created},
+          {"instance_id", r.instance_id},
+          {"instance_guid", r.instance_guid},
+          {"point_count", r.point_count},
+          {"label_id", r.label_id},
+          {"label_created", r.label_created},
+          {"clouds", json::array({opts.semantic_cloud, opts.instance_cloud})}};
+    });
+  } catch (const reusex::core::MaskSelectionError &e) {
+    throw HttpError(422, e.what());
+  }
+}
+
+json clouds_changed_json(const std::vector<std::string> &names,
+                         std::string_view project) {
+  return json{{"type", "clouds.changed"},
+              {"timestamp", pipeline::iso8601_utc_now()},
+              {"project", std::string(project)},
+              {"names", names}};
 }
 
 // ===========================================================================

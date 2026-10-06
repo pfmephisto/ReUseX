@@ -26,6 +26,8 @@
 
 #include <opencv2/imgcodecs.hpp>
 
+#include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -417,4 +419,198 @@ TEST_CASE("ExecuteSegmentPanorama_SaveTrue_WritesToDb",
   CHECK(body.at("pano_id") == pano_id);
   CHECK(body.at("saved") == true);
   CHECK(body.at("labeled_pixels").get<int>() > 0);
+}
+
+// ===========================================================================
+// box-only prompts (spec B1): empty text is fine when the prompt has a box
+// ===========================================================================
+
+TEST_CASE("ParseSegmentFrameRequest_EmptyTextWithBox_UsesGeometryOnlyText",
+          "[gui][segment][parse]") {
+  const auto req = parse_segment_frame_request(
+      R"({"prompts":[{"text":"","boxes":[["pos",[1,2,30,40]]]},
+                     {"boxes":[["pos",[5,5,9,9]]]},
+                     {"text":"wall"}]})",
+      true);
+  REQUIRE(req.prompts.size() == 3);
+  CHECK(req.prompts[0].text == std::string(kGeometryOnlyPromptText));
+  CHECK(req.prompts[0].text == "visual");
+  REQUIRE(req.prompts[0].boxes.size() == 1);
+  CHECK(req.prompts[1].text == "visual"); // `text` omitted entirely
+  CHECK(req.prompts[2].text == "wall");
+}
+
+TEST_CASE("ParseSegmentFrameRequest_EmptyTextWithoutBox_Is400",
+          "[gui][segment][parse]") {
+  for (const char *body :
+       {R"({"prompts":[{"text":""}]})", R"({"prompts":[{}]})",
+        R"({"prompts":[{"text":"","boxes":[]}]})",
+        R"({"prompts":[{"text":42,"boxes":[["pos",[0,0,1,1]]]}]})"}) {
+    INFO(body);
+    try {
+      parse_segment_frame_request(body, true);
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 400);
+    }
+  }
+}
+
+TEST_CASE("ParseSegmentPanoramaRequest_EmptyText_Is400",
+          "[gui][segment][parse][panorama]") {
+  // Panorama prompts take no boxes, so there is no geometry to fall back on.
+  try {
+    parse_segment_panorama_request(R"({"prompts":[{"text":""}]})", true);
+    FAIL("expected HttpError");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 400);
+  }
+}
+
+// ===========================================================================
+// POST /frames/<id>/segment/resource (spec B2)
+// ===========================================================================
+
+namespace {
+
+int status_of(const std::function<void()> &f) {
+  try {
+    f();
+  } catch (const HttpError &e) {
+    return e.status();
+  }
+  return 0;
+}
+
+/// Frame 1: pinhole 64x64 at the origin looking down +z, depth 2 m
+/// everywhere, a saved segmentation whose label 0 covers the central 16x16
+/// pixels and label 1 the top-left 8x8 corner. Cloud: two points on the wall
+/// in the centre, one behind the wall in the corner (occluded), one off to
+/// the side.
+void make_resource_fixture(reusex::ProjectDB &db) {
+  reusex::core::SensorIntrinsics in;
+  in.fx = in.fy = 50.0;
+  in.cx = in.cy = 32.0;
+  in.width = in.height = 64;
+  const std::array<double, 16> pose = {1, 0, 0, 0, 0, 1, 0, 0,
+                                       0, 0, 1, 0, 0, 0, 0, 1};
+  db.save_sensor_frame(1, cv::Mat(64, 64, CV_8UC3, cv::Scalar(1, 2, 3)),
+                       cv::Mat(64, 64, CV_16UC1, cv::Scalar(2000)), cv::Mat(),
+                       pose, in, 1.0, -1);
+  cv::Mat seg(64, 64, CV_32S, cv::Scalar(-1));
+  seg(cv::Rect(24, 24, 16, 16)).setTo(0);
+  seg(cv::Rect(0, 0, 8, 8)).setTo(1);
+  db.save_segmentation_image(1, seg);
+
+  reusex::Cloud cloud;
+  auto add = [&](float x, float y, float z) {
+    reusex::PointT p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    cloud.push_back(p);
+  };
+  add(0.0f, 0.0f, 2.0f);   // centre -> label 0
+  add(0.05f, 0.0f, 2.0f);  // u = 33.25 -> label 0
+  add(-1.5f, -1.5f, 2.5f); // u = v = 2 -> label 1, but behind the wall
+  add(1.0f, 0.0f, 2.0f);   // u = 57 -> background
+  db.save_point_cloud("cloud", cloud);
+}
+
+} // namespace
+
+TEST_CASE("ParseSegmentResourceRequest_ValidAndInvalidBodies",
+          "[gui][segment][resource]") {
+  const auto ok = parse_segment_resource_request(
+      R"({"mask_label":2,"class_name":"  Dør ","type_id":7})");
+  CHECK(ok.mask_label == 2);
+  CHECK(ok.class_name == "Dør");
+  CHECK(ok.type_id == 7);
+  CHECK_FALSE(parse_segment_resource_request(
+                  R"({"mask_label":0,"class_name":"x","type_id":null})")
+                  .type_id);
+
+  for (const char *body :
+       {"not json", "[]", R"({"class_name":"x"})",
+        R"({"mask_label":-1,"class_name":"x"})",
+        R"({"mask_label":1.5,"class_name":"x"})",
+        R"({"mask_label":"1","class_name":"x"})", R"({"mask_label":0})",
+        R"({"mask_label":0,"class_name":"   "})",
+        R"({"mask_label":0,"class_name":3})",
+        R"({"mask_label":0,"class_name":"x","type_id":"7"})"}) {
+    INFO(body);
+    CHECK(status_of([&] { parse_segment_resource_request(body); }) == 400);
+  }
+}
+
+TEST_CASE("ExecuteSegmentResource_CreatesInstanceAndPart",
+          "[gui][segment][resource]") {
+  TempPath project("test_segment_resource");
+  reusex::ProjectDB db(project.path);
+  make_resource_fixture(db);
+
+  SegmentResourceRequest req;
+  req.mask_label = 0;
+  req.class_name = "Dør";
+  const auto out = execute_segment_resource(db, 1, req);
+
+  CHECK(out.at("resource_code") == "RX-001");
+  CHECK(out.at("point_count") == 2);
+  CHECK(out.at("instance_id") == 1);
+  CHECK(out.at("label_id") == 1);
+  CHECK(out.at("label_created") == true);
+  CHECK(out.at("type_created") == true);
+  CHECK_FALSE(out.at("instance_guid").get<std::string>().empty());
+  CHECK(out.at("clouds") == json::array({"labels", "instances"}));
+  const auto part = db.survey_part("RX-001");
+  REQUIRE(part);
+  CHECK(part->instance_guid == out.at("instance_guid").get<std::string>());
+  CHECK(part->type_id == out.at("type_id").get<int64_t>());
+}
+
+TEST_CASE("ExecuteSegmentResource_ErrorStatuses", "[gui][segment][resource]") {
+  TempPath project("test_segment_resource_errors");
+  reusex::ProjectDB db(project.path);
+  make_resource_fixture(db);
+  SegmentResourceRequest req;
+  req.class_name = "Dør";
+
+  SECTION("unknown frame is 404") {
+    req.mask_label = 0;
+    CHECK(status_of([&] { execute_segment_resource(db, 99, req); }) == 404);
+  }
+  SECTION("a label with no pixels is 422") {
+    req.mask_label = 5;
+    CHECK(status_of([&] { execute_segment_resource(db, 1, req); }) == 422);
+  }
+  SECTION("a mask that covers no visible point is 422") {
+    req.mask_label = 1;
+    CHECK(status_of([&] { execute_segment_resource(db, 1, req); }) == 422);
+  }
+  SECTION("no saved segmentation is 422") {
+    db.save_sensor_frame(2, cv::Mat(8, 8, CV_8UC3, cv::Scalar(0)));
+    req.mask_label = 0;
+    CHECK(status_of([&] { execute_segment_resource(db, 2, req); }) == 422);
+  }
+  SECTION("no pose is 422") {
+    db.save_sensor_frame(3, cv::Mat(64, 64, CV_8UC3, cv::Scalar(0)));
+    cv::Mat seg(64, 64, CV_32S, cv::Scalar(0));
+    db.save_segmentation_image(3, seg);
+    req.mask_label = 0;
+    CHECK(status_of([&] { execute_segment_resource(db, 3, req); }) == 422);
+  }
+  SECTION("unknown type_id is 404") {
+    req.mask_label = 0;
+    req.type_id = 4242;
+    CHECK(status_of([&] { execute_segment_resource(db, 1, req); }) == 404);
+  }
+  CHECK(db.survey_parts().empty());
+}
+
+TEST_CASE("CloudsChangedJson_Shape", "[gui][segment][resource][ws]") {
+  const auto j = clouds_changed_json({"labels", "instances"}, "scan.rux");
+  CHECK(j.at("type") == "clouds.changed");
+  CHECK(j.at("project") == "scan.rux");
+  CHECK(j.at("names") == json::array({"labels", "instances"}));
+  CHECK(j.at("timestamp").get<std::string>().size() == 20);
 }

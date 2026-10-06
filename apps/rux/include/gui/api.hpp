@@ -366,12 +366,23 @@ struct SegmentFrameRequest {
   std::vector<reusex::vision::Sam3Prompt> prompts;
 };
 
+/// Text sent to SAM3 for a prompt that carries boxes but no class name — the
+/// upstream SAM3 convention for a geometry-only prompt (Meta's
+/// Sam3Processor encodes the text "visual" when only boxes are given, so the
+/// model relies on the geometry). Without it, an empty string would be
+/// tokenized as a real (empty) concept. The response's `labels` entry for
+/// such a prompt reads "visual".
+inline constexpr std::string_view kGeometryOnlyPromptText = "visual";
+
 /// Parse and validate the body of POST /frames/<id>/segment.
 ///
 /// @param server_cuda_default  Server-wide use_cuda default; used when the
 ///        request body omits the `use_cuda` field.
 /// @note An empty/omitted model_path is accepted; the handler resolves it to
 ///       the managed SAM3 model (or returns 400 if none is configured).
+/// @note A prompt may omit `text` (or send "") when it has at least one box;
+///       its text becomes kGeometryOnlyPromptText. Without boxes, an empty
+///       text is still a 400.
 /// @throws HttpError(400) on bad JSON or invalid prompt/box format.
 SegmentFrameRequest parse_segment_frame_request(std::string_view body,
                                                 bool server_cuda_default);
@@ -414,6 +425,40 @@ nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
 nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
                                         const SegmentPanoramaRequest &req,
                                         IPanoramaSegmenter *segmenter);
+
+/// Parsed and validated body of POST /frames/<id>/segment/resource.
+struct SegmentResourceRequest {
+  /// Label value (prompt index, API encoding >= 0) in the frame's saved
+  /// segmentation image whose pixels form the mask.
+  int mask_label = -1;
+  std::string class_name; ///< Trimmed, non-empty.
+  std::optional<int64_t> type_id;
+};
+
+/// Parse and validate the body of POST /frames/<id>/segment/resource.
+/// @throws HttpError(400) on bad JSON, a missing/negative/non-integer
+///         `mask_label`, a missing/blank `class_name`, or a non-integer
+///         `type_id`.
+SegmentResourceRequest parse_segment_resource_request(std::string_view body);
+
+/// Project one label of a frame's saved segmentation into the base cloud and
+/// file the selection as a new instance + survey part
+/// (core::project_frame_mask + core::apply_mask_selection).
+///
+/// @return `{resource_code, type_id, type_created, instance_id,
+///          instance_guid, point_count, label_id, label_created, clouds}` —
+///          `clouds` names the label clouds that were rewritten.
+/// @throws HttpError(404) unknown frame or type_id; HttpError(422) when the
+///         frame has no saved segmentation, the label has no pixels, the frame
+///         has no pose/depth, there is no base cloud, or the mask covers no
+///         visible point.
+nlohmann::json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
+                                        const SegmentResourceRequest &req);
+
+/// The WebSocket `clouds.changed` message: these named clouds were rewritten
+/// by an editor endpoint; a client showing them should reload.
+nlohmann::json clouds_changed_json(const std::vector<std::string> &names,
+                                   std::string_view project);
 
 /// Build the JSON response body for POST /frames/<id>/segment (#409).
 ///

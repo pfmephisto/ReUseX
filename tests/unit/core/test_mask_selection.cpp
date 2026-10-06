@@ -334,7 +334,7 @@ TEST_CASE("apply_mask_selection rejects bad input and writes nothing",
   o.type_id = 4242;
   CHECK_THROWS_AS(apply_mask_selection(db, {0}, "Dør", o), std::out_of_range);
   db.save_point_cloud("labels", label_cloud({0, 0})); // out of sync
-  CHECK_THROWS_AS(apply_mask_selection(db, {0}, "Dør"), std::invalid_argument);
+  CHECK_THROWS_AS(apply_mask_selection(db, {0}, "Dør"), MaskSelectionError);
 
   CHECK_FALSE(db.has_point_cloud("instances"));
   CHECK(db.survey_parts().empty());

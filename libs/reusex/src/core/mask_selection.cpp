@@ -68,7 +68,7 @@ CloudLPtr label_cloud_or_zeros(const ProjectDB &db, const std::string &name,
   }
   auto cloud = db.point_cloud_label(name);
   if (!cloud || cloud->size() != n)
-    throw std::invalid_argument(fmt::format(
+    throw MaskSelectionError(fmt::format(
         "apply_mask_selection: '{}' has {} points but the base cloud has {} "
         "— the clouds are out of sync (re-run the stage that wrote '{}')",
         name, cloud ? cloud->size() : 0, n, name));

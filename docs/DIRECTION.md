@@ -190,6 +190,17 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-06** — **GUI: reject ≠ delete in Kortlægning**
+  ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md)
+  §A3). Afvis keeps a type, now listed in its own **Afvist** tab; **Slet** is a
+  separate, confirmed action for any part or a whole type. Deleting a
+  scan-backed part records its instance guid in a tombstone table,
+  `survey_dismissed_instances` (schema v26), which `sync_survey` respects, so a
+  deleted resource stays deleted across "Opret kortlægning" re-runs. Because
+  the tombstones are kept, a later **"Gendan slettede scan-ressourcer"**
+  (restore deleted scan resources) is possible: drop the rows and re-sync. Not
+  built yet.
+
 - **2026-10-02** — **GUI: resources, templates and navigation cleanup**
   ([spec](superpowers/specs/2026-10-02-resources-templates-ia-design.md)).
   Materials are now *resources* in the GUI: one per survey part, carrying any

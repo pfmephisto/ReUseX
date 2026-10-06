@@ -275,6 +275,22 @@ class EngineImplement : public Engine {
     return std::vector<int>(dim.d, dim.d + dim.nbDims);
   }
 
+  virtual std::vector<int> profile_dims(const std::string &name,
+                                        int which) override {
+    if (binding_name_to_index_.count(name) == 0)
+      return {};
+    auto engine = this->context_->engine_;
+    const auto selector = which <= 0   ? nvinfer1::OptProfileSelector::kMIN
+                          : which == 1 ? nvinfer1::OptProfileSelector::kOPT
+                                       : nvinfer1::OptProfileSelector::kMAX;
+    auto dim = engine->getProfileShape(name.c_str(), 0, selector);
+    if (dim.nbDims <= 0) // static input: no profile entry
+      dim = engine->getTensorShape(name.c_str());
+    if (dim.nbDims <= 0)
+      return {};
+    return std::vector<int>(dim.d, dim.d + dim.nbDims);
+  }
+
   virtual int num_bindings() override {
     return this->context_->engine_->getNbIOTensors();
   }

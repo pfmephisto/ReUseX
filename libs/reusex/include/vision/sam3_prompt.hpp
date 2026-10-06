@@ -45,9 +45,17 @@ inline int sam3_label_value(bool by_prompt_index, int prompt_index,
   return by_prompt_index && prompt_index >= 0 ? prompt_index : cache_id;
 }
 
+/// A click-point prompt: pixel [x, y].
+using SegmentPoint = std::array<float, 2>;
+
 struct Sam3Prompt {
   std::string text;
   std::vector<SegmentBox> boxes;
+  /// Positive click points. SAM3's exported detector takes boxes only, so a
+  /// backend with a geometry encoder feeds each point as a small exemplar box
+  /// (sam3_point_exemplar_box) and keeps the detections whose mask covers a
+  /// point; a backend without one clips the prompt's pixels to that box.
+  std::vector<SegmentPoint> points;
   /// Per-prompt confidence override. Negative ⟹ use the global threshold.
   float confidence = -1.0f;
 

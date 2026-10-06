@@ -6,6 +6,7 @@
 
 #include "core/logging.hpp"
 #include "vision/IDataset.hpp"
+#include "vision/sam3_geometry.hpp"
 
 // Include backend data types conditionally. These live inside the vision
 // library where the REUSEX_USE_* defines are set (PRIVATE on reusex_vision).
@@ -34,8 +35,25 @@ namespace reusex::vision {
 namespace {
 
 bool has_boxes(const std::vector<Sam3Prompt> &prompts) {
-  return std::any_of(prompts.begin(), prompts.end(),
-                     [](const Sam3Prompt &p) { return !p.boxes.empty(); });
+  return std::any_of(prompts.begin(), prompts.end(), [](const Sam3Prompt &p) {
+    return !p.boxes.empty() || !p.points.empty();
+  });
+}
+
+/// @p prompts with each click point turned into its smallest exemplar box, so
+/// a backend that ignored the geometry clips a point prompt to the click's
+/// neighbourhood.
+std::vector<Sam3Prompt> points_as_boxes(const std::vector<Sam3Prompt> &prompts,
+                                        int width, int height) {
+  std::vector<Sam3Prompt> out = prompts;
+  for (auto &p : out) {
+    for (const auto &pt : p.points)
+      p.boxes.emplace_back(
+          "pos", sam3_point_exemplar_box(pt, width, height,
+                                         sam3_point_exemplar_fracs().front()));
+    p.points.clear();
+  }
+  return out;
 }
 
 /// Clip boxed prompts when the backend ignored the boxes, warning once per
@@ -50,7 +68,8 @@ void clip_ignored_boxes(cv::Mat &labels, const std::vector<Sam3Prompt> &prompts,
                  "so prompt boxes are not fed to the model; each boxed "
                  "prompt's detections are clipped to its boxes instead",
                  backend);
-  const auto cleared = clip_labels_to_prompt_boxes(labels, prompts);
+  const auto cleared = clip_labels_to_prompt_boxes(
+      labels, points_as_boxes(prompts, labels.cols, labels.rows));
   reusex::debug("segment_image: clipped {} pixel(s) outside prompt boxes",
                 cleared);
 }
@@ -124,6 +143,8 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
     // Label k = prompt k (what our callers map labels with), not the
     // model's per-text cache id that `rux create annotate` relies on.
     data->label_by_prompt_index = true;
+    // A box picks the object it covers, not every look-alike in the image.
+    data->select_box_instances = true;
 
     if (!prompts.empty()) {
       data->prompts.clear();
@@ -131,6 +152,7 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
         Sam3PromptUnit unit(p.text, {}, p.confidence);
         for (const auto &[lbl, box] : p.boxes)
           unit.boxes.emplace_back(lbl, box);
+        unit.points = p.points;
         data->prompts.push_back(std::move(unit));
       }
     }

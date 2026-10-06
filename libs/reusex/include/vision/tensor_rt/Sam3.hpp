@@ -106,6 +106,9 @@ class TensorRTSam3 : public IModel {
     int image_idx;    // Which image this Prompt belongs to
     int original_idx; // The index of this Prompt in the original image vector
     const Sam3PromptUnit *ptr; // Pointer to the original Prompt data
+    /// Exemplar half-size (fraction of the shorter image side) this pass
+    /// feeds the prompt's click points at; 0 = the prompt has no points.
+    float point_frac = 0.f;
   };
 
   // Internal processing function
@@ -121,8 +124,13 @@ class TensorRTSam3 : public IModel {
   // Modified encoding function, based on the current batch size
   bool encode_text(const std::vector<PromptMeta> &batch_prompts, int batch_size,
                    void *stream);
+  /// Run the geometry encoder once per boxed prompt (batch 1, its exact box
+  /// count: the exported graph has no box mask, so a padded box would leak
+  /// into the geometry self-attention) and lay the results out as
+  /// @p slot_boxes + 1 tokens per prompt, with the matching validity mask in
+  /// geom_valid_mask_. Prompts without boxes get an all-padding slot.
   bool encode_boxes(const std::vector<PromptMeta> &batch_prompts,
-                    int batch_size, int max_boxes, void *stream);
+                    int batch_size, int slot_boxes, void *stream);
   bool decode(int batch_size, int prompt_len, void *stream);
 
   // Post-processing
@@ -159,6 +167,12 @@ class TensorRTSam3 : public IModel {
          // decoded each time
   const int max_boxes_per_prompt_ =
       20; // Preset maximum number of supported Boxes
+
+  /// Boxes per prompt the loaded engines actually accept (min of
+  /// max_boxes_per_prompt_ and the geometry-encoder / decoder profiles); 0
+  /// when geometry prompting is off (no geometry-encoder.engine, or engines
+  /// built from a pre-v2 recipe whose decoder takes text tokens only).
+  int geom_max_boxes_ = 0;
 
   // State variables
   std::vector<std::pair<int, int>>
@@ -231,6 +245,12 @@ class TensorRTSam3 : public IModel {
 
   tensor::Memory<float> geom_features_;
   tensor::Memory<bool> geom_mask_;
+  /// Decoder-side mask of every prompt's geometry slot (True == valid token,
+  /// the exported graphs' polarity — see sam3_geometry_slot_mask), built on
+  /// the host from the real box counts so slot padding and text-only prompts
+  /// are masked; the engine's own geometry_mask output only covers its n + 1
+  /// tokens and is not used.
+  tensor::Memory<bool> geom_valid_mask_;
 
   // Used to store the results of pre-set geometry models
   std::unordered_map<std::string, std::shared_ptr<tensor::Memory<float>>>

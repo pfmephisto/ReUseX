@@ -8,6 +8,7 @@
 #include "vision/common/create_object.hpp"
 #include "vision/common/image.hpp"
 #include "vision/osd/osd.hpp"
+#include "vision/sam3_geometry.hpp"
 #include "vision/sam3_prompt.hpp"
 #include "vision/tensor_rt/Data.hpp"
 #include "vision/tensor_rt/common/affine.hpp"
@@ -22,6 +23,8 @@
 #include <range/v3/view/transform.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <map>
 #include <span>
 
 using ArrayInt64 = std::array<int64_t, 32>;
@@ -62,6 +65,22 @@ namespace reusex::vision::tensor_rt {
 namespace object = ::reusex::vision::common::object;
 namespace common_tensor = ::reusex::vision::common::tensor;
 
+namespace {
+
+/// Does detection @p det's mask (stored over its box) cover pixel (x, y)?
+bool detection_mask_covers(const object::DetectionBox &det, float x, float y) {
+  if (!det.segmentation || det.segmentation->mask.empty())
+    return false;
+  const cv::Mat &m = det.segmentation->mask;
+  const int cx = static_cast<int>(std::floor(x - std::max(0.f, det.box.left)));
+  const int cy = static_cast<int>(std::floor(y - std::max(0.f, det.box.top)));
+  if (cx < 0 || cy < 0 || cx >= m.cols || cy >= m.rows)
+    return false;
+  return m.at<uint8_t>(cy, cx) != 0;
+}
+
+} // namespace
+
 std::unique_ptr<TensorRTSam3>
 TensorRTSam3::create(const std::filesystem::path &model_path) {
   reusex::info("Creating TensorRTSam3 from model path: {}", model_path);
@@ -76,7 +95,11 @@ TensorRTSam3::create(const std::filesystem::path &model_path) {
 
   int gpu_id = 0; // Default GPU ID, can be parameterized
 
-  std::string geom_path = "";
+  // The geometry encoder is optional: without it (or with engines from a
+  // pre-v2 recipe, see load_engines) box prompts are not fed to the model.
+  std::string geom_path = std::filesystem::exists(geometry_encoder_path)
+                              ? geometry_encoder_path.string()
+                              : std::string();
   auto instance = std::make_unique<TensorRTSam3>(
       vision_encoder_path, text_encoder_path, geom_path, decoder_path,
       tokenizer_path, gpu_id);
@@ -207,7 +230,6 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
     // Build this chunk's prompt list, tagged with chunk-local image indices.
     std::vector<PromptMeta> chunk_prompts;
-    int max_boxes_input = 0;
     for (int li = 0; li < chunk_images; ++li) {
       const int gi = img_chunk_start + li;
       if (tensor_inputs[gi]->prompts.empty()) {
@@ -215,20 +237,32 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
         continue;
       }
       for (size_t j = 0; j < tensor_inputs[gi]->prompts.size(); ++j) {
-        chunk_prompts.push_back({li, (int)j, &tensor_inputs[gi]->prompts[j]});
-        // Track max box count for geometry-encoder input allocation.
-        if ((int)tensor_inputs[gi]->prompts[j].boxes.size() > max_boxes_input)
-          max_boxes_input = (int)tensor_inputs[gi]->prompts[j].boxes.size();
+        const auto &prompt = tensor_inputs[gi]->prompts[j];
+        // A click point is tried at several exemplar sizes (one decoder pass
+        // each); the most confident detection under the point wins below.
+        if (!prompt.points.empty() && geom_max_boxes_ > 0 &&
+            tensor_inputs[gi]->select_box_instances) {
+          for (const float frac : sam3_point_exemplar_fracs())
+            chunk_prompts.push_back({li, (int)j, &prompt, frac});
+        } else {
+          chunk_prompts.push_back({li, (int)j, &prompt});
+        }
+        const size_t n_geom = prompt.boxes.size() + prompt.points.size();
+        if (geom_max_boxes_ > 0 &&
+            n_geom > static_cast<size_t>(geom_max_boxes_)) {
+          static std::atomic<bool> warned{false};
+          if (!warned.exchange(true))
+            reusex::warn("TensorRTSam3: a prompt has {} boxes/points but the "
+                         "engines accept {}; the extra ones are dropped",
+                         n_geom, geom_max_boxes_);
+        }
       }
     }
 
-    const bool use_geom =
-        !geometry_encoder_path_.empty() && max_boxes_input > 0;
-    // Truncate box count to the preset GPU allocation to prevent overflow.
-    if (max_boxes_input > max_boxes_per_prompt_)
-      max_boxes_input = max_boxes_per_prompt_;
-    const int prompt_len =
-        text_ids_shape_[1] + (use_geom ? (max_boxes_input + 1) : 0);
+    // Point prompts: every pass's selected detections, finalised once all
+    // passes of the chunk have run. Key: (global image, prompt index).
+    std::map<std::pair<int, int>, InferResult> point_candidates;
+    std::map<std::pair<int, int>, std::vector<float>> candidate_frac;
 
     // 4. Decoder batch loop — split this chunk's prompts by max_prompt_batch_.
     const int total_prompts = (int)chunk_prompts.size();
@@ -242,6 +276,21 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
       std::vector<PromptMeta> batch_prompts(chunk_prompts.begin() + chunk_start,
                                             chunk_prompts.begin() + chunk_end);
 
+      // Geometry slot size: the most boxes any prompt in THIS batch feeds
+      // (0 = text-only batch, decoded exactly as before geometry existed).
+      int slot_boxes = 0;
+      for (const auto &meta : batch_prompts)
+        if (meta.ptr)
+          slot_boxes = std::max(
+              slot_boxes,
+              sam3_geometry_box_count(
+                  meta.ptr->boxes.size() +
+                      (meta.point_frac > 0.f ? meta.ptr->points.size() : 0),
+                  geom_max_boxes_));
+      const bool use_geom = slot_boxes > 0;
+      const int prompt_len =
+          text_ids_shape_[1] + sam3_geometry_slot_len(slot_boxes);
+
       // a. Gather Vision Features (chunk-local image_idx -> prompt slots)
       gather_vision_features(batch_prompts, current_batch_size, stream);
 
@@ -251,7 +300,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
 
       // c. Encode Geometry
       if (use_geom) {
-        if (!encode_boxes(batch_prompts, current_batch_size, max_boxes_input,
+        if (!encode_boxes(batch_prompts, current_batch_size, slot_boxes,
                           stream))
           continue;
       }
@@ -280,9 +329,83 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
             tensor_inputs[global_idx]->label_by_prompt_index, meta.original_idx,
             std::get<2>(text_input_map_[label]));
 
-        // Write result to the corresponding global image index.
-        postprocess(results[global_idx], k, meta.image_idx, label, label_idx,
-                    conf, return_mask, stream);
+        // Write result to the corresponding global image index (a point
+        // pass collects into its candidates first).
+        auto &image_result =
+            meta.point_frac > 0.f
+                ? point_candidates[{global_idx, meta.original_idx}]
+                : results[global_idx];
+        const size_t first_new = image_result.size();
+        postprocess(image_result, k, meta.image_idx, label, label_idx, conf,
+                    return_mask, stream);
+
+        // Box prompts are exemplars: SAM3 returns every similar object.
+        // Selection callers keep only the detections the boxes point at.
+        if (tensor_inputs[global_idx]->select_box_instances && meta.ptr &&
+            (!meta.ptr->boxes.empty() || !meta.ptr->points.empty()) &&
+            geom_max_boxes_ > 0) {
+          const auto &boxes = meta.ptr->boxes;
+          const auto kept = std::remove_if(
+              image_result.begin() + first_new, image_result.end(),
+              [&](const auto &det) {
+                // A point selects a detection only where its mask covers it.
+                return !sam3_detection_selected(
+                    {det.box.left, det.box.top, det.box.right, det.box.bottom},
+                    boxes, meta.ptr->points, [&](float x, float y) {
+                      return detection_mask_covers(det, x, y);
+                    });
+              });
+          const auto dropped = std::distance(kept, image_result.end());
+          image_result.erase(kept, image_result.end());
+          reusex::debug("TensorRTSam3: prompt {} kept {} of {} detection(s) "
+                        "selected by its boxes",
+                        meta.original_idx, image_result.size() - first_new,
+                        image_result.size() - first_new + dropped);
+        }
+        if (meta.point_frac > 0.f)
+          candidate_frac[{global_idx, meta.original_idx}].resize(
+              image_result.size(), meta.point_frac);
+      }
+    }
+
+    // Finalise point prompts: per click, the most confident detection that
+    // covers it across all exemplar sizes, plus one pass's worth of what the
+    // prompt's own boxes selected (every pass carries the boxes).
+    for (auto &[key, cands] : point_candidates) {
+      const auto &[global_idx, prompt_idx] = key;
+      const auto &prompt = tensor_inputs[global_idx]->prompts[prompt_idx];
+      std::vector<float> scores;
+      std::vector<std::vector<bool>> covers;
+      for (const auto &det : cands) {
+        scores.push_back(det.score);
+        std::vector<bool> row;
+        for (const auto &pt : prompt.points)
+          row.push_back(det.box.left <= pt[0] && pt[0] <= det.box.right &&
+                        det.box.top <= pt[1] && pt[1] <= det.box.bottom &&
+                        detection_mask_covers(det, pt[0], pt[1]));
+        covers.push_back(std::move(row));
+      }
+      const auto picked = sam3_best_detection_per_point(scores, covers);
+      auto &out = results[global_idx];
+      for (const auto d : picked)
+        out.push_back(cands[d]);
+      reusex::debug("TensorRTSam3: point prompt {} picked {} of {} candidate "
+                    "detection(s) across {} exemplar sizes",
+                    prompt_idx, picked.size(), cands.size(),
+                    sam3_point_exemplar_fracs().size());
+      if (prompt.boxes.empty())
+        continue;
+      const auto &fracs = candidate_frac[key];
+      const float first_pass = sam3_point_exemplar_fracs().front();
+      for (size_t d = 0; d < cands.size(); ++d) {
+        const bool on_point = std::any_of(covers[d].begin(), covers[d].end(),
+                                          [](bool b) { return b; });
+        // Every pass repeats the box hits; take the first pass's.
+        if (!on_point && d < fracs.size() && fracs[d] == first_pass &&
+            sam3_detection_selected({cands[d].box.left, cands[d].box.top,
+                                     cands[d].box.right, cands[d].box.bottom},
+                                    prompt.boxes))
+          out.push_back(cands[d]);
       }
     }
   }
@@ -295,7 +418,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
                              cv::Scalar(-1));
 
     reusex::vision::osd::make_labled_image(res_ptr->image, results[i]);
-    res_ptr->geometry_prompts_used = !geometry_encoder_path_.empty();
+    res_ptr->geometry_prompts_used = geom_max_boxes_ > 0;
 
     results_img[i] = IDataset::Pair();
     results_img[i].first = std::move(res_ptr);
@@ -367,6 +490,35 @@ bool TensorRTSam3::load_engines() {
 
   if (!load_engine(decoder_path_, decoder_trt_, "Decoder"))
     return false;
+  // Geometry prompting needs a geometry encoder that takes a single box and a
+  // decoder whose prompt_len profile has room for box + CLS tokens after the
+  // text. Engines built from a pre-v2 engine-build.json (decoder fixed at the
+  // 32 text tokens, encoder fixed at 8 boxes) fail this and fall back to
+  // text-only prompting, which segment_image detects and clips boxes for.
+  if (geometry_encoder_trt_) {
+    const auto enc_min = geometry_encoder_trt_->profile_dims("input_boxes", 0);
+    const auto enc_max = geometry_encoder_trt_->profile_dims("input_boxes", 2);
+    const auto dec_max = decoder_trt_->profile_dims("prompt_features", 2);
+    const int text_len = text_ids_shape_.size() > 1 ? text_ids_shape_[1] : 32;
+    if (enc_min.size() == 3 && enc_max.size() == 3 && dec_max.size() == 3)
+      geom_max_boxes_ = sam3_geometry_capacity(
+          max_boxes_per_prompt_, enc_min[1], enc_max[1], text_len, dec_max[1]);
+    if (geom_max_boxes_ > 0) {
+      reusex::info("TensorRTSam3: box prompts enabled (up to {} per prompt)",
+                   geom_max_boxes_);
+    } else {
+      reusex::warn(
+          "TensorRTSam3: box prompts disabled — the engines cannot take them "
+          "(geometry encoder boxes {}..{}, decoder prompt_len max {}, text "
+          "tokens {}). Rebuild the engines from engine-build.json "
+          "recipe_version >= 2.",
+          enc_min.size() == 3 ? enc_min[1] : -1,
+          enc_max.size() == 3 ? enc_max[1] : -1,
+          dec_max.size() == 3 ? dec_max[1] : -1, text_len);
+      geometry_encoder_trt_.reset();
+    }
+  }
+
   auto pred_masks_shape = decoder_trt_->static_dims(6);
   auto pred_boxes_shape = decoder_trt_->static_dims(7);
   num_queries_ = pred_boxes_shape[1];
@@ -421,26 +573,26 @@ void TensorRTSam3::allocate_memory_once() {
   text_features_.gpu(text_in_sz * 256);
   text_mask_.gpu(text_in_sz);
 
-  // Geometry (allocated by max_prompt_batch_ * max_boxes)
-  bool use_geom = (!geometry_encoder_path_.empty());
+  // Geometry (allocated by max_prompt_batch_ * geom_max_boxes_)
+  const bool use_geom = geom_max_boxes_ > 0;
+  const size_t geom_slot =
+      static_cast<size_t>(sam3_geometry_slot_len(geom_max_boxes_));
   if (use_geom) {
     size_t box_sz =
-        static_cast<size_t>(max_prompt_batch_) * max_boxes_per_prompt_ * 4;
+        static_cast<size_t>(max_prompt_batch_) * geom_max_boxes_ * 4;
     geom_boxes_.cpu(box_sz);
     geom_boxes_.gpu(box_sz);
-    geom_labels_.cpu(max_prompt_batch_ * max_boxes_per_prompt_);
-    geom_labels_.gpu(max_prompt_batch_ * max_boxes_per_prompt_);
+    geom_labels_.cpu(max_prompt_batch_ * geom_max_boxes_);
+    geom_labels_.gpu(max_prompt_batch_ * geom_max_boxes_);
 
-    size_t geom_feat_sz = static_cast<size_t>(max_prompt_batch_) *
-                          (max_boxes_per_prompt_ + 1) * 256;
-    geom_features_.gpu(geom_feat_sz);
-    geom_mask_.gpu(max_prompt_batch_ * (max_boxes_per_prompt_ + 1));
+    geom_features_.gpu(max_prompt_batch_ * geom_slot * 256);
+    geom_mask_.gpu(max_prompt_batch_ * geom_slot);
+    geom_valid_mask_.cpu(max_prompt_batch_ * geom_slot);
+    geom_valid_mask_.gpu(max_prompt_batch_ * geom_slot);
   }
 
-  // Decoder Input (Prompt feats)
-  // Assume geometry will not exceed preset
-  size_t total_prompt_len =
-      text_ids_shape_[1] + (use_geom ? (max_boxes_per_prompt_ + 1) : 0);
+  // Decoder Input (Prompt feats): text tokens + the largest geometry slot.
+  size_t total_prompt_len = text_ids_shape_[1] + geom_slot;
   prompt_features_.gpu(max_prompt_batch_ * total_prompt_len * 256);
   prompt_mask_.gpu(max_prompt_batch_ * total_prompt_len);
 
@@ -485,7 +637,7 @@ void TensorRTSam3::allocate_memory_once() {
 bool TensorRTSam3::setup_geometry_input(
     const cv::Mat &image, const std::string &label,
     const std::vector<std::pair<std::string, std::array<float, 4>>> &boxes) {
-  if (geometry_encoder_path_.empty()) {
+  if (geom_max_boxes_ <= 0) {
     return false;
   }
 
@@ -510,7 +662,9 @@ bool TensorRTSam3::setup_geometry_input(
   gather_vision_features(batch_meta, 1, nullptr);
 
   // step3 : encode_boxes
-  if (!encode_boxes(batch_meta, 1, boxes.size(), nullptr)) {
+  if (!encode_boxes(batch_meta, 1,
+                    sam3_geometry_box_count(boxes.size(), geom_max_boxes_),
+                    nullptr)) {
     return false;
   }
   geom_features_cache_[label] = std::make_shared<tensor::Memory<float>>();
@@ -697,71 +851,100 @@ bool TensorRTSam3::encode_text(const std::vector<PromptMeta> &batch_prompts,
 }
 
 bool TensorRTSam3::encode_boxes(const std::vector<PromptMeta> &batch_prompts,
-                                int batch_size, int max_boxes, void *stream) {
-  if (!geometry_encoder_trt_ || max_boxes == 0)
+                                int batch_size, int slot_boxes, void *stream) {
+  if (!geometry_encoder_trt_ || slot_boxes <= 0)
     return true;
+  cudaStream_t s = (cudaStream_t)stream;
+
+  constexpr int feat_dim = 256;
+  const int slot_len = sam3_geometry_slot_len(slot_boxes);
+  const size_t sz_2 = static_cast<size_t>(fpn_feat_0_shape_[1]) *
+                      fpn_feat_0_shape_[2] * fpn_feat_0_shape_[3] / 16;
+  const int feat_h = fpn_feat_0_shape_[2] / 4;
+  const int feat_w = fpn_feat_0_shape_[3] / 4;
+
+  // Unused slot tokens are masked, but they still enter the attention
+  // matmuls: zero them so stale memory can never inject a NaN.
+  cudaMemsetAsync(
+      geom_features_.gpu(), 0,
+      static_cast<size_t>(batch_size) * slot_len * feat_dim * sizeof(float), s);
 
   float *h_boxes = geom_boxes_.cpu();
   int64_t *h_labels = geom_labels_.cpu();
-
-  // Zero out the current batch area
-  memset(h_boxes, 0, batch_size * max_boxes * 4 * sizeof(float));
-  memset(h_labels, 0, batch_size * max_boxes * sizeof(int64_t));
+  bool *h_valid = geom_valid_mask_.cpu();
 
   for (int i = 0; i < batch_size; ++i) {
-    int img_idx = batch_prompts[i].image_idx;
     const Sam3PromptUnit *prompt = batch_prompts[i].ptr;
-
-    float iw = (float)original_image_sizes_[img_idx].first;
-    float ih = (float)original_image_sizes_[img_idx].second;
-
+    const int img_idx = batch_prompts[i].image_idx;
+    const int iw = original_image_sizes_[img_idx].first;
+    const int ih = original_image_sizes_[img_idx].second;
+    // The geometry encoder takes boxes only: drawn boxes first, then each
+    // click point as a positive exemplar box around it.
+    std::vector<BoxPrompt> geometry;
     if (prompt) {
-      const auto &boxes = prompt->boxes;
-      for (size_t k = 0; k < boxes.size() && k < (size_t)max_boxes; ++k) {
-        const auto &box = boxes[k];
-        int64_t label = (box.first == "pos") ? 1 : 0;
+      geometry = prompt->boxes;
+      if (batch_prompts[i].point_frac > 0.f)
+        for (const auto &pt : prompt->points)
+          geometry.emplace_back(
+              "pos",
+              sam3_point_exemplar_box(pt, iw, ih, batch_prompts[i].point_frac));
+    }
+    const int n = sam3_geometry_box_count(geometry.size(), slot_boxes);
 
-        float x1 = box.second[0], y1 = box.second[1];
-        float x2 = box.second[2], y2 = box.second[3];
+    const auto mask = sam3_geometry_slot_mask(n, slot_len);
+    for (int t = 0; t < slot_len; ++t)
+      h_valid[static_cast<size_t>(i) * slot_len + t] = mask[t] != 0; // valid
+    if (n == 0)
+      continue;
 
-        // Normalize
-        float cx = (x1 + x2) * 0.5f / iw;
-        float cy = (y1 + y2) * 0.5f / ih;
-        float w = (x2 - x1) / iw;
-        float h = (y2 - y1) / ih;
+    // Each prompt owns its own host/device region, so the async copies of
+    // one prompt never race the host writes of the next.
+    float *hb = h_boxes + static_cast<size_t>(i) * geom_max_boxes_ * 4;
+    int64_t *hl = h_labels + static_cast<size_t>(i) * geom_max_boxes_;
+    float *db =
+        geom_boxes_.gpu() + static_cast<size_t>(i) * geom_max_boxes_ * 4;
+    int64_t *dl = geom_labels_.gpu() + static_cast<size_t>(i) * geom_max_boxes_;
+    for (int k = 0; k < n; ++k) {
+      const auto &[polarity, xyxy] = geometry[k];
+      const auto b = sam3_box_cxcywh(xyxy, iw, ih);
+      std::copy(b.begin(), b.end(), hb + k * 4);
+      hl[k] = sam3_box_label(polarity);
+    }
+    cudaMemcpyAsync(db, hb, n * 4 * sizeof(float), cudaMemcpyHostToDevice, s);
+    cudaMemcpyAsync(dl, hl, n * sizeof(int64_t), cudaMemcpyHostToDevice, s);
 
-        size_t idx_base = static_cast<size_t>(i) * max_boxes + k;
-        h_labels[idx_base] = label;
-        h_boxes[idx_base * 4 + 0] = cx;
-        h_boxes[idx_base * 4 + 1] = cy;
-        h_boxes[idx_base * 4 + 2] = w;
-        h_boxes[idx_base * 4 + 3] = h;
-      }
+    if (!geometry_encoder_trt_->set_run_dims(0, {1, n, 4}) ||
+        !geometry_encoder_trt_->set_run_dims(1, {1, n}) ||
+        !geometry_encoder_trt_->set_run_dims(
+            2, {1, fpn_feat_0_shape_[1], feat_h, feat_w}) ||
+        !geometry_encoder_trt_->set_run_dims(
+            3, {1, fpn_feat_0_shape_[1], feat_h, feat_w})) {
+      reusex::error("TensorRTSam3: geometry encoder rejected {} box(es)", n);
+      return false;
+    }
+
+    // Output [1, n + 1, 256] lands at the head of this prompt's slot; the
+    // engine's geometry_mask output is scratch (see geom_valid_mask_).
+    const bool ok = geometry_encoder_trt_->forward(
+        {{"input_boxes", db},
+         {"input_boxes_labels", dl},
+         {"fpn_feat_2", fpn_feat_2_gather_.gpu() + i * sz_2},
+         {"fpn_pos_2", fpn_pos_2_gather_.gpu() + i * sz_2},
+         {"geometry_features",
+          geom_features_.gpu() + static_cast<size_t>(i) * slot_len * feat_dim},
+         {"geometry_mask",
+          geom_mask_.gpu() + static_cast<size_t>(i) * slot_len}},
+        s);
+    if (!ok) {
+      reusex::error("TensorRTSam3: geometry encoder forward failed");
+      return false;
     }
   }
 
-  cudaStream_t s = (cudaStream_t)stream;
-  cudaMemcpyAsync(geom_boxes_.gpu(), h_boxes,
-                  batch_size * max_boxes * 4 * sizeof(float),
+  cudaMemcpyAsync(geom_valid_mask_.gpu(), h_valid,
+                  static_cast<size_t>(batch_size) * slot_len * sizeof(bool),
                   cudaMemcpyHostToDevice, s);
-  cudaMemcpyAsync(geom_labels_.gpu(), h_labels,
-                  batch_size * max_boxes * sizeof(int64_t),
-                  cudaMemcpyHostToDevice, s);
-
-  set_binding_dim(geometry_encoder_trt_, 0, {batch_size, max_boxes, 4});
-  set_binding_dim(geometry_encoder_trt_, 1, {batch_size, max_boxes});
-  set_binding_dim(geometry_encoder_trt_, 2, {batch_size, 256, 72, 72});
-  set_binding_dim(geometry_encoder_trt_, 3, {batch_size, 256, 72, 72});
-
-  // Note: Use Vision Feature after Gather here
-  return geometry_encoder_trt_->forward(
-      {{"input_boxes", geom_boxes_.gpu()},
-       {"input_boxes_labels", geom_labels_.gpu()},
-       {"fpn_feat_2", fpn_feat_2_gather_.gpu()},
-       {"fpn_pos_2", fpn_pos_2_gather_.gpu()},
-       {"geometry_features", geom_features_.gpu()},
-       {"geometry_mask", geom_mask_.gpu()}},
-      s);
+  return true;
 }
 
 bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
@@ -777,7 +960,7 @@ bool TensorRTSam3::decode(int batch_size, int prompt_len, void *stream) {
   char *d_text = (char *)text_features_.gpu();
   char *d_text_m = (char *)text_mask_.gpu();
   char *d_geom = (char *)geom_features_.gpu();
-  char *d_geom_m = (char *)geom_mask_.gpu();
+  char *d_geom_m = (char *)geom_valid_mask_.gpu();
 
   cudaStream_t s = (cudaStream_t)stream;
 

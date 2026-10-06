@@ -481,3 +481,25 @@ TEST_CASE("Sam3Assets_Prepare_IncompleteOnnxDirOverrideIsHardError",
   write_file(exported / "tokenizer.json", "{}");
   CHECK(sam3::prepare_sam3_model(opts) == exported);
 }
+
+TEST_CASE("Sam3Assets_FallbackEngines_ReadFromTheStampAndLoadable",
+          "[vision][sam3][assets]") {
+  TempDir tmp("sam3_assets");
+  const fs::path onnx = tmp.path / "onnx";
+  const fs::path eng = tmp.path / "engines";
+  write_detector_export(onnx);
+  write_built_engines(eng);
+  CHECK(sam3::fallback_engines(eng).empty()); // no stamp
+
+  // A stamp recording a text-only fallback build: the engine is loadable
+  // (not stale, not missing) but listed so preparation retries its profile.
+  auto stamp = sam3::EngineBuildProfiles::builtin();
+  stamp.fallback_engines = {"decoder"};
+  write_file(eng / "engine-build.json", stamp.to_json());
+  CHECK(sam3::fallback_engines(eng) == std::vector<std::string>{"decoder"});
+  CHECK(sam3::stale_engines(onnx, eng).empty());
+  CHECK(sam3::missing_engine_files(onnx, eng).empty());
+
+  write_file(eng / "engine-build.json", "not json");
+  CHECK(sam3::fallback_engines(eng).empty());
+}

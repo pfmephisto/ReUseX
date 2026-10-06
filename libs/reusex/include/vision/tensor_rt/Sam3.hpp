@@ -6,6 +6,7 @@
 #include "reusex/vision/IData.hpp"
 #include "reusex/vision/IModel.hpp"
 #include "reusex/vision/common/object.hpp"
+#include "reusex/vision/sam3_geometry.hpp"
 #include "reusex/vision/tensor_rt/Data.hpp"
 #include "reusex/vision/tensor_rt/Sam3Type.hpp"
 #include "reusex/vision/tensor_rt/common/memory.hpp"
@@ -68,6 +69,11 @@ class TensorRTSam3 : public IModel {
    * decoding, and post-processing to generate the final segmentation results.
    * @param input: A span of input pairs containing the data to be processed.
    * @return A vector of output pairs containing the results of the inference.
+   *
+   * Not reentrant: forward() reuses the model's device buffers and updates
+   * the geometry-failure state (a request whose geometry path fails is re-run
+   * text-only; Sam3GeometryFailures::kFailuresBeforeDisable such requests in
+   * a row turn box and point prompts off). Callers serialise it.
    */
   std::vector<IDataset::Pair>
   forward(const std::span<IDataset::Pair> &input) override;
@@ -178,6 +184,9 @@ class TensorRTSam3 : public IModel {
   /// when geometry prompting is off (no geometry-encoder.engine, or engines
   /// built from a pre-v2 recipe whose decoder takes text tokens only).
   int geom_max_boxes_ = 0;
+
+  /// Consecutive requests whose geometry path failed at run time.
+  Sam3GeometryFailures geometry_failures_;
 
   /// The export's token-mask polarity (true: True == valid token, as in the
   /// released bundle; false: True == padding), probed from the text encoder

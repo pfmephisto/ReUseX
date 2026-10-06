@@ -537,13 +537,22 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
   if (!stale.empty())
     reusex::info("SAM3 engine build: recipe changed, rebuilding: {}",
                  join(stale));
+  // Engines an earlier build could only make text-only: try the recipe again.
+  const auto retry = fallback_engines(engine_dir);
+  if (!retry.empty())
+    reusex::info("SAM3 engine build: retrying the geometry-prompt profile "
+                 "for the text-only fallback build(s): {}",
+                 join(retry));
+  auto listed = [](const std::vector<std::string> &v, const std::string &x) {
+    return std::find(v.begin(), v.end(), x) != v.end();
+  };
 
+  std::vector<std::string> built_fallback;
   const std::size_t n = to_build.size();
   for (std::size_t i = 0; i < n; ++i) {
     const std::string &name = to_build[i];
     const fs::path engine = engine_dir / (name + ".engine");
-    if (fs::exists(engine) &&
-        std::find(stale.begin(), stale.end(), name) == stale.end())
+    if (fs::exists(engine) && !listed(stale, name) && !listed(retry, name))
       continue; // already built for this device/TRT and recipe
     throw_if_cancelled(cancel, "engine build");
     report(cb, PrepState::building, float(i) / float(n),
@@ -553,30 +562,56 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
     req.onnx_path = onnx_dir / (name + ".onnx");
     req.engine_path = engine; // EngineBuilder writes atomically
     req.profile = *profiles.find(name);
+    if (fs::exists(engine) && listed(retry, name) && !listed(stale, name)) {
+      // A retry of a text-only fallback build: the fallback engine on disk
+      // stays in use (the builder writes atomically) unless the recipe
+      // profile now builds, whatever the reason it does not.
+      try {
+        tensor_rt::build_engine(req);
+        reusex::info("SAM3 engine build: {} now builds with the "
+                     "geometry-prompt profile",
+                     name);
+      } catch (const std::exception &e) {
+        reusex::warn("SAM3 engine build: {} still fails with the "
+                     "geometry-prompt profile ({}); keeping the text-only "
+                     "build",
+                     name, e.what());
+        built_fallback.push_back(name);
+      }
+      continue;
+    }
     try {
       tensor_rt::build_engine(req);
-    } catch (const std::exception &e) {
-      // An export that bakes the prompt length / box count cannot take the
-      // geometry profile; build it text-only so text segmentation survives.
+    } catch (const tensor_rt::EngineProfileError &e) {
+      // Only a shape error: an export that bakes the prompt length / box
+      // count cannot take the geometry profile, so build it text-only and
+      // text segmentation survives. Any other failure (OOM, disk) is not
+      // the export's fault and propagates, so it is retried as a whole.
       const auto fallback = text_only_fallback(name, req.profile);
       if (!fallback || *fallback == req.profile)
         throw;
       reusex::warn("SAM3 engine build: {} failed with the geometry-prompt "
                    "profile ({}); building it text-only instead — box and "
-                   "point prompts will be unavailable with this export",
+                   "point prompts are unavailable until a later preparation "
+                   "builds the profile",
                    name, e.what());
       throw_if_cancelled(cancel, "engine build");
       req.profile = *fallback;
       tensor_rt::build_engine(req);
+      built_fallback.push_back(name);
     }
   }
 
   // Stamp LAST: it vouches that every engine matches this recipe, so a crash
-  // mid-build leaves the old (or no) stamp and the next run rebuilds.
+  // mid-build leaves the old (or no) stamp and the next run rebuilds. A
+  // text-only fallback build is recorded as such, so the next preparation
+  // retries its recipe profile and the loader can say why geometry is off.
   {
+    EngineBuildProfiles stamped = profiles;
+    stamped.fallback_engines = built_fallback;
     const fs::path stamp = engine_dir / kEngineBuild;
     const fs::path tmp = unique_sibling(stamp, "part");
-    std::ofstream(tmp) << profiles.to_json() << '\n';
+    std::ofstream(tmp) << stamped.to_json() << '\n';
     fs::rename(tmp, stamp);
   }
 
@@ -647,6 +682,17 @@ std::vector<std::string> stale_engines(const fs::path &onnx_dir,
       stale.push_back(name);
   }
   return stale;
+}
+
+std::vector<std::string> fallback_engines(const fs::path &engine_dir) {
+  const fs::path stamp = engine_dir / kEngineBuild;
+  if (!fs::exists(stamp))
+    return {};
+  try {
+    return EngineBuildProfiles::from_file(stamp).fallback_engines;
+  } catch (const std::exception &) {
+    return {}; // stale_engines() reports and rebuilds an unreadable stamp
+  }
 }
 
 std::vector<std::string> missing_onnx_files(const fs::path &onnx_dir) {
@@ -802,7 +848,10 @@ fs::path prepare_sam3_model(const Sam3AssetOptions &opts,
   // 3. CUDA: build (or reuse) the device-specific engines.
 #ifdef REUSEX_USE_TENSORRT
   const fs::path engine_dir = sam3_engine_dir(opts);
-  if (!missing_engine_files(onnx_dir, engine_dir).empty())
+  // A text-only fallback build is loadable (not missing) but is retried
+  // here, once per preparation, in case its failure was not the export's.
+  if (!missing_engine_files(onnx_dir, engine_dir).empty() ||
+      !fallback_engines(engine_dir).empty())
     build_engines(onnx_dir, engine_dir, cb, opts.cancel);
   report(cb, PrepState::ready, 1.0f, "ready (TensorRT engines)");
   return engine_dir;

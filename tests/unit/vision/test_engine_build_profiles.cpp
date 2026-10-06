@@ -16,8 +16,10 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using reusex::vision::sam3::EngineBuildProfiles;
+using reusex::vision::sam3::EngineProfile;
 
 namespace {
 
@@ -194,4 +196,57 @@ TEST_CASE("text_only_fallback pins the geometry axis to the v1 shape",
 
   CHECK_FALSE(text_only_fallback("vision-encoder", *p.find("vision-encoder"))
                   .has_value());
+}
+
+// The fallback pins the geometry encoder at the profile max, assuming that is
+// the box count the exporter traces at (export_detector.GEOM_NUM_BOXES).
+TEST_CASE("built-in geometry-encoder max equals the export's trace box count",
+          "[vision][sam3]") {
+  const auto geo = EngineBuildProfiles::builtin().find("geometry-encoder");
+  REQUIRE(geo.has_value());
+  CHECK(geo->shapes.at("input_boxes").max[1] ==
+        reusex::vision::sam3::kGeometryTraceBoxes);
+  CHECK(geo->shapes.at("input_boxes_labels").max[1] ==
+        reusex::vision::sam3::kGeometryTraceBoxes);
+}
+
+TEST_CASE("EngineBuildProfiles round-trips fallback_engines",
+          "[vision][sam3]") {
+  auto a = EngineBuildProfiles::from_string(kSample);
+  CHECK(a.fallback_engines.empty());
+  CHECK(a.to_json().find("fallback_engines") == std::string::npos);
+
+  a.fallback_engines = {"decoder"};
+  const auto b = EngineBuildProfiles::from_string(a.to_json());
+  CHECK(b.fallback_engines == std::vector<std::string>{"decoder"});
+  CHECK(b.engines == a.engines);
+
+  CHECK_THROWS(EngineBuildProfiles::from_string(
+      R"({"engines":{},"fallback_engines":"decoder"})"));
+}
+
+TEST_CASE("profile_shape_conflict finds a baked axis", "[vision][sam3]") {
+  using reusex::vision::sam3::profile_shape_conflict;
+  EngineProfile::ShapeProfile sp{{1, 32, 256}, {1, 32, 256}, {4, 41, 256}};
+  CHECK_FALSE(profile_shape_conflict({-1, -1, 256}, sp).has_value());
+  // An export that baked the prompt length at 32.
+  CHECK(profile_shape_conflict({-1, 32, 256}, sp).has_value());
+  CHECK(profile_shape_conflict({-1, -1}, sp).has_value()); // rank
+  EngineProfile::ShapeProfile fixed{{1, 32, 256}, {1, 32, 256}, {4, 32, 256}};
+  CHECK_FALSE(profile_shape_conflict({-1, 32, 256}, fixed).has_value());
+}
+
+TEST_CASE("is_shape_build_error tells shape from resource failures",
+          "[vision][sam3]") {
+  using reusex::vision::sam3::is_shape_build_error;
+  CHECK_FALSE(is_shape_build_error({}));
+  CHECK(is_shape_build_error(
+      {"IShuffleLayer /Reshape: reshape volume mismatch with input dims"}));
+  CHECK(is_shape_build_error(
+      {"Error Code 4: profile has min=41 for a dimension fixed at 32"}));
+  CHECK_FALSE(is_shape_build_error({"Error Code 2: OutOfMemory (Requested "
+                                    "size was 8589934592 bytes.)",
+                                    "reshape failed"}));
+  CHECK_FALSE(is_shape_build_error({"cudaMalloc failed: out of memory"}));
+  CHECK_FALSE(is_shape_build_error({"could not write the timing cache"}));
 }

@@ -19,6 +19,7 @@ import argparse
 from pathlib import Path
 
 from . import ENGINE_IO_CONTRACT
+from .build_engines import GEOM_MAX_BOXES
 from .fixes import apply_all
 from .load_native import load
 from .wrappers_detector import (
@@ -37,8 +38,11 @@ DEFAULT_ONNX_DIR = Path(__file__).resolve().parent.parent / "onnx"
 # TorchScript export here was earlier observed to constant-fold N into the
 # attention head-reshape and is not re-verified. The engine range is
 # build_engines.SHAPE_PROFILES["geometry-encoder"]; the C++ builder falls back
-# to N pinned at this value if the range cannot be built.
-GEOM_NUM_BOXES = 8
+# to N pinned at this value if the range cannot be built. That fallback pins N
+# to the profile MAX, so the trace shape must equal it: tied by construction
+# (and to the C++ sam3::kGeometryTraceBoxes, checked by a unit test against the
+# emitted recipe).
+GEOM_NUM_BOXES = GEOM_MAX_BOXES
 
 
 def _names_axes(engine: str):

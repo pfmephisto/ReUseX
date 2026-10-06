@@ -65,6 +65,12 @@ struct EngineBuildProfiles {
   /// built-in recipe can supersede the one an older model bundle shipped.
   int recipe_version = 1;
   std::map<std::string, EngineProfile> engines;
+  /// Only in an engine directory's stamp: the engines that were built with
+  /// text_only_fallback() instead of their profile in ``engines`` (their
+  /// geometry-prompt profile failed with a shape error). The next model
+  /// preparation retries those profiles. Serialized as ``fallback_engines``,
+  /// and only when non-empty.
+  std::vector<std::string> fallback_engines;
 
   /// Parse ``engine-build.json`` from disk. Throws ``std::runtime_error`` on a
   /// missing file, malformed JSON, or an unsupported schema version.
@@ -98,5 +104,26 @@ struct EngineBuildProfiles {
 /// other engine (it has no geometry dimension to give up).
 std::optional<EngineProfile> text_only_fallback(const std::string &engine_name,
                                                 const EngineProfile &profile);
+
+/// The box count the in-repo exporter traces the geometry encoder at
+/// (``export_detector.GEOM_NUM_BOXES``, tied to
+/// ``build_engines.GEOM_MAX_BOXES``). text_only_fallback() pins the encoder's
+/// box axis to the profile max on the assumption that the two agree; a test
+/// checks the built-in recipe against it.
+inline constexpr int kGeometryTraceBoxes = 8;
+
+/// Why an optimization profile cannot apply to a network input whose dims are
+/// ``network_dims`` (-1 = dynamic): a rank mismatch, or a static dim the
+/// profile's min or max does not equal. ``std::nullopt`` when it fits. Used to
+/// tell a baked-shape export from other build failures before building.
+std::optional<std::string>
+profile_shape_conflict(const std::vector<long long> &network_dims,
+                       const EngineProfile::ShapeProfile &profile);
+
+/// Whether a failed TensorRT build's error messages point at the profile's
+/// shapes (a dimension, reshape or profile error) rather than at resources:
+/// any message about memory, allocation or disk makes it a resource failure.
+/// No messages ⟹ false (unknown is not a shape error).
+bool is_shape_build_error(const std::vector<std::string> &builder_errors);
 
 } // namespace reusex::vision::sam3

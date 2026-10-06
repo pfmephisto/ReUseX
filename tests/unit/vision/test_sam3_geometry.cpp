@@ -250,3 +250,17 @@ TEST_CASE("Sam3Geometry_PointPromptSelection_IsTheUnionOfPointAndBoxPicks",
                                             {true, false, false, false}) ==
         std::vector<std::size_t>{0});
 }
+
+TEST_CASE("Sam3Geometry_Failures_DisableOnlyAfterConsecutiveFailures",
+          "[vision][sam3]") {
+  vision::Sam3GeometryFailures f;
+  const int n = vision::Sam3GeometryFailures::kFailuresBeforeDisable;
+  REQUIRE(n > 1);
+  for (int i = 1; i < n; ++i)
+    CHECK_FALSE(f.record_failure());
+  f.record_success(); // a working request resets the run
+  CHECK(f.consecutive() == 0);
+  for (int i = 1; i < n; ++i)
+    CHECK_FALSE(f.record_failure());
+  CHECK(f.record_failure());
+}

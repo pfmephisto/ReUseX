@@ -8,6 +8,7 @@
 #include "vision/common/create_object.hpp"
 #include "vision/common/image.hpp"
 #include "vision/osd/osd.hpp"
+#include "vision/sam3/sam3_assets.hpp"
 #include "vision/sam3_geometry.hpp"
 #include "vision/sam3_prompt.hpp"
 #include "vision/tensor_rt/Data.hpp"
@@ -203,222 +204,248 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
   AutoDevice device_guard(gpu_id_);
 
   const int num_images = (int)tensor_inputs.size();
+  // One pass over the request with up to geom_cap boxes per prompt (0 =
+  // text-only). False when a geometry batch failed; results are then partial
+  // and the caller discards them.
+  bool geometry_ran = false;
+  auto run_request = [&](int geom_cap, InferResultArray &results) -> bool {
+    // The vision-encoder buffers (preprocessed images, FPN features, per-image
+    // sizes/affine matrices) are all sized to max_image_batch_. To support an
+    // arbitrary input batch we process images in chunks of max_image_batch_.
+    // Within a chunk, image indices are chunk-local (0..chunk_images-1) — which
+    // is what preprocess/encode_image/gather_vision_features/postprocess expect
+    // — while results and inputs are addressed by the global image index
+    // (img_chunk_start + local).
+    for (int img_chunk_start = 0; img_chunk_start < num_images;
+         img_chunk_start += max_image_batch_) {
+      const int img_chunk_end =
+          std::min(img_chunk_start + max_image_batch_, num_images);
+      const int chunk_images = img_chunk_end - img_chunk_start;
+
+      // 3. Vision Encoder — preprocess + encode this image chunk (local
+      // indices).
+      for (int li = 0; li < chunk_images; ++li)
+        preprocess(*tensor_inputs[img_chunk_start + li], li, stream);
+
+      if (!encode_image(chunk_images, stream)) {
+        reusex::error(
+            "Vision encoder failed for image chunk [{}, {}); skipping",
+            img_chunk_start, img_chunk_end);
+        continue;
+      }
+
+      // Build this chunk's prompt list, tagged with chunk-local image indices.
+      std::vector<PromptMeta> chunk_prompts;
+      for (int li = 0; li < chunk_images; ++li) {
+        const int gi = img_chunk_start + li;
+        if (tensor_inputs[gi]->prompts.empty()) {
+          chunk_prompts.push_back({li, -1, nullptr});
+          continue;
+        }
+        for (size_t j = 0; j < tensor_inputs[gi]->prompts.size(); ++j) {
+          const auto &prompt = tensor_inputs[gi]->prompts[j];
+          // A click point is tried at several exemplar sizes (one decoder pass
+          // each); the most confident detection under the point wins below.
+          if (!prompt.points.empty() && geom_cap > 0 &&
+              tensor_inputs[gi]->select_box_instances) {
+            for (const float frac : sam3_point_exemplar_fracs())
+              chunk_prompts.push_back({li, (int)j, &prompt, frac});
+          } else {
+            chunk_prompts.push_back({li, (int)j, &prompt});
+          }
+          const size_t n_geom = prompt.boxes.size() + prompt.points.size();
+          if (geom_cap > 0 && n_geom > static_cast<size_t>(geom_cap)) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true))
+              reusex::warn("TensorRTSam3: a prompt has {} boxes/points but the "
+                           "engines accept {}; the extra ones are dropped",
+                           n_geom, geom_cap);
+          }
+        }
+      }
+
+      // Point prompts: every pass's selected detections, finalised once all
+      // passes of the chunk have run. Key: (global image, prompt index).
+      std::map<std::pair<int, int>, InferResult> point_candidates;
+      std::map<std::pair<int, int>, std::vector<float>> candidate_frac;
+
+      // 4. Decoder batch loop — split this chunk's prompts by
+      // max_prompt_batch_.
+      const int total_prompts = (int)chunk_prompts.size();
+      for (int chunk_start = 0; chunk_start < total_prompts;
+           chunk_start += max_prompt_batch_) {
+        const int chunk_end =
+            std::min(chunk_start + max_prompt_batch_, total_prompts);
+        const int current_batch_size = chunk_end - chunk_start;
+
+        // Construct Prompt list for current Batch
+        std::vector<PromptMeta> batch_prompts(
+            chunk_prompts.begin() + chunk_start,
+            chunk_prompts.begin() + chunk_end);
+
+        // Geometry slot size: the most boxes any prompt in THIS batch feeds
+        // (0 = text-only batch, decoded exactly as before geometry existed).
+        int slot_boxes = 0;
+        for (const auto &meta : batch_prompts)
+          if (meta.ptr)
+            slot_boxes = std::max(
+                slot_boxes,
+                sam3_geometry_box_count(
+                    meta.ptr->boxes.size() +
+                        (meta.point_frac > 0.f ? meta.ptr->points.size() : 0),
+                    geom_cap));
+        const bool use_geom = slot_boxes > 0;
+        const int prompt_len =
+            text_ids_shape_[1] + sam3_geometry_slot_len(slot_boxes);
+
+        // a. Gather Vision Features (chunk-local image_idx -> prompt slots)
+        gather_vision_features(batch_prompts, current_batch_size, stream);
+
+        // b. Encode Text
+        if (!encode_text(batch_prompts, current_batch_size, stream))
+          continue;
+
+        // c. Encode Geometry, d. Decode. A geometry batch that fails (an
+        // export that bakes the prompt length, or a transient error) abandons
+        // the request: the caller re-runs all of it text-only, so one request
+        // never mixes geometry and text-only results.
+        const bool decoded =
+            (!use_geom || encode_boxes(batch_prompts, current_batch_size,
+                                       slot_boxes, stream)) &&
+            decode(current_batch_size, prompt_len, stream);
+        if (!decoded && use_geom) {
+          reusex::warn(
+              "TensorRTSam3: the geometry path failed (prompt_len {}); "
+              "re-running the request text-only",
+              prompt_len);
+          return false;
+        }
+        if (!decoded)
+          continue;
+        geometry_ran = geometry_ran || use_geom;
+
+        // e. Postprocess & Collect Results. meta.image_idx is chunk-local (used
+        // by postprocess for the per-chunk buffers); results/inputs use the
+        // global image index.
+        for (int k = 0; k < current_batch_size; ++k) {
+          const auto &meta = batch_prompts[k];
+          const int global_idx = img_chunk_start + meta.image_idx;
+
+          std::string label = "object";
+          if (meta.ptr && !meta.ptr->text.empty())
+            label = meta.ptr->text;
+
+          // Per-prompt threshold overrides the frame/global one when set (>=
+          // 0).
+          const float conf =
+              (meta.ptr && meta.ptr->confidence >= 0.0f)
+                  ? meta.ptr->confidence
+                  : tensor_inputs[global_idx]->confidence_threshold;
+          const int label_idx = sam3_label_value(
+              tensor_inputs[global_idx]->label_by_prompt_index,
+              meta.original_idx, std::get<2>(text_input_map_[label]));
+
+          // Write result to the corresponding global image index (a point
+          // pass collects into its candidates first).
+          auto &image_result =
+              meta.point_frac > 0.f
+                  ? point_candidates[{global_idx, meta.original_idx}]
+                  : results[global_idx];
+          const size_t first_new = image_result.size();
+          postprocess(image_result, k, meta.image_idx, label, label_idx, conf,
+                      return_mask, stream);
+
+          // Box prompts are exemplars: SAM3 returns every similar object.
+          // Selection callers keep only the detections the boxes point at.
+          if (tensor_inputs[global_idx]->select_box_instances && meta.ptr &&
+              (!meta.ptr->boxes.empty() || !meta.ptr->points.empty()) &&
+              geom_cap > 0) {
+            const auto &boxes = meta.ptr->boxes;
+            const auto kept = std::remove_if(
+                image_result.begin() + first_new, image_result.end(),
+                [&](const auto &det) {
+                  // A point selects a detection only where its mask covers it.
+                  return !sam3_detection_selected(
+                      {det.box.left, det.box.top, det.box.right,
+                       det.box.bottom},
+                      boxes, meta.ptr->points, [&](float x, float y) {
+                        return detection_mask_covers(det, x, y);
+                      });
+                });
+            const auto dropped = std::distance(kept, image_result.end());
+            image_result.erase(kept, image_result.end());
+            reusex::debug("TensorRTSam3: prompt {} kept {} of {} detection(s) "
+                          "selected by its boxes",
+                          meta.original_idx, image_result.size() - first_new,
+                          image_result.size() - first_new + dropped);
+          }
+          if (meta.point_frac > 0.f)
+            candidate_frac[{global_idx, meta.original_idx}].resize(
+                image_result.size(), meta.point_frac);
+        }
+      }
+
+      // Finalise point prompts: the union of, per click, the most confident
+      // detection covering it across all exemplar sizes, and everything the
+      // prompt's positive boxes select (sam3_point_prompt_selection).
+      for (auto &[key, cands] : point_candidates) {
+        const auto &[global_idx, prompt_idx] = key;
+        const auto &prompt = tensor_inputs[global_idx]->prompts[prompt_idx];
+        std::vector<float> scores;
+        std::vector<std::vector<bool>> covers;
+        for (const auto &det : cands) {
+          scores.push_back(det.score);
+          std::vector<bool> row;
+          for (const auto &pt : prompt.points)
+            row.push_back(det.box.left <= pt[0] && pt[0] <= det.box.right &&
+                          det.box.top <= pt[1] && pt[1] <= det.box.bottom &&
+                          detection_mask_covers(det, pt[0], pt[1]));
+          covers.push_back(std::move(row));
+        }
+        // Box hits: every pass repeats them, so count the first pass's only.
+        const auto &fracs = candidate_frac[key];
+        const float first_pass = sam3_point_exemplar_fracs().front();
+        // Only positive boxes select; negative ones only drop.
+        const bool has_pos_box =
+            std::any_of(prompt.boxes.begin(), prompt.boxes.end(),
+                        [](const auto &b) { return b.first == "pos"; });
+        std::vector<bool> box_selected(cands.size(), false);
+        if (has_pos_box)
+          for (size_t d = 0; d < cands.size(); ++d)
+            box_selected[d] = d < fracs.size() && fracs[d] == first_pass &&
+                              sam3_detection_selected(
+                                  {cands[d].box.left, cands[d].box.top,
+                                   cands[d].box.right, cands[d].box.bottom},
+                                  prompt.boxes);
+        const auto picked =
+            sam3_point_prompt_selection(scores, covers, box_selected);
+        auto &out = results[global_idx];
+        for (const auto d : picked)
+          out.push_back(cands[d]);
+        reusex::debug("TensorRTSam3: point prompt {} kept {} of {} candidate "
+                      "detection(s) across {} exemplar sizes",
+                      prompt_idx, picked.size(), cands.size(),
+                      sam3_point_exemplar_fracs().size());
+      }
+    }
+    return true;
+  };
+
+  int geom_cap = geom_max_boxes_;
   InferResultArray results(num_images);
-
-  // The vision-encoder buffers (preprocessed images, FPN features, per-image
-  // sizes/affine matrices) are all sized to max_image_batch_. To support an
-  // arbitrary input batch we process images in chunks of max_image_batch_.
-  // Within a chunk, image indices are chunk-local (0..chunk_images-1) — which
-  // is what preprocess/encode_image/gather_vision_features/postprocess expect —
-  // while results and inputs are addressed by the global image index
-  // (img_chunk_start + local).
-  for (int img_chunk_start = 0; img_chunk_start < num_images;
-       img_chunk_start += max_image_batch_) {
-    const int img_chunk_end =
-        std::min(img_chunk_start + max_image_batch_, num_images);
-    const int chunk_images = img_chunk_end - img_chunk_start;
-
-    // 3. Vision Encoder — preprocess + encode this image chunk (local indices).
-    for (int li = 0; li < chunk_images; ++li)
-      preprocess(*tensor_inputs[img_chunk_start + li], li, stream);
-
-    if (!encode_image(chunk_images, stream)) {
-      reusex::error("Vision encoder failed for image chunk [{}, {}); skipping",
-                    img_chunk_start, img_chunk_end);
-      continue;
+  if (!run_request(geom_cap, results)) {
+    if (geometry_failures_.record_failure()) {
+      reusex::warn("TensorRTSam3: the geometry path failed on {} requests in "
+                   "a row; box and point prompts are disabled for this model",
+                   Sam3GeometryFailures::kFailuresBeforeDisable);
+      geom_max_boxes_ = 0;
+      geometry_encoder_trt_.reset();
     }
-
-    // Build this chunk's prompt list, tagged with chunk-local image indices.
-    std::vector<PromptMeta> chunk_prompts;
-    for (int li = 0; li < chunk_images; ++li) {
-      const int gi = img_chunk_start + li;
-      if (tensor_inputs[gi]->prompts.empty()) {
-        chunk_prompts.push_back({li, -1, nullptr});
-        continue;
-      }
-      for (size_t j = 0; j < tensor_inputs[gi]->prompts.size(); ++j) {
-        const auto &prompt = tensor_inputs[gi]->prompts[j];
-        // A click point is tried at several exemplar sizes (one decoder pass
-        // each); the most confident detection under the point wins below.
-        if (!prompt.points.empty() && geom_max_boxes_ > 0 &&
-            tensor_inputs[gi]->select_box_instances) {
-          for (const float frac : sam3_point_exemplar_fracs())
-            chunk_prompts.push_back({li, (int)j, &prompt, frac});
-        } else {
-          chunk_prompts.push_back({li, (int)j, &prompt});
-        }
-        const size_t n_geom = prompt.boxes.size() + prompt.points.size();
-        if (geom_max_boxes_ > 0 &&
-            n_geom > static_cast<size_t>(geom_max_boxes_)) {
-          static std::atomic<bool> warned{false};
-          if (!warned.exchange(true))
-            reusex::warn("TensorRTSam3: a prompt has {} boxes/points but the "
-                         "engines accept {}; the extra ones are dropped",
-                         n_geom, geom_max_boxes_);
-        }
-      }
-    }
-
-    // Point prompts: every pass's selected detections, finalised once all
-    // passes of the chunk have run. Key: (global image, prompt index).
-    std::map<std::pair<int, int>, InferResult> point_candidates;
-    std::map<std::pair<int, int>, std::vector<float>> candidate_frac;
-
-    // 4. Decoder batch loop — split this chunk's prompts by max_prompt_batch_.
-    const int total_prompts = (int)chunk_prompts.size();
-    for (int chunk_start = 0; chunk_start < total_prompts;
-         chunk_start += max_prompt_batch_) {
-      const int chunk_end =
-          std::min(chunk_start + max_prompt_batch_, total_prompts);
-      const int current_batch_size = chunk_end - chunk_start;
-
-      // Construct Prompt list for current Batch
-      std::vector<PromptMeta> batch_prompts(chunk_prompts.begin() + chunk_start,
-                                            chunk_prompts.begin() + chunk_end);
-
-      // Geometry slot size: the most boxes any prompt in THIS batch feeds
-      // (0 = text-only batch, decoded exactly as before geometry existed).
-      int slot_boxes = 0;
-      for (const auto &meta : batch_prompts)
-        if (meta.ptr)
-          slot_boxes = std::max(
-              slot_boxes,
-              sam3_geometry_box_count(
-                  meta.ptr->boxes.size() +
-                      (meta.point_frac > 0.f ? meta.ptr->points.size() : 0),
-                  geom_max_boxes_));
-      const bool use_geom = slot_boxes > 0;
-      const int prompt_len =
-          text_ids_shape_[1] + sam3_geometry_slot_len(slot_boxes);
-
-      // a. Gather Vision Features (chunk-local image_idx -> prompt slots)
-      gather_vision_features(batch_prompts, current_batch_size, stream);
-
-      // b. Encode Text
-      if (!encode_text(batch_prompts, current_batch_size, stream))
-        continue;
-
-      // c. Encode Geometry, d. Decode. An engine that accepts the geometry
-      // profile but cannot run it (an export that bakes the prompt length)
-      // turns geometry off for the model and the batch is decoded text-only,
-      // so text segmentation never breaks on account of geometry.
-      bool decoded =
-          (!use_geom || encode_boxes(batch_prompts, current_batch_size,
-                                     slot_boxes, stream)) &&
-          decode(current_batch_size, prompt_len, stream);
-      if (!decoded && use_geom) {
-        reusex::warn("TensorRTSam3: the geometry path failed (prompt_len {}); "
-                     "box and point prompts are disabled for this model and "
-                     "the batch is decoded text-only",
-                     prompt_len);
-        geom_max_boxes_ = 0;
-        geometry_encoder_trt_.reset();
-        decoded = decode(current_batch_size, text_ids_shape_[1], stream);
-      }
-      if (!decoded)
-        continue;
-
-      // e. Postprocess & Collect Results. meta.image_idx is chunk-local (used
-      // by postprocess for the per-chunk buffers); results/inputs use the
-      // global image index.
-      for (int k = 0; k < current_batch_size; ++k) {
-        const auto &meta = batch_prompts[k];
-        const int global_idx = img_chunk_start + meta.image_idx;
-
-        std::string label = "object";
-        if (meta.ptr && !meta.ptr->text.empty())
-          label = meta.ptr->text;
-
-        // Per-prompt threshold overrides the frame/global one when set (>= 0).
-        const float conf =
-            (meta.ptr && meta.ptr->confidence >= 0.0f)
-                ? meta.ptr->confidence
-                : tensor_inputs[global_idx]->confidence_threshold;
-        const int label_idx = sam3_label_value(
-            tensor_inputs[global_idx]->label_by_prompt_index, meta.original_idx,
-            std::get<2>(text_input_map_[label]));
-
-        // Write result to the corresponding global image index (a point
-        // pass collects into its candidates first).
-        auto &image_result =
-            meta.point_frac > 0.f
-                ? point_candidates[{global_idx, meta.original_idx}]
-                : results[global_idx];
-        const size_t first_new = image_result.size();
-        postprocess(image_result, k, meta.image_idx, label, label_idx, conf,
-                    return_mask, stream);
-
-        // Box prompts are exemplars: SAM3 returns every similar object.
-        // Selection callers keep only the detections the boxes point at.
-        if (tensor_inputs[global_idx]->select_box_instances && meta.ptr &&
-            (!meta.ptr->boxes.empty() || !meta.ptr->points.empty()) &&
-            geom_max_boxes_ > 0) {
-          const auto &boxes = meta.ptr->boxes;
-          const auto kept = std::remove_if(
-              image_result.begin() + first_new, image_result.end(),
-              [&](const auto &det) {
-                // A point selects a detection only where its mask covers it.
-                return !sam3_detection_selected(
-                    {det.box.left, det.box.top, det.box.right, det.box.bottom},
-                    boxes, meta.ptr->points, [&](float x, float y) {
-                      return detection_mask_covers(det, x, y);
-                    });
-              });
-          const auto dropped = std::distance(kept, image_result.end());
-          image_result.erase(kept, image_result.end());
-          reusex::debug("TensorRTSam3: prompt {} kept {} of {} detection(s) "
-                        "selected by its boxes",
-                        meta.original_idx, image_result.size() - first_new,
-                        image_result.size() - first_new + dropped);
-        }
-        if (meta.point_frac > 0.f)
-          candidate_frac[{global_idx, meta.original_idx}].resize(
-              image_result.size(), meta.point_frac);
-      }
-    }
-
-    // Finalise point prompts: the union of, per click, the most confident
-    // detection covering it across all exemplar sizes, and everything the
-    // prompt's positive boxes select (sam3_point_prompt_selection).
-    for (auto &[key, cands] : point_candidates) {
-      const auto &[global_idx, prompt_idx] = key;
-      const auto &prompt = tensor_inputs[global_idx]->prompts[prompt_idx];
-      std::vector<float> scores;
-      std::vector<std::vector<bool>> covers;
-      for (const auto &det : cands) {
-        scores.push_back(det.score);
-        std::vector<bool> row;
-        for (const auto &pt : prompt.points)
-          row.push_back(det.box.left <= pt[0] && pt[0] <= det.box.right &&
-                        det.box.top <= pt[1] && pt[1] <= det.box.bottom &&
-                        detection_mask_covers(det, pt[0], pt[1]));
-        covers.push_back(std::move(row));
-      }
-      // Box hits: every pass repeats them, so count the first pass's only.
-      const auto &fracs = candidate_frac[key];
-      const float first_pass = sam3_point_exemplar_fracs().front();
-      // Only positive boxes select; negative ones only drop.
-      const bool has_pos_box =
-          std::any_of(prompt.boxes.begin(), prompt.boxes.end(),
-                      [](const auto &b) { return b.first == "pos"; });
-      std::vector<bool> box_selected(cands.size(), false);
-      if (has_pos_box)
-        for (size_t d = 0; d < cands.size(); ++d)
-          box_selected[d] =
-              d < fracs.size() && fracs[d] == first_pass &&
-              sam3_detection_selected({cands[d].box.left, cands[d].box.top,
-                                       cands[d].box.right, cands[d].box.bottom},
-                                      prompt.boxes);
-      const auto picked =
-          sam3_point_prompt_selection(scores, covers, box_selected);
-      auto &out = results[global_idx];
-      for (const auto d : picked)
-        out.push_back(cands[d]);
-      reusex::debug("TensorRTSam3: point prompt {} kept {} of {} candidate "
-                    "detection(s) across {} exemplar sizes",
-                    prompt_idx, picked.size(), cands.size(),
-                    sam3_point_exemplar_fracs().size());
-    }
+    geom_cap = 0;
+    results.assign(num_images, InferResult{});
+    run_request(geom_cap, results);
+  } else if (geometry_ran) {
+    geometry_failures_.record_success();
   }
 
   // Make Result Image
@@ -429,7 +456,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
                              cv::Scalar(-1));
 
     reusex::vision::osd::make_labled_image(res_ptr->image, results[i]);
-    res_ptr->geometry_prompts_used = geom_max_boxes_ > 0;
+    res_ptr->geometry_prompts_used = geom_cap > 0;
 
     results_img[i] = IDataset::Pair();
     results_img[i].first = std::move(res_ptr);
@@ -529,14 +556,25 @@ bool TensorRTSam3::load_engines() {
     } else {
       // info, not warn: a text-only run (annotate) never needs geometry;
       // segment_image warns when a request's boxes go unused.
-      reusex::info(
-          "TensorRTSam3: box prompts disabled — the engines cannot take them "
-          "(geometry encoder boxes {}..{}, decoder prompt_len max {}, text "
-          "tokens {}). Rebuild the engines from engine-build.json "
-          "recipe_version >= 2.",
-          enc_min.size() == 3 ? enc_min[1] : -1,
-          enc_max.size() == 3 ? enc_max[1] : -1,
-          dec_max.size() == 3 ? dec_max[1] : -1, text_len);
+      std::vector<std::string> text_only;
+      for (const auto &name : sam3::fallback_engines(
+               std::filesystem::path(decoder_path_).parent_path()))
+        if (name == "decoder" || name == "geometry-encoder")
+          text_only.push_back(name);
+      if (!text_only.empty())
+        reusex::info("TensorRTSam3: box prompts disabled — {} built "
+                     "text-only (fallback: the geometry-prompt profile failed "
+                     "to build); the next model preparation retries it",
+                     fmt::join(text_only, " and "));
+      else
+        reusex::info(
+            "TensorRTSam3: box prompts disabled — the engines cannot take "
+            "them (geometry encoder boxes {}..{}, decoder prompt_len max {}, "
+            "text tokens {}). Rebuild the engines from engine-build.json "
+            "recipe_version >= 2.",
+            enc_min.size() == 3 ? enc_min[1] : -1,
+            enc_max.size() == 3 ? enc_max[1] : -1,
+            dec_max.size() == 3 ? dec_max[1] : -1, text_len);
       geometry_encoder_trt_.reset();
     }
   }

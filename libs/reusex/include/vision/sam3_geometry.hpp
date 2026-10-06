@@ -129,4 +129,24 @@ sam3_point_prompt_selection(const std::vector<float> &scores,
                             const std::vector<std::vector<bool>> &covers,
                             const std::vector<bool> &box_selected);
 
+/// When a request's geometry path fails at run time (encode_boxes / decode
+/// with a geometry slot), the request is re-run text-only. One failure is not
+/// taken as proof the engines cannot do geometry (it may be transient); only
+/// kFailuresBeforeDisable requests in a row that fail turn geometry off for
+/// the model's lifetime. A request whose geometry path succeeds resets it.
+class Sam3GeometryFailures {
+    public:
+  static constexpr int kFailuresBeforeDisable = 3;
+
+  /// Record one failed request; true when geometry should now be disabled.
+  bool record_failure() noexcept {
+    return ++consecutive_ >= kFailuresBeforeDisable;
+  }
+  void record_success() noexcept { consecutive_ = 0; }
+  [[nodiscard]] int consecutive() const noexcept { return consecutive_; }
+
+    private:
+  int consecutive_ = 0;
+};
+
 } // namespace reusex::vision

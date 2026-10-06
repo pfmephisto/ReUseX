@@ -12,10 +12,13 @@
 #include <NvInferPlugin.h>
 #include <NvOnnxParser.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace reusex::vision::tensor_rt {
 
@@ -23,6 +26,10 @@ namespace {
 
 /// Bridge TensorRT's builder logging into the ReUseX logging facade. Kept local
 /// to the builder TU (the runtime path in tensorrt.cpp has its own copy).
+/// The calling thread's build, if any, collects TensorRT's error messages
+/// here so a failed build can be classified (shape vs resource).
+thread_local std::vector<std::string> *t_build_errors = nullptr;
+
 class BuilderLogger : public nvinfer1::ILogger {
     public:
   void log(Severity severity, const char *msg) noexcept override {
@@ -31,6 +38,12 @@ class BuilderLogger : public nvinfer1::ILogger {
     case Severity::kINTERNAL_ERROR:
     case Severity::kERROR:
       level = reusex::core::LogLevel::error;
+      if (t_build_errors) {
+        try {
+          t_build_errors->emplace_back(msg);
+        } catch (...) {
+        }
+      }
       break;
     case Severity::kWARNING:
       level = reusex::core::LogLevel::warn;
@@ -150,24 +163,62 @@ std::filesystem::path build_engine(const EngineBuildRequest &req) {
 
   // Optimization profile (dynamic and static-but-specified inputs).
   if (!req.profile.shapes.empty()) {
+    // A profile that contradicts a static input dim (an export that baked
+    // it) fails here, cheaply, before the builder runs for minutes.
+    for (int i = 0; i < network->getNbInputs(); ++i) {
+      const nvinfer1::ITensor *in = network->getInput(i);
+      const auto it = req.profile.shapes.find(in->getName());
+      if (it == req.profile.shapes.end())
+        continue;
+      const nvinfer1::Dims d = in->getDimensions();
+      std::vector<long long> dims(d.d, d.d + std::max<int32_t>(d.nbDims, 0));
+      if (const auto why = sam3::profile_shape_conflict(dims, it->second))
+        throw EngineProfileError(
+            fmt::format("EngineBuilder: {}: profile for input '{}' does not "
+                        "fit the network: {}",
+                        name, it->first, *why));
+    }
     nvinfer1::IOptimizationProfile *opt = builder->createOptimizationProfile();
     for (const auto &[input, tri] : req.profile.shapes) {
-      opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kMIN,
-                         to_dims(tri.min, name, input));
-      opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kOPT,
-                         to_dims(tri.opt, name, input));
-      opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kMAX,
-                         to_dims(tri.max, name, input));
+      const bool ok =
+          opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kMIN,
+                             to_dims(tri.min, name, input)) &&
+          opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kOPT,
+                             to_dims(tri.opt, name, input)) &&
+          opt->setDimensions(input.c_str(), nvinfer1::OptProfileSelector::kMAX,
+                             to_dims(tri.max, name, input));
+      if (!ok)
+        throw EngineProfileError(fmt::format(
+            "EngineBuilder: {}: TensorRT rejected the profile for input '{}'",
+            name, input));
     }
-    config->addOptimizationProfile(opt);
+    if (config->addOptimizationProfile(opt) < 0)
+      throw EngineProfileError(fmt::format(
+          "EngineBuilder: {}: TensorRT rejected the optimization profile",
+          name));
   }
 
   reusex::info("EngineBuilder: {}: parsing done, invoking builder "
                "(workspace {} MiB, {}) — this can take minutes",
                name, req.profile.workspace_mb, req.profile.precision);
 
-  TrtPtr<nvinfer1::IHostMemory> serialized(
-      builder->buildSerializedNetwork(*network, *config));
+  std::vector<std::string> build_errors;
+  TrtPtr<nvinfer1::IHostMemory> serialized;
+  {
+    struct Collect {
+      explicit Collect(std::vector<std::string> *sink) {
+        t_build_errors = sink;
+      }
+      ~Collect() { t_build_errors = nullptr; }
+    } collect(&build_errors);
+    serialized.reset(builder->buildSerializedNetwork(*network, *config));
+  }
+  if ((!serialized || serialized->size() == 0) &&
+      sam3::is_shape_build_error(build_errors))
+    throw EngineProfileError(fmt::format(
+        "EngineBuilder: buildSerializedNetwork failed for '{}' on the "
+        "profile's shapes: {}",
+        name, build_errors.front()));
   if (!serialized || serialized->size() == 0)
     throw std::runtime_error(fmt::format(
         "EngineBuilder: buildSerializedNetwork returned empty for '{}' "

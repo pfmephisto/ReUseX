@@ -126,6 +126,14 @@ load_engine_build_profiles(const std::filesystem::path &onnx_dir);
 std::vector<std::string> stale_engines(const std::filesystem::path &onnx_dir,
                                        const std::filesystem::path &engine_dir);
 
+/// Engines (names, without ``.engine``) the engine directory's stamp records
+/// as built text-only because their geometry-prompt profile failed with a
+/// shape error (EngineBuildProfiles::fallback_engines). They load and serve
+/// text prompts; prepare_sam3_model() retries their recipe profile. Empty when
+/// there is no stamp or it cannot be read.
+std::vector<std::string>
+fallback_engines(const std::filesystem::path &engine_dir);
+
 /// Non-blocking status probe: is the managed model already loadable, and in
 /// what state? Does no downloading or building, and knows nothing about work
 /// in flight — so it reports ``absent`` / ``not_built`` / ``ready`` (or

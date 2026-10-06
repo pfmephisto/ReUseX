@@ -274,6 +274,12 @@ class ProjectDB {
   /// path can skip its voxel pass and return a prefix directly (#394).
   std::string point_cloud_storage_order(std::string_view name) const;
 
+  /// The `stage` and `parameters` (JSON, may be empty) the cloud was last
+  /// saved with — so an in-place edit can save it again without erasing how
+  /// it was produced. @throws std::runtime_error when @p name is not a cloud.
+  std::pair<std::string, std::string>
+  point_cloud_provenance(std::string_view name) const;
+
   /// Save a serialized tile index blob for the named cloud.
   void save_tile_index(std::string_view name, const std::vector<uint8_t> &blob);
 

@@ -296,7 +296,9 @@ in `pipeline_log` as `segment_resource` but is not a `Stage` and has no
 | Checks   | frame posed with depth; `labels`/`instances`, when present, index-aligned with `cloud` |
 
 Existing `instances` rows are updated in place (point counts), never deleted
-and re-inserted, so `instance_materials` links survive. A later
+and re-inserted, so `instance_materials` links survive. A rewritten `labels`
+or `instances` keeps its original `stage`/`parameters` (e.g. reconstruct's
+`storage_order`); the edit is recorded in `pipeline_log`. A later
 `rux create instances` re-clusters from `labels`; the hand-made instance keeps
 its GUID (and its part's link) only when reconciliation matches it by overlap.
 

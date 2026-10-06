@@ -6944,6 +6944,18 @@ std::string ProjectDB::point_cloud_storage_order(std::string_view name) const {
   return impl_->getCloudStorageOrder(name);
 }
 
+std::pair<std::string, std::string>
+ProjectDB::point_cloud_provenance(std::string_view name) const {
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db, "SELECT stage, parameters FROM point_clouds WHERE name = ?;",
+      "point_cloud_provenance");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, name);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("Point cloud not found: " + std::string(name));
+  return {column_text(stmt, 0), column_text(stmt, 1)};
+}
+
 void ProjectDB::save_tile_index(std::string_view name,
                                 const std::vector<uint8_t> &blob) {
   impl_->checkWritable();

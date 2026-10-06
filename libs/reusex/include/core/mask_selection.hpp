@@ -87,9 +87,11 @@ struct MaskSelectionOptions {
   /// Optional rooms cloud: when present and index-aligned, the new part gets
   /// the room most of its points fall in (as `sync_survey` does).
   std::string rooms_cloud = "rooms";
-  /// Survey type for the new part. Unset: the type `sync_survey` would use
-  /// for this class (same `semantic_class`), else a type named exactly
-  /// `class_name`, else a new type named `class_name`.
+  /// Survey type for the new part. Unset: for a class that already existed,
+  /// the type `sync_survey` would use for it (same `semantic_class`); else a
+  /// type named exactly `class_name`; else a new type named `class_name`. A
+  /// class created by this call never matches by `semantic_class` — a type
+  /// carrying that id is a leftover from an earlier `labels` generation.
   std::optional<int64_t> type_id;
   /// Recorded in the pipeline log entry; `-1` when the selection did not come
   /// from a frame.
@@ -128,7 +130,11 @@ struct MaskSelectionResult {
  * - A `pipeline_log` entry (`segment_resource`) records the parameters.
  *
  * Existing instance rows are never deleted and re-inserted, so material links
- * (`instance_materials` cascades on that delete) survive.
+ * (`instance_materials` cascades on that delete) survive. Rewritten clouds
+ * keep the `stage`/`parameters` they were produced with; a cloud created here
+ * is saved with stage `segment_resource`. All reads happen inside the write
+ * transaction (BEGIN IMMEDIATE), so a concurrent writer cannot be overwritten
+ * from stale copies.
  *
  * @throws std::invalid_argument for an empty/blank `class_name` or an index
  *         out of range.

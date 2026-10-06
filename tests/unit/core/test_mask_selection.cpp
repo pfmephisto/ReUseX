@@ -340,3 +340,34 @@ TEST_CASE("apply_mask_selection rejects bad input and writes nothing",
   CHECK(db.survey_parts().empty());
   CHECK(db.survey_types().empty());
 }
+
+TEST_CASE("apply_mask_selection keeps cloud provenance and ignores stale "
+          "class types",
+          "[core][mask_selection]") {
+  const TempPath tmp("mask_apply_provenance");
+  ProjectDB db(tmp.path);
+  db.save_point_cloud("cloud", line_cloud(4));
+  db.save_point_cloud("labels", label_cloud({1, 1, 0, 0}), "reconstruct",
+                      R"({"storage_order":"morton_10bit","voxel":0.05})");
+  db.save_label_definitions("labels", {{1, "Væg"}});
+  // A type left over from an earlier `labels` generation whose class id is
+  // the one the next new class will get (2).
+  ProjectDB::SurveyTypeRecord stale;
+  stale.name = "Lampe";
+  stale.semantic_class = 2;
+  const auto stale_id = db.add_survey_type(stale).id;
+
+  const auto r = apply_mask_selection(db, {2, 3}, "Vindue");
+  CHECK(r.label_id == 2);
+  CHECK(r.label_created);
+  CHECK(r.type_id != stale_id); // not filed under "Lampe"
+  CHECK(r.type_created);
+  CHECK(db.survey_type(r.type_id)->name == "Vindue");
+
+  const auto [stage, params] = db.point_cloud_provenance("labels");
+  CHECK(stage == "reconstruct");
+  CHECK(params == R"({"storage_order":"morton_10bit","voxel":0.05})");
+  CHECK(db.point_cloud_storage_order("labels") == "morton_10bit");
+  // A cloud created by the edit is attributed to it.
+  CHECK(db.point_cloud_provenance("instances").first == "segment_resource");
+}

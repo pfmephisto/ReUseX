@@ -209,6 +209,12 @@ apply_mask_selection(ProjectDB &db, const std::vector<std::size_t> &indices,
   if (indices.empty())
     throw MaskSelectionError("the selection contains no points (the mask did "
                              "not cover any visible point of the cloud)");
+
+  // Every read below happens under BEGIN IMMEDIATE: with_write serialises
+  // writers inside the server only, and a CLI process (`rux create
+  // instances`, `rux set`) committing between our read and our write would
+  // otherwise be overwritten from stale copies.
+  ProjectDB::Transaction tx(db);
   if (!db.has_point_cloud(opts.base_cloud))
     throw MaskSelectionError(fmt::format(
         "no '{}' cloud — run `rux create clouds` first", opts.base_cloud));
@@ -339,12 +345,22 @@ apply_mask_selection(ProjectDB &db, const std::vector<std::size_t> &indices,
                               {"points", out.point_count},
                               {"semantic_cloud", opts.semantic_cloud},
                               {"instance_cloud", opts.instance_cloud}};
-  ProjectDB::Transaction tx(db);
   const int log_id = db.log_pipeline_start("segment_resource", params.dump());
 
-  db.save_point_cloud(opts.semantic_cloud, *labels, "segment_resource");
+  // An edited cloud keeps the stage/parameters it was produced with (e.g.
+  // reconstruct's storage_order); the edit itself is in pipeline_log. A
+  // cloud created here is attributed to segment_resource.
+  const auto provenance = [&](const std::string &name, bool created) {
+    return created ? std::pair<std::string, std::string>{"segment_resource", ""}
+                   : db.point_cloud_provenance(name);
+  };
+  const auto label_prov = provenance(opts.semantic_cloud, labels_created);
+  const auto inst_prov = provenance(opts.instance_cloud, instances_created);
+  db.save_point_cloud(opts.semantic_cloud, *labels, label_prov.first,
+                      label_prov.second);
   db.save_label_definitions(opts.semantic_cloud, label_defs);
-  db.save_point_cloud(opts.instance_cloud, *inst, "segment_resource");
+  db.save_point_cloud(opts.instance_cloud, *inst, inst_prov.first,
+                      inst_prov.second);
   for (const auto &[id, count] : out.shrunk_instances)
     if (class_of_row.count(id) != 0)
       db.set_instance_point_count(opts.instance_cloud, id, count);
@@ -358,9 +374,13 @@ apply_mask_selection(ProjectDB &db, const std::vector<std::size_t> &indices,
   } else {
     const auto types = db.survey_types();
     // The type sync_survey files this class under, else one named after it.
-    auto it = std::find_if(types.begin(), types.end(), [&](const auto &t) {
-      return t.semantic_class == static_cast<int>(out.label_id);
-    });
+    // A class created just now has no sync_survey type: a type carrying its
+    // id is a leftover from an earlier `labels` generation, not this class.
+    auto it = types.end();
+    if (!out.label_created)
+      it = std::find_if(types.begin(), types.end(), [&](const auto &t) {
+        return t.semantic_class == static_cast<int>(out.label_id);
+      });
     if (it == types.end())
       it = std::find_if(types.begin(), types.end(),
                         [&](const auto &t) { return t.name == cls; });

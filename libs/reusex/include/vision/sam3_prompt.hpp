@@ -19,12 +19,6 @@ namespace reusex::vision {
 /// [x1,y1,x2,y2].
 using SegmentBox = std::pair<std::string, std::array<float, 4>>;
 
-/// One SAM3 prompt: text class name plus optional positive/negative bounding
-/// boxes.
-///
-/// For a point-click prompt from a viewport, emulate it as a small box around
-/// the click (e.g. click ± 8 px). Native point-prompt support is a follow-up
-/// to #409.
 /// Text sent to SAM3 for a prompt that carries boxes but no class name. This
 /// is the upstream SAM3 convention for a geometry-only prompt: Meta's
 /// `Sam3Processor.add_geometric_prompt` encodes the text "visual" when only
@@ -48,6 +42,8 @@ inline int sam3_label_value(bool by_prompt_index, int prompt_index,
 /// A click-point prompt: pixel [x, y].
 using SegmentPoint = std::array<float, 2>;
 
+/// One SAM3 prompt: text class name plus optional positive/negative bounding
+/// boxes and positive click points.
 struct Sam3Prompt {
   std::string text;
   std::vector<SegmentBox> boxes;

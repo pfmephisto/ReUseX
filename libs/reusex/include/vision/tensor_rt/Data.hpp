@@ -68,16 +68,17 @@ struct TensorRTData : IData {
   /// map relies on the cache-id numbering. See sam3_label_value().
   bool label_by_prompt_index = false;
 
-  /// Input: for a prompt with boxes, keep only the detections its boxes
-  /// select (vision::sam3_detection_selected). SAM3 treats a box as an
-  /// exemplar and returns every similar object in the image; the single-image
-  /// selection callers (segment_image) want the object the box points at.
-  /// Left false by the annotate dataset.
+  /// Input: for a prompt with boxes or points, keep only the detections they
+  /// select (vision::sam3_detection_selected; a point keeps the one object
+  /// under it). SAM3 treats a box as an exemplar and returns every similar
+  /// object in the image; the single-image selection callers (segment_image)
+  /// want the object the geometry points at. Points are only fed to the model
+  /// when this is set. Left false by the annotate dataset.
   bool select_box_instances = false;
 
-  /// Output (on forward() results): true when the model has a geometry
-  /// encoder, i.e. prompt boxes were fed to SAM3. False means boxes were
-  /// ignored by the model and only the text drove the detections.
+  /// Output (on forward() results): true when the loaded engines take
+  /// geometry, i.e. prompt boxes (and points) were fed to SAM3. False means
+  /// they were ignored by the model and only the text drove the detections.
   bool geometry_prompts_used = false;
 
   /// Returns the plain text of the built-in default prompt list so callers

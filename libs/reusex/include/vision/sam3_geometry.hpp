@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "reusex/vision/sam3_prompt.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -58,17 +60,13 @@ int sam3_geometry_capacity(int model_cap, int encoder_min_boxes,
                            int encoder_max_boxes, int text_len,
                            int decoder_max_len) noexcept;
 
-/// One prompt box: polarity ("pos"/"neg") and pixel [x1, y1, x2, y2] — the
-/// same shape as Sam3Prompt::boxes / the TensorRT prompt unit.
-using SegmentBox = std::pair<std::string, std::array<float, 4>>;
-
 /// Does a detection with pixel box @p det_xyxy belong to a box-prompted
 /// selection? SAM3 treats a prompt box as an exemplar and returns every
 /// similar object; a selection keeps only what the boxes point at:
 ///   * with positive boxes, a detection is kept when one of them covers at
 ///     least half of the detection (the box drawn around the object) or at
-///     least half of that box lies inside the detection (a clicked point's
-///     small box inside a larger object);
+///     least half of that box lies inside the detection (a small box drawn
+///     on a larger object);
 ///   * a detection at least half inside a negative box is dropped;
 ///   * with no positive box and no point, everything not dropped is kept;
 ///   * a detection that covers one of @p points (click points) is kept;

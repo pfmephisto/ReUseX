@@ -39,9 +39,9 @@ namespace reusex::vision {
 ///         clip_labels_to_prompt_boxes), boxed prompts are clipped to their
 ///         boxes and a warning is logged once per process.
 /// Restrict each boxed prompt's pixels to its boxes — the fallback for a
-/// backend that cannot feed boxes to SAM3 (ONNX, or TensorRT without
-/// geometry-encoder.engine), where a boxed prompt would otherwise segment its
-/// text concept across the whole image.
+/// backend that cannot feed boxes to SAM3 (ONNX, or TensorRT engines that
+/// cannot take geometry, see TensorRTSam3), where a boxed prompt would
+/// otherwise segment its text concept across the whole image.
 ///
 /// For prompt k (label value k in @p labels, the prompt-index numbering) with
 /// at least one box: when it has "pos" boxes, its pixels outside the union of

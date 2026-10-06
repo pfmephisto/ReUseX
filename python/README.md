@@ -155,7 +155,10 @@ python -m reusex_sam3.build_engines --emit-profiles
 ```
 
 Commit the result alongside any shape/precision contract change so the C++ side
-picks it up on the next managed engine build.
+picks it up on the next managed engine build, and **bump `RECIPE_VERSION`** in
+`build_engines.py` when a profile changes: the C++ side only lets the built-in
+recipe supersede a bundle's own `engine-build.json` when it is newer, and
+rebuilds managed engines whose recipe changed (`docs/sam3.1-tensorrt.md` §9.1).
 
 ## Engine I/O contract
 

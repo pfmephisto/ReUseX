@@ -1,0 +1,45 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* The Fotos strip (PhotoStrip.tsx), shared by the edit dialog and the
+   detail panel. */
+
+.photos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.photo {
+  width: calc(var(--space-7) + var(--space-3));
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.photoFallback {
+  composes: photo;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.photoMore {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+}
+
+.photoEmpty {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}

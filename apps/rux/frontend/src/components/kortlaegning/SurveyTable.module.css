@@ -238,6 +238,15 @@
   padding-left: calc(var(--space-3) + var(--space-5));
 }
 
+.thumb {
+  flex: none;
+  width: calc(var(--space-5) * 4 / 3);
+  height: var(--space-5);
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
 .partCell {
   display: flex;
   align-items: center;

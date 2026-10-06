@@ -8,8 +8,12 @@
  * user is typing" is a tested rule, not an onKeyDown detail.
  */
 
-export type EvidenceTab = 'plan' | 'foto' | 'punktsky' | 'rum';
-export const EVIDENCE_TABS: readonly EvidenceTab[] = ['plan', 'foto', 'punktsky', 'rum'];
+/** The evidence views, in tab order: Plan · 360° · Foto · Punktsky · Rum (keys 1–5). */
+export type EvidenceTab = 'plan' | 'pano' | 'foto' | 'punktsky' | 'rum';
+export const EVIDENCE_TABS: readonly EvidenceTab[] = ['plan', 'pano', 'foto', 'punktsky', 'rum'];
+
+/** The last evidence number key, for the hint text (`1`–`5`). */
+export const EVIDENCE_LAST_KEY = String(EVIDENCE_TABS.length);
 
 export type KortAction =
   | { type: 'move'; delta: number }

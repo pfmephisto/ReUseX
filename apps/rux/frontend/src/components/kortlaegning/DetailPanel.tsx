@@ -40,6 +40,7 @@ import { ConfidenceBar } from '../ConfidenceBar';
 import { EmptyState } from '../EmptyState';
 import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
+import { PhotoStrip } from './PhotoStrip';
 import { ResourceCell } from './ResourceCell';
 import { SampleLine } from './SampleLine';
 import { TypeMark } from './TypeMark';
@@ -270,6 +271,8 @@ export function DetailPanel({
           onKeyDown={(e) => onFieldKey(e, false, revertNote)}
         />
       </div>
+
+      <PhotoStrip type={type} part={part} fieldClassName={styles.field} labelClassName={styles.label} />
 
       <section className={styles.props} aria-label="Alle egenskaber">
         <h3 className={styles.propsHeading}>Alle egenskaber</h3>

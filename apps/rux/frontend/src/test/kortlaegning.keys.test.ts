@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { dialogAction, EVIDENCE_TABS, tableAction } from '../kortlaegning/keys';
+import { dialogAction, EVIDENCE_LAST_KEY, EVIDENCE_TABS, tableAction } from '../kortlaegning/keys';
 
 const k = (key: string, extra: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; inField: boolean; isControl: boolean }> = {}) => ({
   key,
@@ -22,7 +22,7 @@ describe('table keys', () => {
     expect(tableAction(k('G'))).toEqual({ type: 'approve' });
     expect(tableAction(k('a'))).toEqual({ type: 'reject' });
     expect(tableAction(k('v'))).toEqual({ type: 'star' });
-    expect(tableAction(k('3'))).toEqual({ type: 'evidence', tab: 'punktsky' });
+    expect(tableAction(k('4'))).toEqual({ type: 'evidence', tab: 'punktsky' });
   });
 
   it('stays out of the way while typing, except Escape', () => {
@@ -56,11 +56,17 @@ describe('dialog keys', () => {
   it('uses letter shortcuts only outside fields', () => {
     expect(dialogAction(k('g'))).toEqual({ type: 'approve' });
     expect(dialogAction(k('g', { inField: true }))).toBeNull();
-    expect(dialogAction(k('2'))).toEqual({ type: 'evidence', tab: 'foto' });
+    expect(dialogAction(k('2'))).toEqual({ type: 'evidence', tab: 'pano' });
+    expect(dialogAction(k('3'))).toEqual({ type: 'evidence', tab: 'foto' });
     expect(dialogAction(k('Enter'))).toBeNull();
   });
 
-  it('orders the evidence tabs as the 1–4 keys', () => {
-    expect([...EVIDENCE_TABS]).toEqual(['plan', 'foto', 'punktsky', 'rum']);
+  it('orders the evidence tabs as the 1–5 keys: Plan · 360° · Foto · Punktsky · Rum', () => {
+    expect([...EVIDENCE_TABS]).toEqual(['plan', 'pano', 'foto', 'punktsky', 'rum']);
+    expect(EVIDENCE_LAST_KEY).toBe('5');
+    expect(tableAction(k('1'))).toEqual({ type: 'evidence', tab: 'plan' });
+    expect(tableAction(k('5'))).toEqual({ type: 'evidence', tab: 'rum' });
+    expect(tableAction(k('6'))).toBeNull();
+    expect(dialogAction(k('5', { inField: true }))).toBeNull();
   });
 });

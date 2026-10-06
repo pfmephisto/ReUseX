@@ -55,6 +55,30 @@ describe('survey client', () => {
     expect(r).toEqual({ parts_deleted: 3, instances_dismissed: 2 });
   });
 
+  it('reads the photo batch in one request', async () => {
+    const payload = { parts: { 'RX-001': { count: 6, best_frame_id: 12 } } };
+    const { calls, api } = client(payload);
+    const r = await api.surveyPhotos();
+    expect(calls[0]).toMatchObject({ url: '/api/v1/survey/photos' });
+    expect(calls[0].method ?? 'GET').toBe('GET');
+    expect(r).toEqual(payload);
+  });
+
+  it('reads the panoramas near an instance, url-encoding the cloud', async () => {
+    const payload = {
+      point: [0, 0, 2],
+      cloud: 'my instances',
+      instance_id: 3,
+      max_distance: 15,
+      panoramas: [{ panorama_id: 5, node_id: 9, distance: 4, u: 0.7, v: 0.4, heading: 'resected' }],
+      total: 1,
+    };
+    const { calls, api } = client(payload);
+    const r = await api.instancePanoramas('my instances', 3);
+    expect(calls[0].url).toBe('/api/v1/instances/my%20instances/3/panoramas');
+    expect(r.panoramas[0].panorama_id).toBe(5);
+  });
+
   it('url-encodes part codes', async () => {
     const { calls, api } = client({ code: 'RX-001' });
     await api.patchSurveyPart('RX-001', { starred: true });

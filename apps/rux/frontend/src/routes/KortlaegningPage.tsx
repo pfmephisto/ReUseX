@@ -13,6 +13,7 @@ import type {
   ResourceKey,
   Sample,
   SurveyPart,
+  SurveyPhotos,
   SurveySummary,
   SurveySyncReport,
   SurveyType,
@@ -45,6 +46,7 @@ import {
   type ColumnDraft,
 } from '../kortlaegning/columnDraft';
 import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '../kortlaegning/keys';
+import { photoBatchKey } from '../kortlaegning/photo';
 import {
   NO_FILTERS,
   flattenRows,
@@ -233,6 +235,23 @@ export function KortlaegningPage() {
   const projectRef = useRef<ProjectIdentity>({ id: null, name: '' });
   // A write succeeded but the re-read after it failed: the view may be stale.
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+
+  // Photo count + best frame per part, in one request (spec A4). Separate from
+  // the main load so the table renders first and fills its thumbnails in when
+  // this resolves; a failure only leaves the quiet placeholders.
+  const photoKey = photoBatchKey(types);
+  const { data: photoBatch } = useAsync<SurveyPhotos | null>(
+    async (signal) => {
+      if (!photoKey) return null;
+      try {
+        return await api.surveyPhotos(signal);
+      } catch (cause) {
+        if (signal.aborted) throw cause;
+        return null;
+      }
+    },
+    [photoKey],
+  );
 
   const [tab, setTab] = useState<Tab>('queue');
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -781,6 +800,7 @@ export function KortlaegningPage() {
               setColumnError(null);
               setAddColumnOpen(true);
             }}
+            photos={photoBatch?.parts ?? null}
           />
           <aside className={styles.aside}>
             <EvidencePanel

@@ -39,6 +39,7 @@ import type {
   GsplatInfo,
   Health,
   InstanceInfo,
+  InstancePanoramaList,
   Job,
   JobRequest,
   LabelLegend,
@@ -78,6 +79,7 @@ import type {
   SurveyFractions,
   SurveyPart,
   SurveyPartPatch,
+  SurveyPhotos,
   SurveySummary,
   SurveySyncReport,
   SurveyType,
@@ -1028,6 +1030,22 @@ export class RuxApiClient {
     return body.frames ?? [];
   }
 
+  /**
+   * Placeable 360 panoramas near an instance, nearest first, each with the
+   * equirect `u,v` (0..1) its centroid lands on.
+   */
+  instancePanoramas(
+    cloud: string,
+    instanceId: number,
+    signal?: AbortSignal,
+  ): Promise<InstancePanoramaList> {
+    return this.requestJson<InstancePanoramaList>(
+      `/instances/${encodeURIComponent(cloud)}/${instanceId}/panoramas`,
+      undefined,
+      signal,
+    );
+  }
+
   // --------------------------------------------------------- pipeline ----
 
   async stages(signal?: AbortSignal): Promise<StageInfo[]> {
@@ -1172,6 +1190,11 @@ export class RuxApiClient {
 
   surveySummary(signal?: AbortSignal): Promise<SurveySummary> {
     return this.requestJson<SurveySummary>('/survey/summary', undefined, signal);
+  }
+
+  /** Photo count + best frame per instance-backed part, in one request. */
+  surveyPhotos(signal?: AbortSignal): Promise<SurveyPhotos> {
+    return this.requestJson<SurveyPhotos>('/survey/photos', undefined, signal);
   }
 
   surveyFractions(signal?: AbortSignal): Promise<SurveyFractions> {

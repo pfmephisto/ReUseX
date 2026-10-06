@@ -902,6 +902,49 @@ export interface SurveyFractions {
   ready: boolean;
 }
 
+/** `PartPhotos` — one survey part's photo evidence (`GET /survey/photos`). */
+export interface PartPhotos {
+  /** Posed sensor frames that see the part's instance centroid. */
+  count: number;
+  /** The most central of them; null when `count` is 0. */
+  best_frame_id: number | null;
+}
+
+/**
+ * `SurveyPhotos` — `GET /survey/photos`: photo evidence for every
+ * instance-backed part, keyed on part code. Parts without an instance link
+ * are absent.
+ */
+export interface SurveyPhotos {
+  parts: Record<string, PartPhotos>;
+}
+
+/** `InstancePanorama` — one placeable 360 panorama near an instance. */
+export interface InstancePanorama {
+  panorama_id: number;
+  /** Matched sensor frame, -1 if none. */
+  node_id: number;
+  /** Panorama centre to the instance centroid, metres. */
+  distance: number;
+  /** Equirect column of the centroid, 0..1 left to right. */
+  u: number;
+  /** Equirect row of the centroid, 0..1 from the top (north pole). */
+  v: number;
+  /** `levelled` = heading unknown, so `u` is only as good as that guess. */
+  heading: 'resected' | 'levelled';
+}
+
+/** `InstancePanoramaList` — `GET /instances/{cloud}/{id}/panoramas`. */
+export interface InstancePanoramaList {
+  point: [number, number, number];
+  cloud: string;
+  instance_id: number;
+  max_distance: number;
+  /** Nearest first. */
+  panoramas: InstancePanorama[];
+  total: number;
+}
+
 /** `Sample` — one environmental sample, with its linked survey types. */
 export interface Sample {
   id: number;

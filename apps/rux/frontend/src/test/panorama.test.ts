@@ -164,6 +164,16 @@ describe('bearingToUv', () => {
     expect(bearingToUv(0, 1, 0)[1]).toBeCloseTo(1);
   });
 
+  // The shared numeric case with the C++ side: `core::equirect_uv` restates
+  // this convention (core cannot link geometry_common) and
+  // tests/unit/core/test_instance_evidence.cpp pins the same numbers, so the
+  // 360° marker in Kortlægning lands where the viewport would put it.
+  it('BearingToUv_PinsTheCppEquirectUvCase', () => {
+    const [u, v] = bearingToUv(1, -1, 1);
+    expect(u).toBeCloseTo(0.625, 9);
+    expect(v).toBeCloseTo(0.3040867, 6);
+  });
+
   it('BearingToUv_UnnormalisedInput_IsNormalisedFirst', () => {
     expect(bearingToUv(0, 0, 7)).toEqual(bearingToUv(0, 0, 1));
   });

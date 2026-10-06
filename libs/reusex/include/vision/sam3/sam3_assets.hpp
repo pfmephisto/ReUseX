@@ -38,6 +38,11 @@ struct PrepProgress {
   PrepState state = PrepState::absent;
   float fraction = 0.0f; ///< 0..1 within the current phase (best-effort)
   std::string message;   ///< human-readable detail
+  /// Only from sam3_status() in state ``not_built``: when the engines are all
+  /// there and the only gap is engines built from an older recipe
+  /// (stale_engines()), their names — a one-time rebuild of those engines,
+  /// no download. Empty for a first-time build.
+  std::vector<std::string> update_engines;
 };
 
 using ProgressCallback = std::function<void(const PrepProgress &)>;
@@ -129,10 +134,22 @@ std::vector<std::string> stale_engines(const std::filesystem::path &onnx_dir,
 /// Engines (names, without ``.engine``) the engine directory's stamp records
 /// as built text-only because their geometry-prompt profile failed with a
 /// shape error (EngineBuildProfiles::fallback_engines). They load and serve
-/// text prompts; prepare_sam3_model() retries their recipe profile. Empty when
-/// there is no stamp or it cannot be read.
+/// text prompts. Empty when there is no stamp or it cannot be read.
 std::vector<std::string>
 fallback_engines(const std::filesystem::path &engine_dir);
+
+/// The fallback_engines() whose recipe profile is worth building again: the
+/// ONNX it failed against has changed since (its sha256 differs from the
+/// stamp's ``fallback_onnx_sha256``, or the stamp predates fingerprints).
+/// A changed *recipe* needs no entry here: stale_engines() already rebuilds
+/// such an engine from scratch. Everything else stays text-only for good —
+/// the failure is a deterministic property of the ONNX graph against the
+/// profile, so retrying it every session would only re-run a multi-minute
+/// build that fails again. To force a retry anyway, delete the engine file
+/// (``<engine_dir>/<name>.engine``): it is then missing and rebuilt.
+std::vector<std::string>
+fallback_engines_to_retry(const std::filesystem::path &onnx_dir,
+                          const std::filesystem::path &engine_dir);
 
 /// Non-blocking status probe: is the managed model already loadable, and in
 /// what state? Does no downloading or building, and knows nothing about work

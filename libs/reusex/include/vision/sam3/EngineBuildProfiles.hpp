@@ -67,10 +67,17 @@ struct EngineBuildProfiles {
   std::map<std::string, EngineProfile> engines;
   /// Only in an engine directory's stamp: the engines that were built with
   /// text_only_fallback() instead of their profile in ``engines`` (their
-  /// geometry-prompt profile failed with a shape error). The next model
-  /// preparation retries those profiles. Serialized as ``fallback_engines``,
-  /// and only when non-empty.
+  /// geometry-prompt profile failed with a shape error). Serialized as
+  /// ``fallback_engines``, and only when non-empty.
   std::vector<std::string> fallback_engines;
+  /// Only in a stamp, next to ``fallback_engines``: the sha256 of each
+  /// fallback engine's ONNX at the time its profile failed. Together with the
+  /// stamped profile in ``engines`` it makes the fallback permanent: the
+  /// profile is retried only when the recipe or the ONNX changed
+  /// (sam3::fallback_engines_to_retry). Serialized as ``fallback_onnx_sha256``
+  /// (name -> hex digest), only when non-empty; a stamp without it (written
+  /// before fingerprints existed) is retried once and then fingerprinted.
+  std::map<std::string, std::string> fallback_onnx_sha256;
 
   /// Parse ``engine-build.json`` from disk. Throws ``std::runtime_error`` on a
   /// missing file, malformed JSON, or an unsupported schema version.

@@ -91,6 +91,17 @@ EngineBuildProfiles parse(const nlohmann::json &root) {
       out.fallback_engines.push_back(n.get<std::string>());
     }
   }
+  if (auto fp = root.find("fallback_onnx_sha256"); fp != root.end()) {
+    if (!fp->is_object())
+      throw std::runtime_error("engine-build.json: 'fallback_onnx_sha256' "
+                               "must map engine names to digests");
+    for (const auto &[name, digest] : fp->items()) {
+      if (!digest.is_string())
+        throw std::runtime_error("engine-build.json: 'fallback_onnx_sha256' "
+                                 "must map engine names to digests");
+      out.fallback_onnx_sha256.emplace(name, digest.get<std::string>());
+    }
+  }
   return out;
 }
 
@@ -144,6 +155,8 @@ std::string EngineBuildProfiles::to_json() const {
                       {"engines", engines_json}};
   if (!fallback_engines.empty())
     root["fallback_engines"] = fallback_engines;
+  if (!fallback_onnx_sha256.empty())
+    root["fallback_onnx_sha256"] = fallback_onnx_sha256;
   return root.dump(2);
 }
 

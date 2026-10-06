@@ -48,6 +48,7 @@ class MockFrameSegmenter : public IFrameSegmenter {
   bool last_use_cuda = true;
   std::string last_model_path;
   bool was_called = false;
+  bool geometry_used = false; ///< reported as geometry_prompts_used
 
   SegmentFrameResult segment(const cv::Mat &image_bgr,
                              const std::vector<reusex::vision::Sam3Prompt> &,
@@ -58,7 +59,7 @@ class MockFrameSegmenter : public IFrameSegmenter {
     was_called = true;
     // Return a non-empty label map (all label 0 = "class a").
     cv::Mat lm(image_bgr.rows, image_bgr.cols, CV_32S, cv::Scalar(0));
-    return {std::move(lm), {"class_a"}};
+    return {std::move(lm), {"class_a"}, geometry_used};
   }
 };
 
@@ -347,6 +348,48 @@ TEST_CASE("ExecuteSegmentFrame_SaveTrue_WritesSegmentationImage",
   CHECK(db.has_segmentation_image(1));
 }
 
+TEST_CASE("ExecuteSegmentFrame_ReportsMaskRevisionAndGeometryUse",
+          "[gui][segment][execute]") {
+  TempPath project("test_segment_exec_revision");
+  reusex::ProjectDB db(project.path);
+  save_color_frame(db, 1);
+
+  MockFrameSegmenter mock;
+  SegmentFrameRequest req;
+  req.model_path = "/models/sam3";
+
+  SECTION("saved: the revision matches the mask read back") {
+    const auto body = execute_segment_frame(db, 1, req, &mock);
+    CHECK(body.at("geometry_prompts_used") == false);
+    REQUIRE(body.at("mask_revision").is_string());
+    CHECK(body.at("mask_revision") ==
+          segmentation_revision(db.segmentation_image(1)));
+  }
+  SECTION("geometry that reached the model is reported") {
+    mock.geometry_used = true;
+    CHECK(
+        execute_segment_frame(db, 1, req, &mock).at("geometry_prompts_used") ==
+        true);
+  }
+  SECTION("not saved: no revision") {
+    req.save = false;
+    CHECK(
+        execute_segment_frame(db, 1, req, &mock).at("mask_revision").is_null());
+  }
+}
+
+TEST_CASE("SegmentationRevision_ChangesWithAnyPixel", "[gui][segment]") {
+  cv::Mat a(4, 4, CV_32S, cv::Scalar(-1));
+  a(cv::Rect(1, 1, 2, 2)).setTo(0);
+  cv::Mat b = a.clone();
+  CHECK(segmentation_revision(a) == segmentation_revision(b));
+  b.at<int32_t>(0, 0) = 1;
+  CHECK(segmentation_revision(a) != segmentation_revision(b));
+  CHECK(segmentation_revision(a) !=
+        segmentation_revision(cv::Mat(2, 8, CV_32S, cv::Scalar(-1))));
+  CHECK(segmentation_revision(a).size() == 16);
+}
+
 TEST_CASE("ExecuteSegmentFrame_SaveFalse_DoesNotWriteToDb",
           "[gui][segment][execute]") {
   TempPath project("test_segment_exec_nosave");
@@ -560,6 +603,10 @@ TEST_CASE("ParseSegmentResourceRequest_ValidAndInvalidBodies",
   CHECK(ok.mask_label == 2);
   CHECK(ok.class_name == "Dør");
   CHECK(ok.type_id == 7);
+  CHECK_FALSE(ok.mask_revision);
+  CHECK(parse_segment_resource_request(
+            R"({"mask_label":0,"class_name":"x","mask_revision":"00ff"})")
+            .mask_revision == "00ff");
   CHECK_FALSE(parse_segment_resource_request(
                   R"({"mask_label":0,"class_name":"x","type_id":null})")
                   .type_id);
@@ -571,7 +618,8 @@ TEST_CASE("ParseSegmentResourceRequest_ValidAndInvalidBodies",
         R"({"mask_label":"1","class_name":"x"})", R"({"mask_label":0})",
         R"({"mask_label":0,"class_name":"   "})",
         R"({"mask_label":0,"class_name":3})",
-        R"({"mask_label":0,"class_name":"x","type_id":"7"})"}) {
+        R"({"mask_label":0,"class_name":"x","type_id":"7"})",
+        R"({"mask_label":0,"class_name":"x","mask_revision":7})"}) {
     INFO(body);
     CHECK(status_of([&] { parse_segment_resource_request(body); }) == 400);
   }
@@ -655,7 +703,64 @@ TEST_CASE("ExecuteSegmentResource_ErrorStatuses", "[gui][segment][resource]") {
     req.type_id = 4242;
     CHECK(status_of([&] { execute_segment_resource(db, 1, req); }) == 404);
   }
+  SECTION("a rejected type_id is 422") {
+    reusex::ProjectDB::SurveyTypeRecord t;
+    t.name = "Dør";
+    t.review_status = reusex::core::ReviewStatus::rejected;
+    req.mask_label = 0;
+    req.type_id = db.add_survey_type(t).id;
+    CHECK(status_of([&] { execute_segment_resource(db, 1, req); }) == 422);
+  }
+  SECTION("a mask overwritten since the run is 409") {
+    req.mask_label = 0;
+    req.mask_revision = segmentation_revision(db.segmentation_image(1));
+    // A later run (the label queue, another tab) replaces the mask.
+    cv::Mat other(64, 64, CV_32S, cv::Scalar(-1));
+    other(cv::Rect(20, 20, 24, 24)).setTo(0);
+    db.save_segmentation_image(1, other);
+    try {
+      execute_segment_resource(db, 1, req);
+      FAIL("expected a 409");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 409);
+      CHECK(std::string(e.what()).find("Segmenteringen er ændret") !=
+            std::string::npos);
+    }
+    CHECK_FALSE(db.has_point_cloud("instances"));
+  }
   CHECK(db.survey_parts().empty());
+}
+
+TEST_CASE("ExecuteSegmentResource_MatchingRevisionIsAccepted",
+          "[gui][segment][resource]") {
+  TempPath project("test_segment_resource_revision_ok");
+  reusex::ProjectDB db(project.path);
+  make_resource_fixture(db);
+  SegmentResourceRequest req;
+  req.mask_label = 0;
+  req.class_name = "Dør";
+  req.mask_revision = segmentation_revision(db.segmentation_image(1));
+  CHECK(execute_segment_resource(db, 1, req).at("resource_code") == "RX-001");
+}
+
+TEST_CASE("ExecuteSegmentResource_SkipsRejectedTypes",
+          "[gui][segment][resource]") {
+  // With no type_id the class name matches only a rejected type: the part
+  // goes into a new type, never into the rejected one.
+  TempPath project("test_segment_resource_rejected");
+  reusex::ProjectDB db(project.path);
+  make_resource_fixture(db);
+  reusex::ProjectDB::SurveyTypeRecord t;
+  t.name = "Dør";
+  t.review_status = reusex::core::ReviewStatus::rejected;
+  const auto rejected = db.add_survey_type(t).id;
+
+  SegmentResourceRequest req;
+  req.mask_label = 0;
+  req.class_name = "Dør";
+  const auto out = execute_segment_resource(db, 1, req);
+  CHECK(out.at("type_created") == true);
+  CHECK(out.at("type_id").get<int64_t>() != rejected);
 }
 
 TEST_CASE("CloudsChangedJson_Shape", "[gui][segment][resource][ws]") {

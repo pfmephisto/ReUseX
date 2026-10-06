@@ -92,6 +92,9 @@ struct MaskSelectionOptions {
   /// type named exactly `class_name`; else a new type named `class_name`. A
   /// class created by this call never matches by `semantic_class` — a type
   /// carrying that id is a leftover from an earlier `labels` generation.
+  /// Rejected (`ReviewStatus::rejected`) types are skipped by both matches:
+  /// when only a rejected type matches, a new type is created instead of
+  /// reviving it. Set to a rejected type, the call throws MaskSelectionError.
   std::optional<int64_t> type_id;
   /// Recorded in the pipeline log entry; `-1` when the selection did not come
   /// from a frame.
@@ -140,6 +143,7 @@ struct MaskSelectionResult {
  *         out of range.
  * @throws MaskSelectionError for an empty selection, a missing base cloud, or
  *         a label cloud whose size differs from the base cloud's.
+ * @throws MaskSelectionError when `opts.type_id` names a rejected type.
  * @throws std::out_of_range when `opts.type_id` names no survey type.
  */
 MaskSelectionResult

@@ -225,6 +225,21 @@ TEST_CASE("EngineBuildProfiles round-trips fallback_engines",
       R"({"engines":{},"fallback_engines":"decoder"})"));
 }
 
+TEST_CASE("EngineBuildProfiles round-trips fallback_onnx_sha256",
+          "[vision][sam3]") {
+  auto a = EngineBuildProfiles::from_string(kSample);
+  CHECK(a.to_json().find("fallback_onnx_sha256") == std::string::npos);
+  a.fallback_engines = {"decoder"};
+  a.fallback_onnx_sha256 = {{"decoder", "abc123"}};
+  const auto b = EngineBuildProfiles::from_string(a.to_json());
+  CHECK(b.fallback_onnx_sha256 == a.fallback_onnx_sha256);
+
+  CHECK_THROWS(EngineBuildProfiles::from_string(
+      R"({"engines":{},"fallback_onnx_sha256":["abc"]})"));
+  CHECK_THROWS(EngineBuildProfiles::from_string(
+      R"({"engines":{},"fallback_onnx_sha256":{"decoder":1}})"));
+}
+
 TEST_CASE("profile_shape_conflict finds a baked axis", "[vision][sam3]") {
   using reusex::vision::sam3::profile_shape_conflict;
   EngineProfile::ShapeProfile sp{{1, 32, 256}, {1, 32, 256}, {4, 41, 256}};

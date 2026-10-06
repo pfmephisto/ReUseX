@@ -57,8 +57,21 @@ namespace reusex::vision {
 std::size_t clip_labels_to_prompt_boxes(cv::Mat &labels,
                                         const std::vector<Sam3Prompt> &prompts);
 
+/// What segment_image() can report beyond the label map.
+struct SegmentImageInfo {
+  /// True when at least one prompt carried a box or point and the geometry
+  /// reached SAM3's geometry encoder. False when no prompt had geometry, or
+  /// when the backend could not take it (ONNX, text-only TensorRT engines, a
+  /// geometry path that failed at run time) and the boxed prompts were
+  /// clipped to their boxes instead (clip_labels_to_prompt_boxes).
+  bool geometry_prompts_used = false;
+};
+
+/// Segment a single BGR image with a SAM3 model (see the parameters above).
+/// @param info Optional out-parameter; see SegmentImageInfo.
 cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
                       const std::vector<Sam3Prompt> &prompts = {},
-                      float confidence = 0.5f);
+                      float confidence = 0.5f,
+                      SegmentImageInfo *info = nullptr);
 
 } // namespace reusex::vision

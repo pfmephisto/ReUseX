@@ -218,8 +218,19 @@ apply_mask_selection(ProjectDB &db, const std::vector<std::size_t> &indices,
   if (!db.has_point_cloud(opts.base_cloud))
     throw MaskSelectionError(fmt::format(
         "no '{}' cloud — run `rux create clouds` first", opts.base_cloud));
-  if (opts.type_id && !db.survey_type(*opts.type_id))
-    throw std::out_of_range("no survey type " + std::to_string(*opts.type_id));
+  if (opts.type_id) {
+    const auto type = db.survey_type(*opts.type_id);
+    if (!type)
+      throw std::out_of_range("no survey type " +
+                              std::to_string(*opts.type_id));
+    // A rejected (Afvist) type is out of the survey: a part filed there
+    // would be hidden from the moment it is created.
+    if (type->review_status == ReviewStatus::rejected)
+      throw MaskSelectionError(
+          fmt::format("survey type {} ('{}') is rejected; choose another type "
+                      "or omit type_id",
+                      type->id, type->name));
+  }
 
   const std::size_t n = db.point_cloud_page(opts.base_cloud, 0, 0).total;
   std::vector<std::size_t> sel(indices);
@@ -372,7 +383,14 @@ apply_mask_selection(ProjectDB &db, const std::vector<std::size_t> &indices,
   if (opts.type_id) {
     out.type_id = *opts.type_id;
   } else {
-    const auto types = db.survey_types();
+    // Rejected (Afvist) types never take a new part: a match there would
+    // hide the part the moment it is created. With only a rejected match,
+    // a new type is created rather than the rejected one revived — reviving
+    // would overturn the reviewer's decision behind their back.
+    auto types = db.survey_types();
+    std::erase_if(types, [](const auto &t) {
+      return t.review_status == ReviewStatus::rejected;
+    });
     // The type sync_survey files this class under, else one named after it.
     // A class created just now has no sync_survey type: a type carrying its
     // id is a leftover from an earlier `labels` generation, not this class.

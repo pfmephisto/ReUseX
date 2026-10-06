@@ -503,3 +503,79 @@ TEST_CASE("Sam3Assets_FallbackEngines_ReadFromTheStampAndLoadable",
   write_file(eng / "engine-build.json", "not json");
   CHECK(sam3::fallback_engines(eng).empty());
 }
+
+TEST_CASE("Sam3Assets_FallbackEngines_RetriedOnlyWhenTheOnnxChanges",
+          "[vision][sam3][assets]") {
+  TempDir tmp("sam3_assets");
+  const fs::path onnx = tmp.path / "onnx";
+  const fs::path eng = tmp.path / "engines";
+  write_detector_export(onnx);
+  write_built_engines(eng);
+
+  auto stamp = sam3::EngineBuildProfiles::builtin();
+  stamp.fallback_engines = {"decoder"};
+
+  SECTION("a stamp from before fingerprints is retried once") {
+    write_file(eng / "engine-build.json", stamp.to_json());
+    CHECK(sam3::fallback_engines_to_retry(onnx, eng) ==
+          std::vector<std::string>{"decoder"});
+  }
+  SECTION("a fingerprint matching the ONNX makes the fallback permanent") {
+    stamp.fallback_onnx_sha256["decoder"] = sha256_hex("onnx:decoder");
+    write_file(eng / "engine-build.json", stamp.to_json());
+    CHECK(sam3::fallback_engines_to_retry(onnx, eng).empty());
+    // Still recorded as a fallback (the loader names it), still loadable.
+    CHECK(sam3::fallback_engines(eng) == std::vector<std::string>{"decoder"});
+    CHECK(sam3::missing_engine_files(onnx, eng).empty());
+
+    // A re-export (say, with dynamic axes) changes the ONNX: retry.
+    write_file(onnx / "decoder.onnx", "onnx:decoder, re-exported");
+    CHECK(sam3::fallback_engines_to_retry(onnx, eng) ==
+          std::vector<std::string>{"decoder"});
+  }
+  SECTION("a changed recipe rebuilds the engine as stale, not as a retry") {
+    stamp.fallback_onnx_sha256["decoder"] = sha256_hex("onnx:decoder");
+    for (const char *in : {"prompt_features", "prompt_mask"})
+      stamp.engines.at("decoder").shapes.at(in).max[1] = 32;
+    write_file(eng / "engine-build.json", stamp.to_json());
+    CHECK(sam3::fallback_engines_to_retry(onnx, eng).empty());
+    CHECK(sam3::stale_engines(onnx, eng) ==
+          std::vector<std::string>{"decoder"});
+  }
+  SECTION("a deleted engine is missing, the manual way to force a rebuild") {
+    stamp.fallback_onnx_sha256["decoder"] = sha256_hex("onnx:decoder");
+    write_file(eng / "engine-build.json", stamp.to_json());
+    fs::remove(eng / "decoder.engine");
+    CHECK(sam3::fallback_engines_to_retry(onnx, eng).empty());
+    CHECK(contains(sam3::missing_engine_files(onnx, eng), "decoder.engine"));
+  }
+}
+
+TEST_CASE("Sam3Assets_Status_TellsARecipeUpdateFromAFirstBuild",
+          "[vision][sam3][assets]") {
+  ScopedEnv no_override("REUSEX_SAM3_ONNX_DIR", nullptr);
+  TempDir tmp("sam3_assets");
+  auto opts = cpu_opts(tmp.path);
+  opts.use_cuda = true;
+  const fs::path onnx = sam3::sam3_onnx_dir(opts);
+  write_detector_export(onnx);
+  if (sam3::sam3_status(opts).state == sam3::PrepState::error)
+    SKIP("no TensorRT backend in this build");
+
+  // First build: nothing built yet.
+  CHECK(sam3::sam3_status(opts).update_engines.empty());
+
+  // Engines from the v1 recipe: a one-time rebuild of the changed ones.
+  const fs::path eng = sam3::sam3_engine_dir(opts);
+  write_built_engines(eng);
+  write_file(eng / "engine-build.json", old_bundle_recipe());
+  const auto update = sam3::sam3_status(opts);
+  CHECK(update.state == sam3::PrepState::not_built);
+  CHECK(update.update_engines == std::vector<std::string>{"decoder"});
+
+  // An engine that is really missing makes it a build, not an update.
+  fs::remove(eng / "vision-encoder.engine");
+  const auto build = sam3::sam3_status(opts);
+  CHECK(build.state == sam3::PrepState::not_built);
+  CHECK(build.update_engines.empty());
+}

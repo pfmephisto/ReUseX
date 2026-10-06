@@ -430,12 +430,16 @@ struct SegmentResourceRequest {
   int mask_label = -1;
   std::string class_name; ///< Trimmed, non-empty.
   std::optional<int64_t> type_id;
+  /// The `mask_revision` of the segment run the mask came from. When set and
+  /// the frame's saved segmentation no longer matches it, the request is a
+  /// 409: a later run (e.g. the label queue) overwrote the mask.
+  std::optional<std::string> mask_revision;
 };
 
 /// Parse and validate the body of POST /frames/<id>/segment/resource.
 /// @throws HttpError(400) on bad JSON, a missing/negative/non-integer
-///         `mask_label`, a missing/blank `class_name`, or a non-integer
-///         `type_id`.
+///         `mask_label`, a missing/blank `class_name`, a non-integer
+///         `type_id`, or a non-string `mask_revision`.
 SegmentResourceRequest parse_segment_resource_request(std::string_view body);
 
 /// Project one label of a frame's saved segmentation into the base cloud and
@@ -445,10 +449,12 @@ SegmentResourceRequest parse_segment_resource_request(std::string_view body);
 /// @return `{resource_code, type_id, type_created, instance_id,
 ///          instance_guid, point_count, label_id, label_created, clouds}` —
 ///          `clouds` names the label clouds that were rewritten.
-/// @throws HttpError(404) unknown frame or type_id; HttpError(422) when the
-///         frame has no saved segmentation, the label has no pixels, the frame
-///         has no pose/depth, there is no base cloud, or the mask covers no
-///         visible point.
+/// @throws HttpError(404) unknown frame or type_id; HttpError(409) when
+///         `mask_revision` no longer matches the saved segmentation;
+///         HttpError(422) when the frame has no saved segmentation, the label
+///         has no pixels, the frame has no pose/depth, there is no base cloud,
+///         the mask covers no visible point, or `type_id` names a rejected
+///         (Afvist) survey type.
 nlohmann::json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
                                         const SegmentResourceRequest &req);
 
@@ -463,10 +469,23 @@ nlohmann::json clouds_changed_json(const std::vector<std::string> &names,
 /// @param label_map      CV_32S result from segment_image(); may be empty.
 /// @param class_names    Class name per label id (empty = model default list).
 /// @param saved          True when the mask was written back to the project.
+/// @param geometry_prompts_used  True when box/point prompts reached SAM3
+///        (SegmentFrameResult::geometry_prompts_used).
+/// @return `{frame_id, saved, labeled_pixels, labels, geometry_prompts_used,
+///          mask_revision}` — `mask_revision` is segmentation_revision() of
+///          the saved mask, or null when nothing was saved.
 nlohmann::json
 segment_frame_result_json(int frame_id, const cv::Mat &label_map,
                           const std::vector<std::string> &class_names,
-                          bool saved);
+                          bool saved, bool geometry_prompts_used = false);
+
+/// A fingerprint of a frame's segmentation (CV_32S API encoding): equal for
+/// equal label maps, different (with overwhelming probability) for any
+/// changed pixel or size. Computed over the storage encoding, so the map a
+/// segment run saved and the one read back from the project agree. A
+/// segment response returns it as `mask_revision`; a resource request
+/// echoes it so a mask overwritten in between is refused (409).
+std::string segmentation_revision(const cv::Mat &api_labels);
 
 /// Build the JSON response body for POST /panoramas/<id>/segment (#448).
 ///

@@ -42,6 +42,8 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <map>
@@ -1814,7 +1816,8 @@ nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
   }
 
   return segment_frame_result_json(frame_id, result.label_map,
-                                   result.class_names, saved);
+                                   result.class_names, saved,
+                                   result.geometry_prompts_used);
 }
 
 nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
@@ -1876,6 +1879,11 @@ SegmentResourceRequest parse_segment_resource_request(std::string_view body) {
       throw HttpError(400, "'type_id' must be an integer or null");
     req.type_id = t->get<int64_t>();
   }
+  if (const auto r = j.find("mask_revision"); r != j.end() && !r->is_null()) {
+    if (!r->is_string())
+      throw HttpError(400, "'mask_revision' must be a string or null");
+    req.mask_revision = r->get<std::string>();
+  }
   return req;
 }
 
@@ -1888,6 +1896,10 @@ json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
                              " has no saved segmentation; run POST "
                              "/frames/{id}/segment with save=true first");
   const cv::Mat seg = db.segmentation_image(frame_id); // CV_32S, -1 = bg
+  // The mask must be the one the user saw: a label-queue run (or another
+  // tab) may have overwritten this frame's segmentation since.
+  if (req.mask_revision && *req.mask_revision != segmentation_revision(seg))
+    throw HttpError(409, "Segmenteringen er ændret — kør igen.");
   const cv::Mat mask = seg == req.mask_label;
   if (cv::countNonZero(mask) == 0)
     throw HttpError(
@@ -1930,12 +1942,38 @@ json clouds_changed_json(const std::vector<std::string> &names,
 // frame segmentation (#409)
 // ===========================================================================
 
+std::string segmentation_revision(const cv::Mat &api_labels) {
+  // FNV-1a 64 over the size and the storage-encoded pixels: cheap (one pass
+  // over a few MB), deterministic across processes, and no schema change.
+  std::uint64_t h = 1469598103934665603ULL;
+  const auto mix = [&h](const unsigned char *p, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+      h ^= p[i];
+      h *= 1099511628211ULL;
+    }
+  };
+  const std::int32_t dims[2] = {api_labels.rows, api_labels.cols};
+  mix(reinterpret_cast<const unsigned char *>(dims), sizeof dims);
+  if (!api_labels.empty()) {
+    const cv::Mat storage = reusex::core::api_mat_to_storage(api_labels);
+    for (int y = 0; y < storage.rows; ++y)
+      mix(storage.ptr<unsigned char>(y), storage.cols * storage.elemSize());
+  }
+  char hex[17];
+  std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(h));
+  return hex;
+}
+
 json segment_frame_result_json(int frame_id, const cv::Mat &label_map,
                                const std::vector<std::string> &class_names,
-                               bool saved) {
+                               bool saved, bool geometry_prompts_used) {
   const int labeled = label_map.empty() ? 0 : cv::countNonZero(label_map != -1);
-  json out{
-      {"frame_id", frame_id}, {"saved", saved}, {"labeled_pixels", labeled}};
+  json out{{"frame_id", frame_id},
+           {"saved", saved},
+           {"labeled_pixels", labeled},
+           {"geometry_prompts_used", geometry_prompts_used},
+           {"mask_revision",
+            saved ? json(segmentation_revision(label_map)) : json(nullptr)}};
   json labels_obj = json::object();
   for (std::size_t i = 0; i < class_names.size(); ++i)
     labels_obj[std::to_string(i)] = class_names[i];

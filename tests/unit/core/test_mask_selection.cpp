@@ -319,6 +319,41 @@ TEST_CASE("apply_mask_selection on a project with labels and instances",
     const auto named_id = db.add_survey_type(named).id;
     CHECK(apply_mask_selection(db, {8}, "Radiator").type_id == named_id);
   }
+  SECTION("a rejected type is never picked: a new type is created") {
+    // Reject the class's type and add a rejected one matching by name: both
+    // automatic matches must skip them.
+    db.update_survey_type(door_type,
+                          {.review_status = core::ReviewStatus::rejected});
+    ProjectDB::SurveyTypeRecord named;
+    named.name = "Dør";
+    named.review_status = core::ReviewStatus::rejected;
+    const auto named_id = db.add_survey_type(named).id;
+    const auto types_before = db.survey_types().size();
+
+    const auto r2 = apply_mask_selection(db, {9}, "Dør");
+    CHECK(r2.type_created);
+    CHECK(r2.type_id != door_type);
+    CHECK(r2.type_id != named_id);
+    CHECK(db.survey_types().size() == types_before + 1);
+    const auto created = db.survey_type(r2.type_id);
+    REQUIRE(created);
+    CHECK(created->name == "Dør");
+    CHECK(created->review_status == core::ReviewStatus::queue);
+    // The rejected types stay rejected.
+    CHECK(db.survey_type(door_type)->review_status ==
+          core::ReviewStatus::rejected);
+  }
+  SECTION("a rejected type as type_id is refused and writes nothing") {
+    db.update_survey_type(door_type,
+                          {.review_status = core::ReviewStatus::rejected});
+    const auto parts_before = db.survey_parts().size();
+    MaskSelectionOptions o;
+    o.type_id = door_type;
+    CHECK_THROWS_AS(apply_mask_selection(db, {9}, "Dør", o),
+                    MaskSelectionError);
+    CHECK(db.survey_parts().size() == parts_before);
+    CHECK(db.instances("instances").size() == 3);
+  }
 }
 
 TEST_CASE("apply_mask_selection rejects bad input and writes nothing",

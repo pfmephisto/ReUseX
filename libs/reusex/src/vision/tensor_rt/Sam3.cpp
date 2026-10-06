@@ -564,7 +564,8 @@ bool TensorRTSam3::load_engines() {
       if (!text_only.empty())
         reusex::info("TensorRTSam3: box prompts disabled — {} built "
                      "text-only (fallback: the geometry-prompt profile failed "
-                     "to build); the next model preparation retries it",
+                     "to build); it is retried when the recipe or the ONNX "
+                     "changes, or when the engine file is deleted",
                      fmt::join(text_only, " and "));
       else
         reusex::info(

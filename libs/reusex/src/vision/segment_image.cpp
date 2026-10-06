@@ -114,8 +114,10 @@ clip_labels_to_prompt_boxes(cv::Mat &labels,
 }
 
 cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
-                      const std::vector<Sam3Prompt> &prompts,
-                      float confidence) {
+                      const std::vector<Sam3Prompt> &prompts, float confidence,
+                      SegmentImageInfo *info) {
+  if (info)
+    *info = SegmentImageInfo{};
   if (image_bgr.empty()) {
     reusex::warn("segment_image: called with an empty image");
     return {};
@@ -171,6 +173,8 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
           if (!trt->geometry_prompts_used)
             clip_ignored_boxes(trt->image, prompts,
                                "TensorRT (engines without geometry support)");
+          else if (info)
+            info->geometry_prompts_used = has_boxes(prompts);
           return trt->image;
         }
       }

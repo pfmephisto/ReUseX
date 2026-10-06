@@ -31,6 +31,11 @@ struct SegmentFrameResult {
 
   /// Class names indexed by label id (empty ⟹ model default list was used).
   std::vector<std::string> class_names;
+
+  /// True when box/point prompts reached SAM3's geometry encoder; false when
+  /// no prompt had geometry or the backend clipped the detections to the
+  /// boxes instead (reusex::vision::SegmentImageInfo).
+  bool geometry_prompts_used = false;
 };
 
 /// Segmenter hook injected into the GUI server by the rux app layer.

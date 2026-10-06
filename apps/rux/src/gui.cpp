@@ -85,15 +85,17 @@ class DefaultFrameSegmenter : public rux::gui::IFrameSegmenter {
       }
     }
 
-    cv::Mat label_map =
-        reusex::vision::segment_image(*model_, image_bgr, prompts, confidence);
+    reusex::vision::SegmentImageInfo info;
+    cv::Mat label_map = reusex::vision::segment_image(
+        *model_, image_bgr, prompts, confidence, &info);
 
     std::vector<std::string> class_names;
     class_names.reserve(prompts.size());
     for (const auto &p : prompts)
       class_names.push_back(p.text);
 
-    return {std::move(label_map), std::move(class_names)};
+    return {std::move(label_map), std::move(class_names),
+            info.geometry_prompts_used};
   }
 
     private:
@@ -243,7 +245,8 @@ make_sam3_model_provider(std::filesystem::path models_dir,
         opts.cancel = &stop;
         const auto dir = sam3::prepare_sam3_model(
             opts, [&progress](const sam3::PrepProgress &p) {
-              progress({sam3::to_string(p.state), p.fraction, p.message, ""});
+              progress(
+                  {sam3::to_string(p.state), p.fraction, p.message, "", {}});
             });
         return dir.string();
       };
@@ -251,7 +254,8 @@ make_sam3_model_provider(std::filesystem::path models_dir,
     auto opts = base;
     opts.use_cuda = use_cuda;
     const auto p = sam3::sam3_status(opts);
-    return {sam3::to_string(p.state), p.fraction, p.message, ""};
+    return {sam3::to_string(p.state), p.fraction, p.message, "",
+            p.update_engines};
   };
   return std::make_unique<rux::gui::BackgroundModelProvider>(
       std::move(prepare), std::move(probe), std::move(explicit_model));

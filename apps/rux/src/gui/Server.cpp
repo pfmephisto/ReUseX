@@ -869,7 +869,8 @@ class Server::Impl {
           nlohmann::json out{{"state", st.state},
                              {"progress", st.progress},
                              {"message", st.message},
-                             {"use_cuda", use_cuda}};
+                             {"use_cuda", use_cuda},
+                             {"update_engines", st.update_engines}};
           if (st.state == "ready")
             out["model_path"] = st.model_path;
           return json_response(200, out);
@@ -936,7 +937,8 @@ class Server::Impl {
 
             return json_response(
                 200, segment_frame_result_json(id, result.label_map,
-                                               result.class_names, saved));
+                                               result.class_names, saved,
+                                               result.geometry_prompts_used));
           });
         });
 

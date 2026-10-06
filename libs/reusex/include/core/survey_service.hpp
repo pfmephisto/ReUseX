@@ -67,7 +67,11 @@ struct SurveySyncReport {
   std::size_t types_created = 0;
   std::size_t parts_created = 0;
   std::size_t parts_existing = 0;
-  /// Instance rows considered: parts_created + parts_existing. Zero means the
+  /// Instances skipped because the user deleted their part (tombstoned in
+  /// survey_dismissed_instances, schema v26).
+  std::size_t parts_dismissed = 0;
+  /// Instance rows considered: parts_created + parts_existing +
+  /// parts_dismissed. Zero means the
   /// instance cloud holds no instances, as opposed to "all already surveyed".
   std::size_t instances_seen = 0;
   /// Instance rows sync wrote first because the cloud had labels but no
@@ -90,7 +94,8 @@ struct SurveySyncReport {
 /// Fill survey_types / survey_parts from the instances table: one type per
 /// semantic class, one bygningsdel (survey part) per instance, placed in the
 /// room most of its points fall in. Idempotent — only adds instances that
-/// have no part yet (has_survey_part_for, keyed on instance guid) and never
+/// have no part yet (has_survey_part_for, keyed on instance guid) and were
+/// not dismissed (a deleted part stays deleted, see parts_dismissed), and never
 /// touches existing types/parts, so edits made in the GUI survive a rerun.
 /// If the instance cloud has labels but no `instances` rows (a pre-v10
 /// cloud), the rows are backfilled first from the cloud's labels and its

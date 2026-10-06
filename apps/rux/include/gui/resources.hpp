@@ -36,7 +36,8 @@ nlohmann::json patch_resource_json(reusex::ProjectDB &db,
 /// `POST /resources`, body `{type_id, name?}` → the new resource.
 nlohmann::json create_resource_json(reusex::ProjectDB &db,
                                     const std::string &body);
-/// `DELETE /resources/<code>`: manual parts only (409 otherwise).
+/// `DELETE /resources/<code>`: any part. A scan-backed part is tombstoned so
+/// a survey sync does not re-create it (core::delete_resource).
 void delete_resource(reusex::ProjectDB &db, const std::string &code);
 /// `GET /resources/export.csv?template=<id>` (template required → 400).
 Blob resources_csv_blob(const reusex::ProjectDB &db, const Params &params);

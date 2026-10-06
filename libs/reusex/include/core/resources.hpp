@@ -13,6 +13,7 @@
 #include "reusex/core/ProjectDB.hpp"
 #include "reusex/core/resource_keys.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -76,16 +77,28 @@ inline constexpr std::string_view kDesignationField = "designation";
 Resource create_resource(ProjectDB &db, int64_t type_id,
                          const std::optional<std::string> &name = std::nullopt);
 
-/// Deleting a resource the scan produced. The GUI answers 409.
+/// A resource write the project state refuses. The GUI answers 409.
 class ResourceConflictError : public std::runtime_error {
     public:
   using std::runtime_error::runtime_error;
 };
-/// Delete a manual part and its passport (unless something else links it;
-/// a kept passport is logged at warn).
-/// @throws ResourceConflictError for an instance-backed part,
-///         std::out_of_range for an unknown code.
+/// Delete a part — manual or instance-backed — in one transaction.
+/// An instance-backed part's instance guid is tombstoned
+/// (ProjectDB::dismiss_instance) so sync_survey does not re-create it, and
+/// its instance's passport link is dropped when it points at the part's
+/// passport. The passport is then deleted unless something else (another
+/// part or instance) still links it; a kept passport is logged at warn.
+/// @throws std::out_of_range for an unknown code.
 void delete_resource(ProjectDB &db, std::string_view code);
+/// Delete a survey type and every part in it, with delete_resource's rules
+/// for each part (tombstones, passports), in one transaction. Its sample
+/// links cascade.
+/// @throws std::out_of_range for an unknown type.
+struct SurveyTypeDeletion {
+  std::size_t parts_deleted = 0;
+  std::size_t instances_dismissed = 0; ///< scan-backed parts, now tombstoned
+};
+SurveyTypeDeletion delete_survey_type(ProjectDB &db, int64_t type_id);
 
 /// Sparse update of a user column definition.
 struct ColumnPatch {

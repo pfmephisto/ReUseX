@@ -1097,6 +1097,23 @@ class ProjectDB {
   std::string ensure_resource_passport(std::string_view code);
   /// @throws std::out_of_range when @p code is unknown.
   void delete_survey_part(std::string_view code);
+  /// Deletes a survey type; its parts and sample links cascade. Storage only:
+  /// tombstones and passports are core::delete_survey_type's job.
+  /// @throws std::out_of_range when @p id is unknown.
+  void delete_survey_type(int64_t id);
+
+  /// Tombstones (schema v26, survey_dismissed_instances): instance guids
+  /// whose survey part the user deleted, so sync_survey does not re-create
+  /// it. Idempotent — dismissing a guid twice keeps the first timestamp.
+  void dismiss_instance(std::string_view instance_guid);
+  /// False on a read-only open of a pre-v26 project (no table).
+  [[nodiscard]] bool
+  is_instance_dismissed(std::string_view instance_guid) const;
+  /// Every dismissed instance guid, ascending. Empty before v26.
+  [[nodiscard]] std::vector<std::string> dismissed_instances() const;
+  /// Removes the instance_materials link of (@p cloud_name, @p instance_id).
+  /// Returns false when there was none (or the cloud is unknown).
+  bool unlink_instance_material(std::string_view cloud_name, int instance_id);
   /// Call inside a Transaction. Moves the values stored under a user
   /// column's field name to @p new_name; a no-op when nothing is stored.
   /// @throws core::NameConflictError when values already exist under

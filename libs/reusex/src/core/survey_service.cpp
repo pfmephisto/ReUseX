@@ -232,6 +232,10 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
       ++report.parts_existing;
       continue;
     }
+    if (db.is_instance_dismissed(inst.guid)) {
+      ++report.parts_dismissed;
+      continue;
+    }
     auto it = type_for_class.find(inst.semantic_class);
     if (it == type_for_class.end()) {
       ProjectDB::SurveyTypeRecord t;
@@ -260,6 +264,10 @@ SurveySyncReport sync_survey(ProjectDB &db, const SurveySyncOptions &opts) {
     db.add_survey_part(part);
     ++report.parts_created;
   }
+  if (report.parts_dismissed > 0)
+    reusex::info("sync_survey: skipped {} instance(s) whose part was deleted "
+                 "(survey_dismissed_instances)",
+                 report.parts_dismissed);
   if (instances.empty())
     reusex::warn("sync_survey: instance cloud '{}' has no instances (every "
                  "point is unlabeled); nothing to survey",

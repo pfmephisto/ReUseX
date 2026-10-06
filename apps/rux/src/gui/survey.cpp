@@ -4,6 +4,7 @@
 
 #include "gui/survey.hpp"
 
+#include <reusex/core/resources.hpp>
 #include <reusex/core/survey.hpp>
 #include <reusex/core/survey_service.hpp>
 
@@ -369,6 +370,7 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
     return {{"types_created", r.types_created},
             {"parts_created", r.parts_created},
             {"parts_existing", r.parts_existing},
+            {"parts_dismissed", r.parts_dismissed},
             {"instances_seen", r.instances_seen},
             {"instances_backfilled", r.instances_backfilled},
             {"rooms_assigned", r.rooms_assigned},
@@ -380,6 +382,14 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
       throw HttpError(422, e.what());
     throw;
   }
+}
+
+json delete_survey_type_json(reusex::ProjectDB &db, int64_t id) {
+  return mapped([&] {
+    const auto r = core::delete_survey_type(db, id);
+    return json{{"parts_deleted", r.parts_deleted},
+                {"instances_dismissed", r.instances_dismissed}};
+  });
 }
 
 json create_survey_type_json(reusex::ProjectDB &db, const std::string &body) {

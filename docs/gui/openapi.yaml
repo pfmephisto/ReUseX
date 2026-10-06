@@ -1917,22 +1917,21 @@ paths:
     delete:
       tags: [resources]
       operationId: deleteResource
-      summary: Delete a manually added resource
+      summary: Delete a resource (manual or from the scan)
       description: |
-        Removes a manual part and its passport (unless something else links
-        it). An instance-backed part comes from the scan and is refused.
+        Removes any part (core::delete_resource). An instance-backed part's
+        instance guid is recorded in `survey_dismissed_instances` (schema v26)
+        so `POST /survey/sync` does not re-create it, and its instance's
+        passport link is dropped when it points at the part's passport. The
+        passport is then deleted unless something else still links it.
+        Rejecting a type (`review_status: rejected`) is the non-destructive
+        alternative.
+
+        Performed under the project's writer lock; see `409`/`503`.
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: |
-            Not applied, for one of two reasons the message names: the resource
-            is instance-backed (it comes from the scan; only manual resources
-            can be deleted) — retrying never helps; or a pipeline job is running
-            or queued — retry once it finishes.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -2862,6 +2861,11 @@ paths:
                   types_created: { type: integer }
                   parts_created: { type: integer }
                   parts_existing: { type: integer }
+                  parts_dismissed:
+                    type: integer
+                    description: |
+                      Instances skipped because the user deleted their part
+                      (tombstoned in `survey_dismissed_instances`, schema v26).
                   rooms_assigned: { type: boolean }
                   parts_orphaned:
                     type: integer
@@ -2990,6 +2994,41 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [survey]
+      operationId: deleteSurveyType
+      summary: Delete a survey type and all its parts
+      description: |
+        core::delete_survey_type: every part of the type is deleted with
+        `DELETE /resources/{code}`'s rules (scan-backed parts tombstoned so a
+        sync does not re-create them, passports deleted unless linked
+        elsewhere), then the type itself; its sample links cascade. One
+        transaction. Rejecting the type instead keeps it, in the Afvist tab.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The survey type's id.
+          schema: { type: integer }
+      responses:
+        "200":
+          description: What went with the type
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parts_deleted, instances_dismissed]
+                properties:
+                  parts_deleted: { type: integer }
+                  instances_dismissed:
+                    type: integer
+                    description: Scan-backed parts among them, now tombstoned.
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 

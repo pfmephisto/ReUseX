@@ -1347,12 +1347,17 @@ class Server::Impl {
           });
         });
     app_.route_dynamic("/api/v1/survey/types/<int>")
-        .methods(
-            crow::HTTPMethod::PATCH)([this](const crow::request &req, int id) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(200, patch_survey_type_json(db, id, req.body));
-          });
-        });
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, int id) {
+              if (req.method == crow::HTTPMethod::DELETE)
+                return with_write([&](reusex::ProjectDB &db) {
+                  return json_response(200, delete_survey_type_json(db, id));
+                });
+              return with_write([&](reusex::ProjectDB &db) {
+                return json_response(200,
+                                     patch_survey_type_json(db, id, req.body));
+              });
+            });
     app_.route_dynamic("/api/v1/survey/parts/<string>")
         .methods(crow::HTTPMethod::PATCH)([this](const crow::request &req,
                                                  std::string code) {

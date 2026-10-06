@@ -67,11 +67,17 @@ int run_subcommand_create_survey(SubcommandCreateSurveyOptions const &opt,
             ? ", " + std::to_string(report.parts_orphaned) +
                   " part(s) orphaned (linked instance gone)"
             : "";
+    const std::string dismissed_note =
+        report.parts_dismissed > 0
+            ? ", " + std::to_string(report.parts_dismissed) +
+                  " deleted part(s) not re-created"
+            : "";
     spdlog::info(
         "Survey: {} type(s) and {} part(s) created, {} part(s) already "
-        "present{}{}",
+        "present{}{}{}",
         report.types_created, report.parts_created, report.parts_existing,
-        report.rooms_assigned ? "" : " (no rooms assigned)", orphan_note);
+        report.rooms_assigned ? "" : " (no rooms assigned)", orphan_note,
+        dismissed_note);
     return RuxError::SUCCESS;
   } catch (const std::exception &e) {
     spdlog::error("create survey failed: {}", e.what());

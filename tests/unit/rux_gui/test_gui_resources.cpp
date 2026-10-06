@@ -155,10 +155,13 @@ TEST_CASE("GuiResources_CreateDelete", "[gui][resources]") {
   CHECK(status_of([&] { create_resource_json(db, R"({"type_id":999})"); }) ==
         404);
   CHECK(status_of([&] { create_resource_json(db, R"({"name":"x"})"); }) == 400);
-  CHECK(status_of([&] { delete_resource(db, "RX-001"); }) == 409);
   CHECK(status_of([&] { delete_resource(db, "RX-404"); }) == 404);
   delete_resource(db, "RX-002");
   CHECK_FALSE(db.survey_part("RX-002").has_value());
+  // A scan-backed part deletes too (spec A3) — and is tombstoned.
+  CHECK(status_of([&] { delete_resource(db, "RX-001"); }) == 200);
+  CHECK_FALSE(db.survey_part("RX-001").has_value());
+  CHECK(db.is_instance_dismissed("guid-inst-1"));
 }
 
 TEST_CASE("GuiResources_Csv_RequiresTemplate", "[gui][resources][csv]") {

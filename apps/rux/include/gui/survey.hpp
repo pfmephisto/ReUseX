@@ -96,6 +96,11 @@ nlohmann::json create_survey_type_json(reusex::ProjectDB &db,
 nlohmann::json patch_survey_type_json(reusex::ProjectDB &db, int64_t id,
                                       const std::string &body);
 
+/// `DELETE /survey/types/<int>`: delete a type and all its parts
+/// (core::delete_survey_type) → `{parts_deleted, instances_dismissed}`.
+/// @throws HttpError(404) when @p id is not a survey type.
+nlohmann::json delete_survey_type_json(reusex::ProjectDB &db, int64_t id);
+
 /// `PATCH /survey/parts/<string>`: sparse-update or re-file a survey part.
 /// Body: any of `type_id` (int), `quantity` (number >= 0), `starred` (bool),
 /// `note`, `room_name` (string).

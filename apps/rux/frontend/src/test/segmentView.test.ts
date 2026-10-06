@@ -63,11 +63,11 @@ describe('prompt geometry', () => {
 });
 
 describe('buildRequestPrompts', () => {
-  it('sends box-only prompts with empty text, drops empty text-only ones, and records the index order', () => {
+  it('sends geometry-only prompts with empty text, drops empty text-only ones, and records the index order', () => {
     const prompts: SegPrompt[] = [
       { id: 'a', text: '  door ', box: null, point: false },
       { id: 'b', text: '', box: null, point: false },
-      { id: 'c', text: '', box: [1, 2, 3, 4], point: true },
+      { id: 'c', text: '', box: [1, 2, 3, 4], point: false },
     ];
     const { prompts: wire, sent } = buildRequestPrompts(prompts);
     expect(wire).toEqual([{ text: 'door' }, { text: '', boxes: [['pos', [1, 2, 3, 4]]] }]);
@@ -75,6 +75,11 @@ describe('buildRequestPrompts', () => {
       { promptId: 'a', text: 'door' },
       { promptId: 'c', text: '' },
     ]);
+  });
+
+  it('sends a clicked point as a point at the centre of its marker, not as a box', () => {
+    const prompts: SegPrompt[] = [{ id: 'p', text: 'chair', box: [92, 42, 108, 58], point: true }];
+    expect(buildRequestPrompts(prompts).prompts).toEqual([{ text: 'chair', points: [[100, 50]] }]);
   });
 });
 
@@ -172,12 +177,14 @@ describe('geometryHint', () => {
     className,
     pixels,
   });
-  it('warns about points first, then about unnamed boxes that found nothing', () => {
-    const point: SegPrompt = { id: 'p', text: 'door', box: [0, 0, 16, 16], point: true };
+  it('only speaks up when a drawn point or box found nothing', () => {
+    const point: SegPrompt = { id: 'p', text: '', box: [0, 0, 16, 16], point: true };
     const box: SegPrompt = { id: 'b', text: '', box: [0, 0, 50, 50], point: false };
     const text: SegPrompt = { id: 't', text: 'wall', box: null, point: false };
-    expect(geometryHint([cls('p', 'door', 256)], [point])).toMatch(/punkt/i);
-    expect(geometryHint([cls('b', '', 0)], [box])).toMatch(/klassenavn/);
+    // A point that found its object is fine now that points reach SAM3.
+    expect(geometryHint([cls('p', '', 9888)], [point])).toBeNull();
+    expect(geometryHint([cls('p', '', 0)], [point])).toMatch(/punkt/i);
+    expect(geometryHint([cls('b', '', 0)], [box])).toMatch(/boks/i);
     expect(geometryHint([cls('b', '', 10)], [box])).toBeNull();
     expect(geometryHint([cls('t', 'wall', 0)], [text])).toBeNull();
   });

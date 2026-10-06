@@ -347,8 +347,8 @@ export function SegmenteringPage() {
           <section className={styles.section}>
             <h2 className={styles.heading}>Prompts</h2>
             <p className={styles.hint}>
-              Skriv hvad du leder efter (fx dør). Træk en boks eller klik et punkt på billedet for at
-              afgrænse, hvor der ledes; uden klassenavn sendes markeringen som en visuel prompt.
+              Klik på et objekt eller træk en boks om det for at markere netop det. Skriv et klassenavn
+              (fx dør) for at finde alle af slagsen; sammen med en boks findes kun dem i boksen.
             </p>
             {prompts.length > 0 && (
               <ol className={styles.prompts}>
@@ -370,7 +370,7 @@ export function SegmenteringPage() {
                       <input
                         className={styles.input}
                         value={p.text}
-                        placeholder={p.box ? 'klasse (tom = visuel prompt)' : 'klasse, fx dør'}
+                        placeholder={p.box ? 'klasse (valgfri)' : 'klasse, fx dør'}
                         aria-label={`Klassenavn for prompt ${slot === undefined ? '' : slot + 1}`}
                         onChange={(e) =>
                           setPrompts((cur) => cur.map((q) => (q.id === p.id ? { ...q, text: e.target.value } : q)))

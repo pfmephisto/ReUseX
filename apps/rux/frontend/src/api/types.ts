@@ -688,12 +688,14 @@ export type FrameSegmentBox = ['pos' | 'neg', [number, number, number, number]];
 export interface FrameSegmentPrompt {
   /**
    * Open-vocabulary class name, e.g. `"wall"`. May be `""` when the prompt
-   * has a box: the server then sends SAM3 the geometry-only text `"visual"`,
-   * and the response's `labels` entry reads `"visual"`.
+   * has a box or a point: the server then sends SAM3 the geometry-only text
+   * `"visual"`, and the response's `labels` entry reads `"visual"`.
    */
   text: string;
-  /** Bounding-box hints, each tagged with a polarity. */
+  /** Bounding-box hints, each tagged with a polarity; a `pos` box keeps the objects it covers. */
   boxes?: FrameSegmentBox[];
+  /** Click points `[x, y]` in image pixels; each keeps the object under it. */
+  points?: [number, number][];
   /** Per-prompt threshold override; negative (absent) → use top-level confidence. */
   confidence?: number;
 }

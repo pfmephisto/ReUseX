@@ -32,7 +32,7 @@ export interface SegPrompt {
   /** Class name; may be empty when `box` is set (sent as SAM3's "visual"). */
   text: string;
   box: ImageBox | null;
-  /** The box stands for a clicked point (drawn as a dot, not a rectangle). */
+  /** The box is a clicked point's marker (drawn as a dot; sent as `points`, its centre). */
   point: boolean;
 }
 
@@ -65,7 +65,7 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/** A clicked point as SAM3's emulated point prompt: a small box, clamped to the image. */
+/** A clicked point's marker: a small square around it, clamped to the image (drawn as a dot). */
 export function pointBox(u: number, v: number, width: number, height: number, radius = POINT_CLICK_RADIUS): ImageBox {
   return [
     clamp(Math.round(u - radius), 0, width - 1),
@@ -73,6 +73,11 @@ export function pointBox(u: number, v: number, width: number, height: number, ra
     clamp(Math.round(u + radius), 0, width - 1),
     clamp(Math.round(v + radius), 0, height - 1),
   ];
+}
+
+/** The image pixel a point marker stands for: its centre. */
+export function pointOf(box: ImageBox): [number, number] {
+  return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
 }
 
 /** Two corners in any order → a normalised, clamped, integer box. */
@@ -131,7 +136,8 @@ export function buildRequestPrompts(prompts: readonly SegPrompt[]): {
     const text = p.text.trim();
     if (!text && !p.box) continue; // an empty text-only prompt is nothing
     const prompt: FrameSegmentPrompt = { text };
-    if (p.box) prompt.boxes = [['pos', p.box]];
+    if (p.box && p.point) prompt.points = [pointOf(p.box)];
+    else if (p.box) prompt.boxes = [['pos', p.box]];
     out.push(prompt);
     sent.push({ promptId: p.id, text });
   }
@@ -183,19 +189,18 @@ export function resultClasses(
 }
 
 /**
- * A note when drawn prompts likely under-delivered. The managed TensorRT
- * model does not feed boxes to SAM3 (no geometry path): the server searches
- * by text ("visual" without one) and clips the hits to the box, so a point
- * covers at most its small square and an unnamed box often finds nothing.
+ * A note when a drawn point or box found nothing. Points and boxes reach
+ * SAM3 (the server keeps the object under a point, or the objects a box
+ * covers), so an empty result means SAM3 saw no object there.
  */
 export function geometryHint(classes: readonly ResultClass[], prompts: readonly SegPrompt[]): string | null {
   const byId = new Map(prompts.map((p) => [p.id, p]));
-  const drawn = classes.filter((c) => c.promptId !== null && byId.get(c.promptId)?.box);
-  if (drawn.some((c) => byId.get(c.promptId!)?.point)) {
-    return 'Et punkt afgrænser kun et lille felt omkring sig. Træk en boks om hele objektet for at få det hele med.';
+  const empty = classes.filter((c) => c.promptId !== null && byId.get(c.promptId)?.box && c.pixels === 0);
+  if (empty.some((c) => byId.get(c.promptId!)?.point)) {
+    return 'Punktet ramte intet objekt. Klik midt på objektet, træk en boks om det, eller skriv et klassenavn.';
   }
-  if (drawn.some((c) => c.className === '' && c.pixels === 0)) {
-    return 'En markering uden klassenavn fandt intet. Skriv et klassenavn — boksen afgrænser så, hvor der ledes.';
+  if (empty.length > 0) {
+    return 'Boksen fandt intet objekt. Træk den tættere om objektet, eller skriv et klassenavn.';
   }
   return null;
 }

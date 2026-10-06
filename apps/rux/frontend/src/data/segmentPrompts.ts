@@ -21,11 +21,8 @@ export interface DisplayBox {
 }
 
 /**
- * Half-width of the synthetic box used to emulate a point click.
- *
- * SAM3 has no native point-prompt support (#409); a click is turned into a
- * 2×radius square centred on the click position.  The value mirrors the size
- * the OpenAPI spec's example uses (`x±8, y±8`).
+ * Half-width of the square marker drawn for a point click. The click itself
+ * goes to the server as a point (`points`); the square is only its marker.
  */
 export const POINT_CLICK_RADIUS = 8;
 

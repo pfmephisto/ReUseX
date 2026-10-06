@@ -236,6 +236,14 @@ TEST_CASE("apply_mask_selection on a project with no label clouds",
              Catch::Matchers::ContainsSubstring("\"frame_id\":7"));
 }
 
+namespace {
+ProjectDB::SurveyTypePatch rejected_patch() {
+  ProjectDB::SurveyTypePatch patch;
+  patch.review_status = core::ReviewStatus::rejected;
+  return patch;
+}
+} // namespace
+
 TEST_CASE("apply_mask_selection on a project with labels and instances",
           "[core][mask_selection]") {
   const TempPath tmp("mask_apply_existing");
@@ -322,8 +330,7 @@ TEST_CASE("apply_mask_selection on a project with labels and instances",
   SECTION("a rejected type is never picked: a new type is created") {
     // Reject the class's type and add a rejected one matching by name: both
     // automatic matches must skip them.
-    db.update_survey_type(door_type,
-                          {.review_status = core::ReviewStatus::rejected});
+    db.update_survey_type(door_type, rejected_patch());
     ProjectDB::SurveyTypeRecord named;
     named.name = "Dør";
     named.review_status = core::ReviewStatus::rejected;
@@ -344,8 +351,7 @@ TEST_CASE("apply_mask_selection on a project with labels and instances",
           core::ReviewStatus::rejected);
   }
   SECTION("a rejected type as type_id is refused and writes nothing") {
-    db.update_survey_type(door_type,
-                          {.review_status = core::ReviewStatus::rejected});
+    db.update_survey_type(door_type, rejected_patch());
     const auto parts_before = db.survey_parts().size();
     MaskSelectionOptions o;
     o.type_id = door_type;

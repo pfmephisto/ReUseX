@@ -231,6 +231,83 @@ class KeepAliveConnection {
   std::string buffer_;
 };
 
+/// A minimal WebSocket client for /api/v1/events: performs the upgrade and
+/// reads unfragmented server text frames (server frames are never masked).
+class WebSocketClient {
+    public:
+  explicit WebSocketClient(std::uint16_t port) {
+    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(fd_ >= 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+    addr.sin_port = ::htons(port);
+    REQUIRE(::connect(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+            0);
+    timeval timeout{};
+    timeout.tv_sec = 10;
+    ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    const std::string upgrade =
+        "GET /api/v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    REQUIRE(::send(fd_, upgrade.data(), upgrade.size(), MSG_NOSIGNAL) ==
+            static_cast<ssize_t>(upgrade.size()));
+    std::size_t end;
+    while ((end = buffer_.find("\r\n\r\n")) == std::string::npos)
+      fill();
+    REQUIRE(buffer_.rfind("HTTP/1.1 101", 0) == 0);
+    buffer_.erase(0, end + 4);
+  }
+  WebSocketClient(const WebSocketClient &) = delete;
+  WebSocketClient &operator=(const WebSocketClient &) = delete;
+  ~WebSocketClient() { ::close(fd_); }
+
+  /// The payload of the next text frame.
+  std::string next_text() {
+    while (true) {
+      need(2);
+      const auto b0 = static_cast<unsigned char>(buffer_[0]);
+      std::size_t len = static_cast<unsigned char>(buffer_[1]) & 0x7f;
+      std::size_t head = 2;
+      if (len == 126) {
+        need(4);
+        len = (static_cast<std::size_t>(static_cast<unsigned char>(buffer_[2]))
+               << 8) |
+              static_cast<unsigned char>(buffer_[3]);
+        head = 4;
+      } else if (len == 127) {
+        need(10);
+        len = 0;
+        for (int i = 2; i < 10; ++i)
+          len = (len << 8) | static_cast<unsigned char>(buffer_[i]);
+        head = 10;
+      }
+      need(head + len);
+      std::string payload = buffer_.substr(head, len);
+      buffer_.erase(0, head + len);
+      if ((b0 & 0x0f) == 0x1)
+        return payload;
+    }
+  }
+
+    private:
+  void need(std::size_t n) {
+    while (buffer_.size() < n)
+      fill();
+  }
+  void fill() {
+    char chunk[4096];
+    const ssize_t n = ::recv(fd_, chunk, sizeof(chunk), 0);
+    if (n <= 0)
+      throw std::runtime_error("websocket closed or stalled");
+    buffer_.append(chunk, static_cast<std::size_t>(n));
+  }
+  int fd_ = -1;
+  std::string buffer_;
+};
+
 /// Runs a Server on its own thread and shuts it down on destruction.
 class RunningServer {
     public:
@@ -643,6 +720,17 @@ TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
   INFO(created.body);
   CHECK(created.status == 201);
   CHECK(created.body.find("\"resource_code\":\"RX-001\"") != std::string::npos);
+  // Every WebSocket client hears which clouds changed.
+  WebSocketClient ws(server.port());
+  CHECK(ws.next_text().find("\"type\":\"hello\"") != std::string::npos);
+  CHECK(connection
+            .send_json("POST", route, R"({"mask_label":0,"class_name":"Væg"})")
+            .status == 201);
+  const std::string event = ws.next_text();
+  INFO(event);
+  CHECK(event.find("\"type\":\"clouds.changed\"") != std::string::npos);
+  CHECK(event.find("\"names\":[\"labels\",\"instances\"]") !=
+        std::string::npos);
   // The sibling segment route still answers (no segmenter registered here).
   CHECK(connection.send_json("POST", "/api/v1/frames/1/segment", "{}").status ==
         503);

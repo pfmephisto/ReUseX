@@ -1164,6 +1164,15 @@ class Server::Impl {
           });
         });
 
+    get("/api/v1/instances/<string>/<int>/panoramas")(
+        [this](const crow::request &req, std::string cloud, int instance_id) {
+          const Params params = params_of(req);
+          return with_db([&](const reusex::ProjectDB &db) {
+            return json_response(
+                200, instance_panoramas_json(db, cloud, instance_id, params));
+          });
+        });
+
     app_.route_dynamic("/api/v1/instances/<string>/<int>/material")
         .methods(crow::HTTPMethod::PUT)([this](const crow::request &req,
                                                std::string cloud,
@@ -1326,6 +1335,11 @@ class Server::Impl {
     get("/api/v1/survey/summary")([this](const crow::request &) {
       return with_db([&](const reusex::ProjectDB &db) {
         return json_response(200, survey_summary_json(db));
+      });
+    });
+    get("/api/v1/survey/photos")([this](const crow::request &) {
+      return with_db([&](const reusex::ProjectDB &db) {
+        return json_response(200, survey_photos_json(db));
       });
     });
     get("/api/v1/survey/fractions")([this](const crow::request &) {

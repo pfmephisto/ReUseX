@@ -529,6 +529,18 @@ nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
                                     const std::string &cloud, int instance_id,
                                     const Params &params);
 
+/// Placeable 360 panoramas near one instance's centroid, nearest first, each
+/// with the equirect `u,v` (0..1) the centroid lands on (spec A5). Body:
+/// `{point, cloud, instance_id, max_distance, panoramas: [{panorama_id,
+/// node_id, distance, u, v, heading}], total}`.
+///
+/// @param params optional `max_distance` (metres, default 15, 0 = no limit).
+/// @throws HttpError(400) for a bad `max_distance`, plus the errors of
+///         instance_frames_json().
+nlohmann::json instance_panoramas_json(const reusex::ProjectDB &db,
+                                       const std::string &cloud,
+                                       int instance_id, const Params &params);
+
 /// Link or replace a material passport on an instance (upsert on
 /// (cloud, instance_id)).  Returns the updated InstanceInfo JSON for that
 /// single row.

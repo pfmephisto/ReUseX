@@ -4,6 +4,7 @@
 
 #include "gui/survey.hpp"
 
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/core/resources.hpp>
 #include <reusex/core/survey.hpp>
 #include <reusex/core/survey_service.hpp>
@@ -205,6 +206,17 @@ namespace {
 /// rather than 199.20000000000002.
 double wire_tonnes(double t) { return std::round(t * 1e6) / 1e6; }
 } // namespace
+
+json survey_photos_json(const reusex::ProjectDB &db) {
+  json parts = json::object();
+  for (const auto &[code, photos] : core::survey_part_photos(db)) {
+    parts[code] = {{"count", photos.count},
+                   {"best_frame_id", photos.best_frame_id
+                                         ? json(*photos.best_frame_id)
+                                         : json(nullptr)}};
+  }
+  return json{{"parts", std::move(parts)}};
+}
 
 json survey_fractions_json(const reusex::ProjectDB &db) {
   const auto report = core::fractions_by_eak(core::type_totals(db));

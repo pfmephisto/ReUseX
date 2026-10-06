@@ -14,6 +14,7 @@
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
 #include <gui/point_lod.hpp>
+#include <gui/survey.hpp>
 
 #include "../../support/pose_fixture.hpp"
 #include "../../support/temp_path.hpp"
@@ -23,6 +24,9 @@
 #include <core/SensorIntrinsics.hpp>
 #include <pipeline/JobRunner.hpp>
 
+#include <opencv2/imgcodecs.hpp>
+#include <pcl/point_types.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -30,6 +34,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -166,6 +171,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "POST /api/v1/templates/<int>/duplicate",
       "GET /api/v1/instances/<string>",
       "GET /api/v1/instances/<string>/<int>/frames",
+      "GET /api/v1/instances/<string>/<int>/panoramas",
       "PUT /api/v1/instances/<string>/<int>/material",
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
@@ -186,6 +192,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/survey",
       "GET /api/v1/survey/summary",
       "GET /api/v1/survey/fractions",
+      "GET /api/v1/survey/photos",
       "GET /api/v1/samples",
       "POST /api/v1/survey/sync",
       "POST /api/v1/survey/types",
@@ -1646,6 +1653,129 @@ TEST_CASE("InstanceFrames_UnknownCloud_Is404", "[gui][routes]") {
   const TempPath project("gui_visibility_instance");
   reusex::ProjectDB db(project.path);
   CHECK_THROWS_AS(instance_frames_json(db, "nope", 1, Params{}), HttpError);
+}
+
+namespace {
+
+/// Base cloud + instance cloud: instance 1 is two points around (0,0,2),
+/// instance 2 one point far behind the frames at (0,0,-10).
+void save_evidence_instances(reusex::ProjectDB &db) {
+  reusex::Cloud positions;
+  reusex::CloudL labels;
+  auto add = [&](float x, float y, float z, std::uint32_t label) {
+    pcl::PointXYZRGB p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    positions.push_back(p);
+    pcl::Label l;
+    l.label = label;
+    labels.push_back(l);
+  };
+  add(-0.1F, 0.0F, 2.0F, 1);
+  add(0.1F, 0.0F, 2.0F, 1);
+  add(0.0F, 0.0F, -10.0F, 2);
+  db.save_point_cloud("cloud", positions, "test", "{}");
+  db.save_point_cloud("instances", labels, "test", "{}");
+  db.save_instances("instances",
+                    {{1, "guid-inst-1", 3, 2}, {2, "guid-inst-2", 3, 1}});
+}
+
+} // namespace
+
+TEST_CASE("InstancePanoramas_RankedWithEquirectUv", "[gui][routes]") {
+  const TempPath project("gui_instance_panoramas");
+  reusex::ProjectDB db(project.path);
+  save_evidence_instances(db);
+  cv::Mat img(8, 16, CV_8UC3, cv::Scalar(10, 20, 30));
+  std::vector<std::uint8_t> jpeg;
+  REQUIRE(cv::imencode(".jpg", img, jpeg));
+  db.save_panoramic_image("a.jpg", jpeg, 1.0, -1);
+  db.save_panoramic_image("b.jpg", jpeg, 2.0, -1);
+  db.save_panoramic_image("c.jpg", jpeg, 3.0, -1); // never placed
+  db.save_panorama_pose(1, {1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 2, 0, 0, 0, 1}, 9,
+                        0.4);
+  db.save_panorama_pose(2, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, 9,
+                        0.4);
+
+  SECTION("nearest first, centroid straight ahead is the image centre") {
+    const auto body = instance_panoramas_json(db, "instances", 1, Params{});
+    CHECK(body.at("point") == json::array({0.0, 0.0, 2.0}));
+    REQUIRE(body.at("total") == 2);
+    const auto &first = body.at("panoramas").at(0);
+    // Both are 2 m away; the id breaks the tie.
+    CHECK(first.at("panorama_id") == 1);
+    CHECK(first.at("heading") == "resected");
+    CHECK(first.at("distance").get<double>() == Catch::Approx(2.0));
+    // Panorama 1 sits at (2,0,2) looking +z: the centroid is due left
+    // (-x), a quarter of the way across the equirect, on the horizon.
+    CHECK(first.at("u").get<double>() == Catch::Approx(0.25));
+    CHECK(first.at("v").get<double>() == Catch::Approx(0.5));
+    const auto &second = body.at("panoramas").at(1);
+    CHECK(second.at("panorama_id") == 2);
+    CHECK(second.at("u").get<double>() == Catch::Approx(0.5));
+    CHECK(second.at("v").get<double>() == Catch::Approx(0.5));
+  }
+
+  SECTION("max_distance bounds the list") {
+    const auto body = instance_panoramas_json(
+        db, "instances", 1, params_of({{"max_distance", "1"}}));
+    CHECK(body.at("total") == 0);
+    CHECK(body.at("panoramas").empty());
+  }
+
+  SECTION("a bad max_distance is a 400") {
+    CHECK_THROWS_AS(
+        instance_panoramas_json(db, "instances", 1,
+                                params_of({{"max_distance", "-2"}})),
+        HttpError);
+  }
+
+  SECTION("an unknown cloud or instance is a 404") {
+    try {
+      instance_panoramas_json(db, "nope", 1, Params{});
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 404);
+    }
+    try {
+      instance_panoramas_json(db, "instances", 7, Params{});
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 404);
+    }
+  }
+}
+
+TEST_CASE("SurveyPhotos_CountsPerInstanceBackedPart", "[gui][survey]") {
+  const TempPath project("gui_survey_photos");
+  reusex::ProjectDB db(project.path);
+  save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+  save_visibility_frame(db, 2, 0.3, 0.0, 0.0);
+  save_evidence_instances(db);
+  reusex::ProjectDB::SurveyTypeRecord type;
+  type.name = "Vinduer";
+  const auto type_id = db.add_survey_type(type).id;
+  for (const auto &[code, instance] :
+       std::vector<std::pair<std::string, std::optional<std::uint32_t>>>{
+           {"RX-001", 1u}, {"RX-002", 2u}, {"RX-003", std::nullopt}}) {
+    reusex::ProjectDB::SurveyPartRecord part;
+    part.code = code;
+    part.type_id = type_id;
+    if (instance) {
+      part.cloud_name = "instances";
+      part.instance_id = *instance;
+    }
+    db.add_survey_part(part);
+  }
+
+  const auto body = survey_photos_json(db);
+  const auto &parts = body.at("parts");
+  CHECK(parts.at("RX-001").at("count") == 2);
+  CHECK(parts.at("RX-001").at("best_frame_id") == 1);
+  CHECK(parts.at("RX-002").at("count") == 0);
+  CHECK(parts.at("RX-002").at("best_frame_id").is_null());
+  CHECK_FALSE(parts.contains("RX-003"));
 }
 
 // ===========================================================================

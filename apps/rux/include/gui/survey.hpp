@@ -60,6 +60,12 @@ nlohmann::json survey_summary_json(const reusex::ProjectDB &db);
 /// waste report.
 nlohmann::json survey_fractions_json(const reusex::ProjectDB &db);
 
+/// `GET /survey/photos`: `{parts: {<code>: {count, best_frame_id|null}}}` for
+/// every instance-backed part, computed in one pass (core::survey_part_photos).
+/// Parts without an instance link, or whose instance has no points, are
+/// absent.
+nlohmann::json survey_photos_json(const reusex::ProjectDB &db);
+
 /// `GET /samples`: every environmental sample with its linked survey types.
 nlohmann::json samples_json(const reusex::ProjectDB &db);
 

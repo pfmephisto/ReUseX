@@ -2070,6 +2070,66 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /instances/{cloud}/{id}/panoramas:
+    get:
+      tags: [instances]
+      operationId: instancePanoramas
+      summary: Placeable 360 panoramas near an instance, nearest first, with the equirect u,v of its centroid
+      description: |
+        The 360° evidence for one instance (Kortlægning spec A5). Takes the same
+        centroid as `/instances/{cloud}/{id}/frames` and lists every panorama
+        that can be placed in the world, nearest first (ties by id), with the
+        normalised equirect pixel where the centroid appears.
+
+        Placement follows the viewport: a resected pose (`has_pose`, from
+        `rux align 360`) wins and gives `heading: resected`; otherwise the
+        matched sensor frame's position with the levelled, heading-free basis
+        (`heading: levelled` — `u` is then relative to a guessed heading).
+        Panoramas with neither are skipped. `u` runs 0..1 left to right
+        (longitude -pi..pi), `v` 0..1 from the top (north pole), the
+        convention of `GET /panoramas/{id}/image`.
+      parameters:
+        - name: cloud
+          in: path
+          required: true
+          description: Name of the instance-label cloud (usually `instances`).
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          description: Instance id (the label value in the instance cloud, >= 1).
+          schema: { type: integer, minimum: 1 }
+        - name: max_distance
+          in: query
+          description: |
+            Drop panoramas whose centre is farther than this many metres from
+            the centroid. Default 15; `0` keeps every placeable panorama.
+          schema: { type: number, format: double, minimum: 0, default: 15 }
+      responses:
+        "200":
+          description: Panoramas near the instance centroid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstancePanoramaList" }
+        "400":
+          description: "`max_distance` is not a non-negative number"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: The cloud or the instance id does not exist
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            The base positions cloud is missing, or is not index-aligned with
+            the instance-label cloud.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   /instances/{cloud}/{id}/material:
     put:
       tags: [instances]
@@ -2825,6 +2885,29 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SurveyFractions" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/photos:
+    get:
+      tags: [survey]
+      operationId: getSurveyPhotos
+      summary: Photo count and best sensor frame per instance-backed survey part
+      description: |
+        For every survey part linked to an instance: how many posed sensor
+        frames see its instance centroid, and the most central of them — the
+        same numbers `/instances/{cloud}/{id}/frames` gives one part at a
+        time (`total` and `frames[0]`), computed in one pass (each instance
+        cloud and the frames' poses are read once) so the Kortlægning table
+        never makes one request per row. Parts without an instance link, or
+        whose instance has no points, are absent. A cloud that cannot be used
+        (no base `cloud`, misaligned) is skipped with a server warning, not an
+        error. Measured on a 3876-frame, 155-instance, 1.2M-point project:
+        ~1.2 s cold, ~0.45 s warm.
+      responses:
+        "200":
+          description: Photo evidence per part code
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyPhotos" }
         default: { $ref: "#/components/responses/UnexpectedError" }
   /survey/sync:
     post:
@@ -4674,6 +4757,68 @@ components:
           nullable: true
           description: Share (0..1) of the instance cloud's points that carry an instance label; null without an instance cloud. Overblik's "Klassificeret" KPI.
         rooms_without_parts: { type: array, items: { type: string } }
+    PartPhotos:
+      type: object
+      required: [count, best_frame_id]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: Posed sensor frames that see the part's instance centroid.
+        best_frame_id:
+          type: integer
+          nullable: true
+          description: The most central of them; null when `count` is 0.
+    SurveyPhotos:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: object
+          description: Keyed on part code (`RX-###`).
+          additionalProperties: { $ref: "#/components/schemas/PartPhotos" }
+    InstancePanorama:
+      type: object
+      required: [panorama_id, node_id, distance, u, v, heading]
+      properties:
+        panorama_id: { type: integer }
+        node_id:
+          type: integer
+          description: Matched sensor frame, -1 if none.
+        distance:
+          type: number
+          format: double
+          description: Panorama centre to the instance centroid, metres.
+        u:
+          type: number
+          format: double
+          description: Equirect column of the centroid, 0..1 left to right.
+        v:
+          type: number
+          format: double
+          description: Equirect row of the centroid, 0..1 from the top.
+        heading:
+          type: string
+          enum: [resected, levelled]
+          description: "`levelled`: heading unknown, so `u` is only as good as that guess."
+    InstancePanoramaList:
+      type: object
+      required: [point, cloud, instance_id, max_distance, panoramas, total]
+      properties:
+        point:
+          type: array
+          items: { type: number, format: double }
+          minItems: 3
+          maxItems: 3
+          description: The instance centroid, world metres.
+        cloud: { type: string }
+        instance_id: { type: integer }
+        max_distance: { type: number, format: double }
+        panoramas:
+          type: array
+          description: Nearest first.
+          items: { $ref: "#/components/schemas/InstancePanorama" }
+        total: { type: integer }
     SurveyFractions:
       type: object
       required: [fractions, total_t, blocking_types, blocking, ready]

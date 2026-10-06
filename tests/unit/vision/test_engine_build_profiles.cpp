@@ -167,3 +167,31 @@ TEST_CASE("built-in recipe supports geometry prompts", "[vision][sam3]") {
   CHECK(pf.max[1] == 32 + boxes.max[1] + 1);
   CHECK(dec->shapes.at("prompt_mask").max[1] == pf.max[1]);
 }
+
+TEST_CASE("text_only_fallback pins the geometry axis to the v1 shape",
+          "[vision][sam3]") {
+  using reusex::vision::sam3::text_only_fallback;
+  const auto &p = EngineBuildProfiles::builtin();
+
+  const auto dec = text_only_fallback("decoder", *p.find("decoder"));
+  REQUIRE(dec.has_value());
+  for (const char *in : {"prompt_features", "prompt_mask"}) {
+    const auto &sp = dec->shapes.at(in);
+    CHECK(sp.min[1] == 32);
+    CHECK(sp.opt[1] == 32);
+    CHECK(sp.max[1] == 32);
+    CHECK(sp.max[0] == p.find("decoder")->shapes.at(in).max[0]); // batch kept
+  }
+
+  const auto geo =
+      text_only_fallback("geometry-encoder", *p.find("geometry-encoder"));
+  REQUIRE(geo.has_value());
+  CHECK(geo->shapes.at("input_boxes").min[1] == 8);
+  CHECK(geo->shapes.at("input_boxes").max[1] == 8);
+  CHECK(geo->shapes.at("input_boxes_labels").opt[1] == 8);
+  CHECK(geo->shapes.at("fpn_feat_2") ==
+        p.find("geometry-encoder")->shapes.at("fpn_feat_2"));
+
+  CHECK_FALSE(text_only_fallback("vision-encoder", *p.find("vision-encoder"))
+                  .has_value());
+}

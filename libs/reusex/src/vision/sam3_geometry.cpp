@@ -41,6 +41,19 @@ std::vector<std::uint8_t> sam3_geometry_slot_mask(int n_boxes, int slot_len) {
   return mask;
 }
 
+std::optional<bool>
+sam3_mask_true_is_valid(const std::vector<std::uint8_t> &mask,
+                        int real_tokens) {
+  const int n = static_cast<int>(mask.size());
+  if (real_tokens <= 0 || real_tokens >= n)
+    return std::nullopt; // need both a real and a padding token
+  const bool real = mask[0] != 0;
+  for (int i = 0; i < n; ++i)
+    if ((mask[i] != 0) != (i < real_tokens ? real : !real))
+      return std::nullopt;
+  return real;
+}
+
 int sam3_geometry_box_count(std::size_t requested, int capacity) noexcept {
   if (capacity <= 0)
     return 0;
@@ -144,6 +157,19 @@ sam3_best_detection_per_point(const std::vector<float> &scores,
     if (best)
       picked.push_back(*best);
   }
+  std::sort(picked.begin(), picked.end());
+  picked.erase(std::unique(picked.begin(), picked.end()), picked.end());
+  return picked;
+}
+
+std::vector<std::size_t>
+sam3_point_prompt_selection(const std::vector<float> &scores,
+                            const std::vector<std::vector<bool>> &covers,
+                            const std::vector<bool> &box_selected) {
+  auto picked = sam3_best_detection_per_point(scores, covers);
+  for (std::size_t d = 0; d < box_selected.size(); ++d)
+    if (box_selected[d])
+      picked.push_back(d);
   std::sort(picked.begin(), picked.end());
   picked.erase(std::unique(picked.begin(), picked.end()), picked.end());
   return picked;

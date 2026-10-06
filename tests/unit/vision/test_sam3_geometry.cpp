@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace vision = reusex::vision;
@@ -206,4 +207,46 @@ TEST_CASE("Sam3Geometry_BestDetectionPerPoint_OnePerPointNoDuplicates",
   CHECK(vision::sam3_best_detection_per_point(scores, covers) ==
         std::vector<std::size_t>{1});
   CHECK(vision::sam3_best_detection_per_point({}, {}).empty());
+}
+
+TEST_CASE("Sam3Geometry_MaskPolarity_ReadFromTheTextEncodersOwnMask",
+          "[vision][sam3]") {
+  // Released sam3.1-onnx-v1: text_mask = attention_mask > 0 (True == valid).
+  CHECK(vision::sam3_mask_true_is_valid({1, 1, 1, 0, 0, 0}, 3) ==
+        std::optional<bool>{true});
+  // In-repo exporter: text_mask = attention_mask == 0 (True == padding).
+  CHECK(vision::sam3_mask_true_is_valid({0, 0, 0, 1, 1, 1}, 3) ==
+        std::optional<bool>{false});
+  // Not a clean split: refuse to guess.
+  CHECK_FALSE(vision::sam3_mask_true_is_valid({1, 0, 1, 0, 0, 0}, 3));
+  CHECK_FALSE(vision::sam3_mask_true_is_valid({1, 1, 1, 1, 1, 1}, 3));
+  CHECK_FALSE(vision::sam3_mask_true_is_valid({1, 1, 1}, 3)); // no padding
+  CHECK_FALSE(vision::sam3_mask_true_is_valid({}, 0));
+}
+
+TEST_CASE("Sam3Geometry_MaskValue_FollowsThePolarity", "[vision][sam3]") {
+  CHECK(vision::sam3_mask_value(true, true));
+  CHECK_FALSE(vision::sam3_mask_value(false, true));
+  CHECK_FALSE(vision::sam3_mask_value(true, false));
+  CHECK(vision::sam3_mask_value(false, false));
+}
+
+TEST_CASE("Sam3Geometry_PointPromptSelection_IsTheUnionOfPointAndBoxPicks",
+          "[vision][sam3]") {
+  // d0: best on the point, d1: also on the point but weaker AND selected by
+  // the box, d2: selected by the box only, d3: neither.
+  const std::vector<float> scores{0.95f, 0.80f, 0.70f, 0.99f};
+  const std::vector<std::vector<bool>> covers{{true}, {true}, {false}, {false}};
+  const std::vector<bool> box{false, true, true, false};
+  // A box hit is never dropped for losing the point contest.
+  CHECK(vision::sam3_point_prompt_selection(scores, covers, box) ==
+        std::vector<std::size_t>{0, 1, 2});
+  // Without box hits it is just the best per point.
+  CHECK(vision::sam3_point_prompt_selection(scores, covers,
+                                            {false, false, false, false}) ==
+        std::vector<std::size_t>{0});
+  // A detection that is both is listed once.
+  CHECK(vision::sam3_point_prompt_selection(scores, covers,
+                                            {true, false, false, false}) ==
+        std::vector<std::size_t>{0});
 }

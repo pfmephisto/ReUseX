@@ -87,4 +87,16 @@ struct EngineBuildProfiles {
   find(const std::string &engine_name) const;
 };
 
+/// The text-only fallback for an engine whose geometry-prompt profile cannot
+/// be built: an export that bakes the prompt length or box count into its
+/// graph (the TorchScript exporter can constant-fold the trace shape) builds
+/// only at that shape. For ``decoder`` the prompt length is pinned to its
+/// minimum (the 32 text tokens); for ``geometry-encoder`` the box count is
+/// pinned to its maximum (the trace shape, 8). The result is recipe v1's
+/// shape for that engine: text segmentation keeps working and TensorRTSam3's
+/// capability check turns geometry prompts off. ``std::nullopt`` for every
+/// other engine (it has no geometry dimension to give up).
+std::optional<EngineProfile> text_only_fallback(const std::string &engine_name,
+                                                const EngineProfile &profile);
+
 } // namespace reusex::vision::sam3

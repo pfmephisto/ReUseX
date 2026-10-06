@@ -170,7 +170,7 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
                         trt->image.cols, trt->image.rows);
           if (!trt->geometry_prompts_used)
             clip_ignored_boxes(trt->image, prompts,
-                               "TensorRT (no geometry-encoder.engine)");
+                               "TensorRT (engines without geometry support)");
           return trt->image;
         }
       }

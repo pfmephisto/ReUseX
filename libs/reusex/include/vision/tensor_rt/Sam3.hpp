@@ -14,6 +14,7 @@
 
 #include <tokenizers_cpp.h>
 
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -147,6 +148,10 @@ class TensorRTSam3 : public IModel {
    */
   void allocate_memory_once();
 
+  /// Run the text encoder on a known input ("a": 3 real tokens, the rest
+  /// padding) and read which way its text_mask points; nullopt on failure.
+  std::optional<bool> probe_mask_polarity();
+
   void set_binding_dim(std::shared_ptr<TensorRT::Engine> &engine,
                        int binding_index, const std::vector<int> &dims);
 
@@ -173,6 +178,11 @@ class TensorRTSam3 : public IModel {
   /// when geometry prompting is off (no geometry-encoder.engine, or engines
   /// built from a pre-v2 recipe whose decoder takes text tokens only).
   int geom_max_boxes_ = 0;
+
+  /// The export's token-mask polarity (true: True == valid token, as in the
+  /// released bundle; false: True == padding), probed from the text encoder
+  /// at load (probe_mask_polarity) and used for the geometry slot mask.
+  bool mask_true_is_valid_ = true;
 
   // State variables
   std::vector<std::pair<int, int>>
@@ -245,8 +255,8 @@ class TensorRTSam3 : public IModel {
 
   tensor::Memory<float> geom_features_;
   tensor::Memory<bool> geom_mask_;
-  /// Decoder-side mask of every prompt's geometry slot (True == valid token,
-  /// the exported graphs' polarity — see sam3_geometry_slot_mask), built on
+  /// Decoder-side mask of every prompt's geometry slot, in the export's
+  /// polarity (mask_true_is_valid_), built on
   /// the host from the real box counts so slot padding and text-only prompts
   /// are masked; the engine's own geometry_mask output only covers its n + 1
   /// tokens and is not used.

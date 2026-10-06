@@ -553,7 +553,22 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
     req.onnx_path = onnx_dir / (name + ".onnx");
     req.engine_path = engine; // EngineBuilder writes atomically
     req.profile = *profiles.find(name);
-    tensor_rt::build_engine(req);
+    try {
+      tensor_rt::build_engine(req);
+    } catch (const std::exception &e) {
+      // An export that bakes the prompt length / box count cannot take the
+      // geometry profile; build it text-only so text segmentation survives.
+      const auto fallback = text_only_fallback(name, req.profile);
+      if (!fallback || *fallback == req.profile)
+        throw;
+      reusex::warn("SAM3 engine build: {} failed with the geometry-prompt "
+                   "profile ({}); building it text-only instead — box and "
+                   "point prompts will be unavailable with this export",
+                   name, e.what());
+      throw_if_cancelled(cancel, "engine build");
+      req.profile = *fallback;
+      tensor_rt::build_engine(req);
+    }
   }
 
   // Stamp LAST: it vouches that every engine matches this recipe, so a crash

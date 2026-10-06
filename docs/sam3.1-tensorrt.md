@@ -384,14 +384,20 @@ these from the contract (`SHAPE_PROFILES`), e.g.:
   `N + 1` geometry tokens for a boxed prompt; `opt` stays at the text-only 32
   that `rux create annotate` uses).
 - `geometry-encoder`: `input_boxes` `N` from `1 → 1 → 8`.
-
-Both graphs keep `N` and `L` dynamic even though the export traces them at
-`N = 8` and `L = 32` (checked with onnxruntime on the released
-`sam3.1-onnx-v1` graphs at N = 1/3/8 and L = 32/34/41). Recipe v1 pinned them
-to the trace shapes (`N = 8`, `L = 32`), which left no room for geometry
-tokens; recipe v2 (`recipe_version: 2`) opened them up.
 - `tracker-memory-attention`: `memory` length from one frame's worth
   (`5184`) up to the full bank (`5184 × 7`).
+
+What was verified, and on which export: the **released `sam3.1-onnx-v1`**
+geometry encoder and decoder keep `N` and `L` dynamic (onnxruntime at
+N = 1/3/8 and L = 32/34/41). That bundle was not produced by
+`export_detector.py`; this repo's TorchScript export traces at `N = 8`,
+`L = 32` and was earlier seen to constant-fold them — not re-verified. Recipe
+v1 pinned both to the trace shapes, which left no room for geometry tokens;
+recipe v2 (`recipe_version: 2`) opens them up. If the v2 decoder or geometry
+encoder cannot be **built** from an export, the C++ builder rebuilds that
+engine with the v1 shape (`text_only_fallback`) and warns; if it builds but
+fails to **run** at `L > 32`, `TensorRTSam3` turns geometry off and decodes the
+batch text-only. Either way text segmentation keeps working.
 
 `opt` is the shape TensorRT tunes kernels for; `min`/`max` bound what's legal.
 `_fmt` formats these into `--minShapes/--optShapes/--maxShapes` strings.
@@ -616,14 +622,17 @@ Dynamic axes: `batch` (axis 0); `num_boxes`/`num_prompts` (axis 1).
 
 Dynamic axes: `batch` (axis 0); `prompt_len` (axis 1) on `prompt_features`/`prompt_mask`.
 
-> **Mask polarity.** The exported graphs use **True == valid token** for
-> `text_mask`, `geometry_mask` and `prompt_mask` — the reverse of the pytorch
-> key-padding convention the python wrappers' docstrings describe. Checked with
-> onnxruntime on `sam3.1-onnx-v1`: `text_mask` comes out True on the real
-> tokens, `geometry_mask` True on every box + CLS token, and the decoder's
-> output ignores tokens marked False and reacts to tokens marked True. The
-> text-only path never noticed (it copies `text_mask` through); a geometry
-> path that writes pytorch-polarity masks silently ignores the boxes.
+> **Mask polarity differs between exports.** The released `sam3.1-onnx-v1`
+> graphs use **True == valid token** for `text_mask`, `geometry_mask` and
+> `prompt_mask` (its text encoder computes `attention_mask > 0`; checked with
+> onnxruntime: the decoder ignores tokens marked False). This repo's exporter
+> writes the pytorch convention, True == padding (`wrappers_detector.py`:
+> `text_mask = attention_mask == 0`). The text-only path works with either,
+> because it copies `text_mask` straight into `prompt_mask`. The geometry slot
+> mask is written by the C++, so `TensorRTSam3` reads the polarity at load:
+> it runs the text encoder on `"a"` (3 real tokens, 29 padding) and checks
+> which way `text_mask` points (`sam3_mask_true_is_valid`). A probe that does
+> not split cleanly turns geometry off rather than guess.
 
 ### How the image model feeds geometry (`TensorRTSam3`)
 
@@ -637,7 +646,14 @@ Dynamic axes: `batch` (axis 0); `prompt_len` (axis 1) on `prompt_features`/`prom
   `L = 32` exactly as before.
 - Geometry is enabled only when the loaded engines can take it (encoder accepts
   `N = 1`, decoder `L` max has room for a box + CLS); recipe-v1 engines fall
-  back to text-only, and `segment_image` clips boxed prompts instead.
+  back to text-only, and `segment_image` clips boxed prompts instead. A
+  `geometry-encoder.engine` that fails to load (stale, another TensorRT) is
+  skipped with a warning; it never fails model creation.
+- Text-only runs (`rux create annotate`, panoramas) take the same code path as
+  before, but they are not bit-for-bit identical to the v1 engines: the
+  decoder is built with a wider `L` profile (TensorRT may pick other tactics:
+  small numeric drift), and the geometry encoder is now loaded (VRAM, load
+  time) whenever the engine dir has one.
 - Box labels: 1 for `pos`, 0 for `neg`; boxes are normalised `cxcywh`.
 - **A box is an exemplar**: SAM3 returns every object like the boxed one.
   Single-image selection callers (`segment_image`, i.e. `rux gui` and
@@ -648,7 +664,9 @@ Dynamic axes: `batch` (axis 0); `prompt_len` (axis 1) on `prompt_features`/`prom
   the click). Each point is tried as an exemplar box at 3/5/8/12 % of the
   shorter image side — four prompts, one decoder batch — and the most
   confident detection whose mask covers the point wins
-  (`sam3_best_detection_per_point`). On NewOffice frame 1500 that picked the
+  (`sam3_best_detection_per_point`). A prompt with both points and boxes
+  keeps the union: each point's winner plus everything its positive boxes
+  select (`sam3_point_prompt_selection`). On NewOffice frame 1500 that picked the
   whole monitor (9 888 px), chair (15 119 px) and bag (2 541 px), each at a
   different size; large surfaces (a desk top, a pillar) come back partial, and
   a box is the better tool there.

@@ -129,6 +129,30 @@ std::string EngineBuildProfiles::to_json() const {
       .dump(2);
 }
 
+std::optional<EngineProfile> text_only_fallback(const std::string &engine_name,
+                                                const EngineProfile &profile) {
+  // input name -> pin the geometry axis (1) to its min (true) or max (false)
+  std::vector<std::pair<std::string, bool>> pins;
+  if (engine_name == "decoder")
+    pins = {{"prompt_features", true}, {"prompt_mask", true}};
+  else if (engine_name == "geometry-encoder")
+    pins = {{"input_boxes", false}, {"input_boxes_labels", false}};
+  else
+    return std::nullopt;
+
+  EngineProfile out = profile;
+  for (const auto &[input, use_min] : pins) {
+    auto it = out.shapes.find(input);
+    if (it == out.shapes.end() || it->second.min.size() < 2 ||
+        it->second.opt.size() < 2 || it->second.max.size() < 2)
+      continue;
+    auto &sp = it->second;
+    const int v = use_min ? sp.min[1] : sp.max[1];
+    sp.min[1] = sp.opt[1] = sp.max[1] = v;
+  }
+  return out;
+}
+
 std::optional<EngineProfile>
 EngineBuildProfiles::find(const std::string &engine_name) const {
   auto it = engines.find(engine_name);

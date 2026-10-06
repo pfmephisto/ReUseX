@@ -57,12 +57,15 @@ SHAPE_PROFILES = {
         "attention_mask": ((1, 32), (1, 32), (4, 32)),
     },
     "geometry-encoder": {
-        # num_boxes is dynamic: the released sam3.1-onnx-v1 graph runs at
-        # N=1/3/8 under onnxruntime (the export traces at GEOM_NUM_BOXES=8, but
-        # no reshape bakes N). The C++ runs one prompt per call with its exact
-        # box count (no padding: the exported graph has no box mask, so a pad
-        # box would leak into the geometry self-attention). opt N=1 is the GUI's
-        # one-box selection.
+        # num_boxes: dynamic in the RELEASED sam3.1-onnx-v1 graph (verified
+        # with onnxruntime at N=1/3/8; that graph was not produced by
+        # export_detector.py). The in-repo TorchScript export traces at
+        # GEOM_NUM_BOXES=8 and was earlier seen to constant-fold N; it is not
+        # re-verified. If this profile cannot be built, the C++ EngineBuilder
+        # falls back to N pinned at 8 (text_only_fallback) and box prompts are
+        # disabled. The C++ runs one prompt per call at its exact box count
+        # (the graph has no box mask, so a pad box would leak into the
+        # geometry self-attention). opt N=1 is the GUI's one-box selection.
         "input_boxes": ((1, 1, 4), (1, 1, 4), (4, GEOM_MAX_BOXES, 4)),
         "input_boxes_labels": ((1, 1), (1, 1), (4, GEOM_MAX_BOXES)),
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
@@ -74,8 +77,11 @@ SHAPE_PROFILES = {
         "fpn_feat_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         "fpn_pos_2": ((1, 256, 72, 72), (1, 256, 72, 72), (4, 256, 72, 72)),
         # prompt_len = 32 text tokens, plus N+1 geometry tokens (N boxes + CLS)
-        # when the prompt carries boxes. Dynamic in the released graph (runs at
-        # L=32/34/41 under onnxruntime); opt stays at the text-only 32 that
+        # when the prompt carries boxes. Dynamic in the RELEASED
+        # sam3.1-onnx-v1 decoder (verified with onnxruntime at L=32/34/41);
+        # the in-repo TorchScript export traces at L=32 and may bake it (not
+        # re-verified) — then the C++ builder falls back to L pinned at 32 and
+        # text segmentation keeps working. opt stays at the text-only 32 that
         # `rux create annotate` uses for every frame.
         "prompt_features": (
             (1, TEXT_LEN, 256),

@@ -394,10 +394,16 @@ N = 1/3/8 and L = 32/34/41). That bundle was not produced by
 `L = 32` and was earlier seen to constant-fold them — not re-verified. Recipe
 v1 pinned both to the trace shapes, which left no room for geometry tokens;
 recipe v2 (`recipe_version: 2`) opens them up. If the v2 decoder or geometry
-encoder cannot be **built** from an export, the C++ builder rebuilds that
-engine with the v1 shape (`text_only_fallback`) and warns; if it builds but
-fails to **run** at `L > 32`, `TensorRTSam3` turns geometry off and decodes the
-batch text-only. Either way text segmentation keeps working.
+encoder cannot be **built** from an export because of a shape error
+(`EngineProfileError`: the profile contradicts a baked dim, or the builder's
+errors are about shapes), the C++ builder rebuilds that engine with the v1
+shape (`text_only_fallback`), warns, and lists it under `fallback_engines` in
+the engine dir's `engine-build.json` stamp; the next model preparation retries
+the v2 profile. Any other build failure (out of memory, disk) fails the build
+as before. If the engines build but a geometry batch fails to **run**,
+`TensorRTSam3` re-runs that whole request text-only, and turns geometry off for
+the model only after three such requests in a row. Either way text
+segmentation keeps working.
 
 `opt` is the shape TensorRT tunes kernels for; `min`/`max` bound what's legal.
 `_fmt` formats these into `--minShapes/--optShapes/--maxShapes` strings.

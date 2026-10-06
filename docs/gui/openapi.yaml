@@ -4780,7 +4780,11 @@ components:
         count:
           type: integer
           minimum: 0
-          description: Posed sensor frames that see the part's instance centroid.
+          description: |
+            Occlusion-aware: posed sensor frames whose depth image confirms
+            the instance centroid or one of 8 surface samples of the
+            instance (within 0.15 m); a frame without a depth image falls
+            back to the frustum-only test.
         best_frame_id:
           type: integer
           nullable: true

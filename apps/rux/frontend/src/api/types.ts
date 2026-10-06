@@ -904,7 +904,12 @@ export interface SurveyFractions {
 
 /** `PartPhotos` — one survey part's photo evidence (`GET /survey/photos`). */
 export interface PartPhotos {
-  /** Posed sensor frames that see the part's instance centroid. */
+  /**
+   * Occlusion-aware: posed sensor frames whose depth image confirms the
+   * instance centroid or one of 8 surface samples of the instance (within
+   * 0.15 m); a frame without a depth image falls back to the frustum-only
+   * test.
+   */
   count: number;
   /** The most central of them; null when `count` is 0. */
   best_frame_id: number | null;

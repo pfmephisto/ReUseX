@@ -270,17 +270,20 @@ cv::Mat displayable(const cv::Mat &image, const std::string &kind,
   if (kind == "segmentation") {
     // Colourise with the same categorical palette the viewport uses, so a mask
     // and the 3D labels of the same scan are recognisably the same classes.
+    //
+    // `image` is in the storage encoding (CV_16U, 0 = unlabeled, prompt k is
+    // k + 1; core/label_semantics.hpp), so prompt 0 gets a colour of its own
+    // instead of vanishing into the background. LUT slots 0 and 255 are not
+    // categorical colours (255 is black), so values cycle through 1..254.
     const cv::Mat &lut = reusex::utils::get_glasbey_lut();
     cv::Mat rgb(image.size(), CV_8UC3, cv::Scalar(0, 0, 0));
     for (int y = 0; y < image.rows; ++y) {
-      const auto *row = image.ptr<int32_t>(y);
+      const auto *row = image.ptr<uint16_t>(y);
       auto *out = rgb.ptr<cv::Vec3b>(y);
       for (int x = 0; x < image.cols; ++x) {
-        // The API encoding is CV_32S with -1 for background
-        // (core/label_semantics.hpp); leave both it and 0 black.
-        if (row[x] <= 0)
+        if (row[x] == 0)
           continue;
-        out[x] = lut.at<cv::Vec3b>(0, row[x] % lut.cols);
+        out[x] = lut.at<cv::Vec3b>(0, 1 + (row[x] - 1) % 254);
       }
     }
     return rgb;
@@ -1569,7 +1572,12 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
   } else {
     if (!db.has_segmentation_image(id))
       not_found("segmentation image for frame", std::to_string(id));
-    image = db.segmentation_image(id);
+    // Served in the storage encoding the contract documents (CV_16U,
+    // 0 = unlabeled, label k stored as k + 1). Encoding the API image
+    // directly would saturate -1 to 0 and merge prompt 0 into background.
+    const cv::Mat api_labels = db.segmentation_image(id);
+    if (!api_labels.empty())
+      image = reusex::core::api_mat_to_storage(api_labels);
     what = "segmentation image";
   }
 

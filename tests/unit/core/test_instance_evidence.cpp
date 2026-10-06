@@ -14,7 +14,6 @@
 #include <core/frame_visibility.hpp>
 #include <core/instance_evidence.hpp>
 
-#include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
 #include <Eigen/Core>
@@ -131,49 +130,6 @@ TEST_CASE("VisibleFramesBatch_MatchesPerPointQuery", "[core][evidence]") {
   }
 }
 
-// Frames with no depth image cannot be occlusion-tested; by default they fall
-// back to the frustum test, so on this depth-less fixture the batch must give
-// exactly what per-instance visible_frames gives.
-TEST_CASE("SurveyPartPhotos_CountsMatchPerInstanceVisibleFrames",
-          "[core][evidence]") {
-  const TempPath tmp("survey_part_photos");
-  ProjectDB db(tmp.path);
-  frame(db, 1, 0.0, 0.0, 0.0);
-  frame(db, 2, 0.3, 0.0, 0.0);
-  frame(db, 3, 0.0, 0.0, 5.0);
-  frame(db, 4, 5.0, 0.0, 0.0);
-  frame(db, 5, 0.6, 0.0, 0.0);
-  seed_instances(db);
-
-  const auto type_id = make_type(db, "Vinduer");
-  make_part(db, "RX-001", type_id, 1u);
-  make_part(db, "RX-002", type_id, 2u);
-  make_part(db, "RX-003", type_id, 3u); // behind every camera
-  make_part(db, "RX-004", type_id);     // manual: no instance
-
-  const auto photos = survey_part_photos(db);
-  const auto centroids = instance_centroids(db, "instances");
-
-  for (const auto &[code, id] :
-       std::vector<std::pair<std::string, std::uint32_t>>{
-           {"RX-001", 1}, {"RX-002", 2}, {"RX-003", 3}}) {
-    INFO(code);
-    const auto expected = visible_frames(db, centroids.at(id).centroid);
-    REQUIRE(photos.count(code) == 1);
-    CHECK(photos.at(code).count == expected.size());
-    if (expected.empty())
-      CHECK_FALSE(photos.at(code).best_frame_id.has_value());
-    else
-      CHECK(photos.at(code).best_frame_id == expected.front().frame_id);
-  }
-  // The discriminating numbers: instance 1 is dead centre in frame 1.
-  CHECK(photos.at("RX-001").count == 3);
-  CHECK(photos.at("RX-001").best_frame_id == 1);
-  CHECK(photos.at("RX-002").best_frame_id == 5);
-  CHECK(photos.at("RX-003").count == 0);
-  CHECK(photos.count("RX-004") == 0);
-}
-
 namespace {
 
 /// Frame looking down +z from (x, 0, 0) at a wall `wall` metres away: a
@@ -245,31 +201,6 @@ TEST_CASE("VisibleFramesOccluded_DepthDecidesVisibility", "[core][evidence]") {
   }
 }
 
-TEST_CASE("SurveyPartPhotos_OccludedInstance_HasNoPhotos", "[core][evidence]") {
-  const TempPath tmp("survey_part_photos_occluded");
-  ProjectDB db(tmp.path);
-  // Wall at z = 1 in front of every instance of seed_instances (z = 2 and
-  // beyond): nothing is visible through it. A second camera with the wall at
-  // 2 m sees instance 1 (on its wall).
-  frame_with_wall(db, 1, 0.0, 1.0);
-  frame_with_wall(db, 2, 0.0, 2.0);
-  seed_instances(db);
-  const auto type_id = make_type(db, "Vinduer");
-  make_part(db, "RX-001", type_id, 1u);
-  make_part(db, "RX-002", type_id, 2u);
-
-  const auto photos = survey_part_photos(db);
-  CHECK(photos.at("RX-001").count == 1);
-  CHECK(photos.at("RX-001").best_frame_id == 2);
-  // Instance 2 at x = 0.6 also lies on the 2 m wall of frame 2.
-  CHECK(photos.at("RX-002").count == 1);
-
-  // The single-instance ranking agrees with the batch.
-  const auto probes = instance_probes(db, "instances");
-  const auto one = visible_frames_occluded(db, {probes.at(1).probe()});
-  CHECK(one.at(0).size() == photos.at("RX-001").count);
-}
-
 TEST_CASE("InstanceProbes_SamplesSpreadOverThePoints", "[core][evidence]") {
   const TempPath tmp("instance_probes");
   ProjectDB db(tmp.path);
@@ -282,16 +213,6 @@ TEST_CASE("InstanceProbes_SamplesSpreadOverThePoints", "[core][evidence]") {
   CHECK(instance_probes(db, "instances", "cloud", 0).at(1).samples.empty());
   const auto one = instance_probes(db, "instances", "cloud", 1).at(2);
   REQUIRE(one.samples.size() == 1);
-}
-
-TEST_CASE("SurveyPartPhotos_NoPositionsCloud_IsEmptyNotFatal",
-          "[core][evidence]") {
-  const TempPath tmp("survey_part_photos_nobase");
-  ProjectDB db(tmp.path);
-  make_instance_cloud(db, 2);
-  const auto type_id = make_type(db, "Døre");
-  make_part(db, "RX-001", type_id, 1u);
-  CHECK(survey_part_photos(db).empty());
 }
 
 // The shared numeric case with the frontend (`src/test/panorama.test.ts`,

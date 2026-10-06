@@ -128,35 +128,6 @@ instance_photos(const ProjectDB &db, std::string_view label_cloud,
   return out;
 }
 
-std::map<std::string, PartPhotos>
-survey_part_photos(const ProjectDB &db, const PhotoQuery &query,
-                   std::string_view positions_cloud) {
-  // Instance-backed parts, grouped by the cloud their instance lives in.
-  std::map<std::string, std::vector<std::pair<std::string, std::uint32_t>>>
-      by_cloud;
-  for (const auto &part : db.survey_parts()) {
-    if (!part.cloud_name || !part.instance_id || *part.instance_id == 0)
-      continue;
-    by_cloud[*part.cloud_name].emplace_back(part.code, *part.instance_id);
-  }
-
-  std::map<std::string, PartPhotos> out;
-  for (const auto &[cloud, parts] : by_cloud) {
-    std::map<std::uint32_t, PartPhotos> photos;
-    try {
-      photos = instance_photos(db, cloud, query, positions_cloud);
-    } catch (const std::exception &e) {
-      reusex::warn("survey_part_photos: skipping {} part(s) on cloud '{}': {}",
-                   parts.size(), cloud, e.what());
-      continue;
-    }
-    for (const auto &[code, id] : parts)
-      if (const auto it = photos.find(id); it != photos.end())
-        out.emplace(code, it->second); // absent: instance has no points
-  }
-  return out;
-}
-
 Eigen::Vector2d equirect_uv(const Eigen::Vector3d &bearing) {
   const double length = bearing.norm();
   if (!(length > 0.0))

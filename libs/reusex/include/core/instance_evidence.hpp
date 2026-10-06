@@ -137,27 +137,6 @@ instance_photos(const ProjectDB &db, std::string_view label_cloud,
                 const PhotoQuery &query = {},
                 std::string_view positions_cloud = "cloud");
 
-/**
- * @brief Photo count and best frame for every instance-backed survey part.
- *
- * `instance_photos()` for each instance cloud the parts refer to, so a frame
- * whose depth shows a wall in front of the part does not count. The
- * result for a part is exactly `visible_frames_occluded(db, {probe},
- * query.occlusion)` for its instance — the count is its size and the best
- * frame its first entry — which is what `GET /instances/{cloud}/{id}/frames`
- * returns, so the table's count and the dialog's strip agree.
- *
- * Parts without an instance link, or whose instance has no points, are
- * absent from the map. A cloud that cannot be used (missing positions,
- * misaligned) is skipped with a `warn` naming it (STANDARDS §5); the call
- * does not throw for it, because one stale cloud should not blank the table.
- *
- * @return Keyed on the part code.
- */
-std::map<std::string, PartPhotos>
-survey_part_photos(const ProjectDB &db, const PhotoQuery &query = {},
-                   std::string_view positions_cloud = "cloud");
-
 /// Tunables for `panoramas_for_point()`.
 struct PanoramaQuery {
   /// Drop panoramas whose centre is farther than this from the point, in

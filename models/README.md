@@ -60,6 +60,7 @@ use — no manual export or engine placement is required for GUI operation.
         vision-encoder.engine
         text-encoder.engine
         ...
+        engine-build.json     # stamp: the recipe these engines were built from
 ```
 
 Engines in a cache-keyed subdirectory are never loaded on a different GPU /
@@ -87,6 +88,14 @@ The shape/precision recipe is read from `engine-build.json` — the same file
 emitted by `python/reusex_sam3/build_engines.py` (`--emit-profiles`). This is
 the single source of truth: the fp32-vision-encoder rule and all dynamic shape
 profiles are encoded there, not duplicated between Python and C++.
+
+A recipe change reaches existing installs without a new ONNX release: the
+recipe carries `recipe_version`, a newer built-in recipe supersedes the one the
+downloaded bundle shipped, and engines whose recipe differs from the engine
+directory's stamp are rebuilt in place on the next segment request. Recipe v2
+(this is what lets box and point prompts reach SAM3) rebuilds only
+`geometry-encoder` and `decoder` on an install of the v1 bundle. See
+[`docs/sam3.1-tensorrt.md`](../docs/sam3.1-tensorrt.md) §9.1.
 
 To regenerate `engine-build.json` after changing `SHAPE_PROFILES` or
 `FP32_ENGINES` in `build_engines.py`:
@@ -116,7 +125,10 @@ background provisioning task and returns HTTP 503 with a message like
 `state` ∈ `{absent, not_built, downloading, building, ready, error}`
 (`not_built`: ONNX present, engines not built, nothing running; `error` is
 retried by the next segment request after a short backoff). When `state` is
-`ready`, the response also includes `"model_path"`.
+`ready`, the response also includes `"model_path"`. `update_engines` lists the
+engines a `not_built` install only has to rebuild for a newer engine recipe
+(e.g. `["decoder", "geometry-encoder"]` on a recipe-v1 install) — a one-time
+update with no download; it is empty for a first-time build.
 
 ### SAM License and ONNX redistribution
 

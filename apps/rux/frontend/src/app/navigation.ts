@@ -24,6 +24,7 @@ import {
   OVERBLIK_PATH,
   PROJEKTDATA_PATH,
   RAPPORT_PATH,
+  SEGMENTERING_PATH,
   SKABELONER_PATH,
 } from './links';
 
@@ -76,6 +77,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: OVERBLIK_PATH, label: 'Overblik', group: 'sag', end: true },
   { to: KORTLAEGNING_PATH, label: 'Kortlægning', group: 'sag', badge: 'reviewQueue' },
   { to: '/viewport', label: 'Viewport', group: 'sag' },
+  { to: SEGMENTERING_PATH, label: 'Segmentering', group: 'sag' },
   { to: MILJOE_PATH, label: 'Miljø & prøver', group: 'sag', badge: 'pendingSamples' },
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },

@@ -13,6 +13,7 @@ import {
   MILJOE_PATH,
   OVERBLIK_PATH,
   RAPPORT_PATH,
+  SEGMENTERING_PATH,
   SKABELONER_PATH,
 } from './links';
 import { ALL_CASES_PATH, REDIRECTS } from './navigation';
@@ -29,6 +30,7 @@ import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { RapportPage } from '../routes/RapportPage';
 import { SagerPage } from '../routes/SagerPage';
+import { SegmenteringPage } from '../routes/SegmenteringPage';
 import { SkabelonerPage } from '../routes/SkabelonerPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
@@ -76,6 +78,7 @@ function RoutedContent() {
           <Route path={ALL_CASES_PATH} element={<SagerPage />} />
           <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
+          <Route path={SEGMENTERING_PATH} element={<SegmenteringPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
           <Route path={SKABELONER_PATH} element={<SkabelonerPage />} />

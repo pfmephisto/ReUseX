@@ -706,7 +706,10 @@ resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >
 or point at an existing ONNX export via `$REUSEX_SAM3_ONNX_DIR`. The build
 recipe is `engine-build.json` (emitted by `build_engines.py --emit-profiles`),
 which is the shared source of truth consumed by both the Python `trtexec` driver
-and the C++ `EngineBuilder`. See [`models/README.md`](models/README.md) and
+and the C++ `EngineBuilder`. Recipe v2 (`recipe_version: 2`) sizes the
+geometry encoder and decoder so box and point prompts reach SAM3; managed
+engines built from an older recipe are rebuilt once on first use (no download).
+See [`models/README.md`](models/README.md) and
 [`docs/sam3.1-tensorrt.md`](docs/sam3.1-tensorrt.md) §9 for the full layout,
 cache-key scheme, status endpoint, and SAM License redistribution posture.
 

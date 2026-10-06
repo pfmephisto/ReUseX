@@ -15,6 +15,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace rux::gui {
 
@@ -30,6 +31,10 @@ struct ModelPrepStatus {
   std::string message;
   /// Directory to load with the segmenter — set only when state == "ready".
   std::string model_path;
+  /// In state "not_built": the engines that exist but were built from an
+  /// older recipe, when rebuilding them is all that is needed (a one-time
+  /// update, no download). Empty for a first-time build.
+  std::vector<std::string> update_engines;
 };
 
 /// Resolves an omitted request `model_path` to a managed SAM3 model, preparing

@@ -52,7 +52,6 @@ describe('segmentFrame', () => {
   it('POSTs to /frames/{id}/segment with JSON body and returns the result', async () => {
     const { api, calls } = clientFor(SEGMENT_RESULT);
     const result = await api.segmentFrame(42, {
-      model_path: '/models/sam3',
       prompts: [{ text: 'wall', boxes: [['pos', [0, 0, 100, 100]]] }],
       confidence: 0.6,
       save: true,
@@ -64,7 +63,7 @@ describe('segmentFrame', () => {
     expect(calls[0].headers?.['Content-Type']).toBe('application/json');
 
     const body = JSON.parse(calls[0].body ?? '{}') as Record<string, unknown>;
-    expect(body['model_path']).toBe('/models/sam3');
+    expect(body).not.toHaveProperty('model_path');
     expect(body['confidence']).toBe(0.6);
     expect(body['save']).toBe(true);
     const prompts = body['prompts'] as Array<{ text: string; boxes: unknown[] }>;
@@ -78,24 +77,24 @@ describe('segmentFrame', () => {
     expect(result.labels['2']).toBe('floor');
   });
 
-  it('sends only model_path when no optional fields are provided', async () => {
+  it('sends an empty body when no optional fields are provided (managed model)', async () => {
     const { api, calls } = clientFor(SEGMENT_RESULT);
-    await api.segmentFrame(7, { model_path: '/path/to/model' });
+    await api.segmentFrame(7, {});
 
     const body = JSON.parse(calls[0].body ?? '{}') as Record<string, unknown>;
-    expect(body['model_path']).toBe('/path/to/model');
+    expect(body).toEqual({});
     expect(body['prompts']).toBeUndefined();
     expect(body['confidence']).toBeUndefined();
     expect(body['save']).toBeUndefined();
   });
 
-  it('maps 503 to ApiRequestError (no segmenter registered)', async () => {
+  it('maps 503 to ApiRequestError (model being prepared or DB busy)', async () => {
     const { api } = clientFor(
       { error: 'no SAM3 segmenter registered' },
       { status: 503, statusText: 'Service Unavailable' },
     );
     const err = (await api
-      .segmentFrame(1, { model_path: '/x' })
+      .segmentFrame(1, {})
       .catch((e: unknown) => e)) as ApiRequestError;
 
     expect(err).toBeInstanceOf(ApiRequestError);
@@ -110,7 +109,7 @@ describe('segmentFrame', () => {
       { status: 409, statusText: 'Conflict' },
     );
     const err = (await api
-      .segmentFrame(1, { model_path: '/x' })
+      .segmentFrame(1, {})
       .catch((e: unknown) => e)) as ApiRequestError;
 
     expect(err).toBeInstanceOf(ApiRequestError);
@@ -125,20 +124,20 @@ describe('segmentFrame', () => {
       { status: 404, statusText: 'Not Found' },
     );
     const err = (await api
-      .segmentFrame(99, { model_path: '/x' })
+      .segmentFrame(99, {})
       .catch((e: unknown) => e)) as ApiRequestError;
 
     expect(err).toBeInstanceOf(ApiRequestError);
     expect(err.isNotFound).toBe(true);
   });
 
-  it('maps 400 to a plain ApiRequestError for bad model_path', async () => {
+  it('maps 400 to a plain ApiRequestError for a bad prompt', async () => {
     const { api } = clientFor(
-      { error: 'invalid model_path' },
+      { error: "each prompt must have a non-empty 'text' or a box" },
       { status: 400, statusText: 'Bad Request' },
     );
     const err = (await api
-      .segmentFrame(1, { model_path: '' })
+      .segmentFrame(1, { prompts: [{ text: '' }] })
       .catch((e: unknown) => e)) as ApiRequestError;
 
     expect(err).toBeInstanceOf(ApiRequestError);
@@ -146,5 +145,49 @@ describe('segmentFrame', () => {
     expect(err.isNotFound).toBe(false);
     expect(err.isConflict).toBe(false);
     expect(err.isRetryable).toBe(false);
+  });
+});
+
+describe('segmentResource', () => {
+  it('POSTs mask_label, class_name and type_id and returns the 201 body', async () => {
+    const created = {
+      resource_code: 'RX-159',
+      type_id: 6,
+      type_created: false,
+      instance_id: 156,
+      instance_guid: 'g-1',
+      point_count: 471,
+      label_id: 4,
+      label_created: false,
+      clouds: ['labels', 'instances'],
+    };
+    const { api, calls } = clientFor(created, { status: 201, statusText: 'Created' });
+    const result = await api.segmentResource(1000, { mask_label: 2, class_name: 'window', type_id: 6 });
+
+    expect(calls[0].url).toBe('/api/v1/frames/1000/segment/resource');
+    expect(calls[0].method).toBe('POST');
+    expect(JSON.parse(calls[0].body ?? '{}')).toEqual({ mask_label: 2, class_name: 'window', type_id: 6 });
+    expect(result).toEqual(created);
+  });
+
+  it('maps 422 to isUnprocessable', async () => {
+    const { api } = clientFor({ error: 'no pose' }, { status: 422, statusText: 'Unprocessable' });
+    const err = (await api
+      .segmentResource(1, { mask_label: 0, class_name: 'x' })
+      .catch((e: unknown) => e)) as ApiRequestError;
+    expect(err.isUnprocessable).toBe(true);
+  });
+});
+
+describe('sam3Status', () => {
+  it('GETs /models/sam3/status, with ?cuda only when given', async () => {
+    const status = { state: 'downloading', progress: 0.25, message: 'm', use_cuda: true };
+    const a = clientFor(status);
+    expect(await a.api.sam3Status()).toEqual(status);
+    expect(a.calls[0].url).toBe('/api/v1/models/sam3/status');
+
+    const b = clientFor(status);
+    await b.api.sam3Status(false);
+    expect(b.calls[0].url).toBe('/api/v1/models/sam3/status?cuda=false');
   });
 });

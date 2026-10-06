@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -531,12 +532,55 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
                  "skipping: {}",
                  join(skipped));
 
+  // Engines built from an older recipe are rebuilt in place (the builder
+  // writes atomically, so the old engine stays loadable until replaced).
+  const auto stale = stale_engines(onnx_dir, engine_dir);
+  if (!stale.empty())
+    reusex::info("SAM3 engine build: recipe changed, rebuilding: {}",
+                 join(stale));
+  // Engines an earlier build could only make text-only, whose ONNX changed
+  // since: try the recipe profile again. The rest stay text-only.
+  const auto retry = fallback_engines_to_retry(onnx_dir, engine_dir);
+  if (!retry.empty())
+    reusex::info("SAM3 engine build: the ONNX changed since the text-only "
+                 "fallback build(s) of {}; retrying the geometry-prompt "
+                 "profile",
+                 join(retry));
+  auto listed = [](const std::vector<std::string> &v, const std::string &x) {
+    return std::find(v.begin(), v.end(), x) != v.end();
+  };
+  // What the stamp knew about earlier fallbacks, carried over for engines
+  // this run leaves alone.
+  EngineBuildProfiles previous;
+  if (fs::exists(engine_dir / kEngineBuild)) {
+    try {
+      previous = EngineBuildProfiles::from_file(engine_dir / kEngineBuild);
+    } catch (const std::exception &) {
+      // stale_engines() already reported it; every engine is rebuilt.
+    }
+  }
+
+  // name -> sha256 of the ONNX its geometry-prompt profile failed against.
+  std::map<std::string, std::string> built_fallback;
+  auto record_fallback = [&](const std::string &name) {
+    built_fallback[name] = sha256_file(onnx_dir / (name + ".onnx"));
+  };
   const std::size_t n = to_build.size();
   for (std::size_t i = 0; i < n; ++i) {
     const std::string &name = to_build[i];
     const fs::path engine = engine_dir / (name + ".engine");
-    if (fs::exists(engine))
-      continue; // already built for this device/TRT
+    if (fs::exists(engine) && !listed(stale, name) && !listed(retry, name)) {
+      // Already built for this device/TRT and recipe. A text-only fallback
+      // left alone stays recorded as one, with its fingerprint.
+      if (listed(previous.fallback_engines, name)) {
+        const auto fp = previous.fallback_onnx_sha256.find(name);
+        if (fp != previous.fallback_onnx_sha256.end())
+          built_fallback[name] = fp->second;
+        else
+          record_fallback(name);
+      }
+      continue;
+    }
     throw_if_cancelled(cancel, "engine build");
     report(cb, PrepState::building, float(i) / float(n),
            fmt::format("building {} engine ({}/{})", name, i + 1, n));
@@ -545,7 +589,62 @@ void build_engines(const fs::path &onnx_dir, const fs::path &engine_dir,
     req.onnx_path = onnx_dir / (name + ".onnx");
     req.engine_path = engine; // EngineBuilder writes atomically
     req.profile = *profiles.find(name);
-    tensor_rt::build_engine(req);
+    if (fs::exists(engine) && listed(retry, name) && !listed(stale, name)) {
+      // A retry of a text-only fallback build: the fallback engine on disk
+      // stays in use (the builder writes atomically) unless the recipe
+      // profile now builds, whatever the reason it does not.
+      try {
+        tensor_rt::build_engine(req);
+        reusex::info("SAM3 engine build: {} now builds with the "
+                     "geometry-prompt profile",
+                     name);
+      } catch (const std::exception &e) {
+        reusex::warn("SAM3 engine build: {} still fails with the "
+                     "geometry-prompt profile ({}); keeping the text-only "
+                     "build — delete {} to force another attempt",
+                     name, e.what(), engine.string());
+        record_fallback(name);
+      }
+      continue;
+    }
+    try {
+      tensor_rt::build_engine(req);
+    } catch (const tensor_rt::EngineProfileError &e) {
+      // Only a shape error: an export that bakes the prompt length / box
+      // count cannot take the geometry profile, so build it text-only and
+      // text segmentation survives. Any other failure (OOM, disk) is not
+      // the export's fault and propagates, so it is retried as a whole.
+      const auto fallback = text_only_fallback(name, req.profile);
+      if (!fallback || *fallback == req.profile)
+        throw;
+      reusex::warn("SAM3 engine build: {} failed with the geometry-prompt "
+                   "profile ({}); building it text-only instead — box and "
+                   "point prompts stay unavailable until the recipe or the "
+                   "ONNX changes (or {} is deleted to force another attempt)",
+                   name, e.what(), engine.string());
+      throw_if_cancelled(cancel, "engine build");
+      req.profile = *fallback;
+      tensor_rt::build_engine(req);
+      record_fallback(name);
+    }
+  }
+
+  // Stamp LAST: it vouches that every engine matches this recipe, so a crash
+  // mid-build leaves the old (or no) stamp and the next run rebuilds. A
+  // text-only fallback build is recorded as such, with the ONNX digest it
+  // failed against, so a later preparation retries its recipe profile only
+  // when that ONNX (or the recipe) changes, and the loader can say why
+  // geometry is off.
+  {
+    EngineBuildProfiles stamped = profiles;
+    for (const auto &[name, digest] : built_fallback) {
+      stamped.fallback_engines.push_back(name);
+      stamped.fallback_onnx_sha256[name] = digest;
+    }
+    const fs::path stamp = engine_dir / kEngineBuild;
+    const fs::path tmp = unique_sibling(stamp, "part");
+    std::ofstream(tmp) << stamped.to_json() << '\n';
+    fs::rename(tmp, stamp);
   }
 
   const auto missing = missing_engine_files(onnx_dir, engine_dir);
@@ -567,11 +666,99 @@ const std::vector<std::string> &required_engines() {
 
 EngineBuildProfiles load_engine_build_profiles(const fs::path &onnx_dir) {
   const fs::path own = onnx_dir / kEngineBuild;
-  if (fs::exists(own))
-    return EngineBuildProfiles::from_file(own);
+  const auto &builtin = EngineBuildProfiles::builtin();
+  if (fs::exists(own)) {
+    auto profiles = EngineBuildProfiles::from_file(own);
+    if (profiles.recipe_version >= builtin.recipe_version)
+      return profiles;
+    reusex::debug("SAM3: {} carries recipe v{}; the built-in recipe v{} "
+                  "supersedes it",
+                  own.string(), profiles.recipe_version,
+                  builtin.recipe_version);
+    return builtin;
+  }
   reusex::debug("SAM3: {} has no {}; using the built-in canonical recipe",
                 onnx_dir.string(), kEngineBuild);
-  return EngineBuildProfiles::builtin();
+  return builtin;
+}
+
+std::vector<std::string> stale_engines(const fs::path &onnx_dir,
+                                       const fs::path &engine_dir) {
+  const auto current = load_engine_build_profiles(onnx_dir);
+
+  // What the engines on disk were built from: the dir's stamp, else (a dir
+  // built before stamps) the bundle's own recipe, else assume current.
+  std::optional<EngineBuildProfiles> built_with;
+  for (const fs::path &p :
+       {engine_dir / kEngineBuild, onnx_dir / kEngineBuild}) {
+    if (!fs::exists(p))
+      continue;
+    try {
+      built_with = EngineBuildProfiles::from_file(p);
+    } catch (const std::exception &e) {
+      reusex::warn("SAM3: unreadable engine recipe {} ({}); rebuilding",
+                   p.string(), e.what());
+      built_with = EngineBuildProfiles{}; // empty: every engine is stale
+    }
+    break;
+  }
+  if (!built_with)
+    return {};
+
+  std::vector<std::string> stale;
+  for (const auto &[name, profile] : current.engines) {
+    if (!fs::exists(engine_dir / (name + ".engine")))
+      continue;
+    const auto was = built_with->find(name);
+    if (!was || !(*was == profile))
+      stale.push_back(name);
+  }
+  return stale;
+}
+
+std::vector<std::string> fallback_engines(const fs::path &engine_dir) {
+  const fs::path stamp = engine_dir / kEngineBuild;
+  if (!fs::exists(stamp))
+    return {};
+  try {
+    return EngineBuildProfiles::from_file(stamp).fallback_engines;
+  } catch (const std::exception &) {
+    return {}; // stale_engines() reports and rebuilds an unreadable stamp
+  }
+}
+
+std::vector<std::string> fallback_engines_to_retry(const fs::path &onnx_dir,
+                                                   const fs::path &engine_dir) {
+  const fs::path stamp_path = engine_dir / kEngineBuild;
+  if (!fs::exists(stamp_path))
+    return {};
+  EngineBuildProfiles stamp;
+  try {
+    stamp = EngineBuildProfiles::from_file(stamp_path);
+  } catch (const std::exception &) {
+    return {}; // stale_engines() reports and rebuilds an unreadable stamp
+  }
+  const auto stale = stale_engines(onnx_dir, engine_dir);
+  std::vector<std::string> retry;
+  for (const auto &name : stamp.fallback_engines) {
+    const fs::path onnx = onnx_dir / (name + ".onnx");
+    if (!fs::exists(engine_dir / (name + ".engine")) || !fs::exists(onnx) ||
+        std::find(stale.begin(), stale.end(), name) != stale.end())
+      continue; // missing or stale: rebuilt from scratch anyway
+    const auto fp = stamp.fallback_onnx_sha256.find(name);
+    std::string now;
+    try {
+      now = sha256_file(onnx);
+    } catch (const std::exception &e) {
+      reusex::warn("SAM3: cannot fingerprint {} ({}); not retrying its "
+                   "geometry-prompt profile",
+                   onnx.string(), e.what());
+      continue;
+    }
+    if (fp == stamp.fallback_onnx_sha256.end() || fp->second != now)
+      retry.push_back(name);
+  }
+  return retry;
 }
 
 std::vector<std::string> missing_onnx_files(const fs::path &onnx_dir) {
@@ -614,12 +801,17 @@ std::vector<std::string> missing_engine_files(const fs::path &onnx_dir,
     return {kEngineBuild};
   }
 
+  const auto stale = stale_engines(onnx_dir, engine_dir);
+  auto absent_or_stale = [&](const std::string &name) {
+    return !fs::exists(engine_dir / (name + ".engine")) ||
+           std::find(stale.begin(), stale.end(), name) != stale.end();
+  };
   for (const auto &name : required_engines())
-    if (!fs::exists(engine_dir / (name + ".engine")))
+    if (absent_or_stale(name))
       missing.push_back(name + ".engine");
   const auto optional = present_optional_engines(onnx_dir, profiles);
   for (const auto &name : optional)
-    if (!fs::exists(engine_dir / (name + ".engine")))
+    if (absent_or_stale(name))
       missing.push_back(name + ".engine");
 
   if (!fs::exists(engine_dir / kTokenizer))
@@ -667,10 +859,28 @@ PrepProgress sam3_status(const Sam3AssetOptions &opts) {
 #ifdef REUSEX_USE_TENSORRT
   const fs::path engine_dir = sam3_engine_dir(opts);
   if (const auto missing = missing_engine_files(onnx_dir, engine_dir);
-      !missing.empty())
+      !missing.empty()) {
+    // An install whose only gap is engines built from an older recipe needs
+    // a one-time rebuild of those engines, not a first-time build.
+    const auto stale = stale_engines(onnx_dir, engine_dir);
+    const bool only_stale =
+        !stale.empty() &&
+        std::all_of(missing.begin(), missing.end(), [&](const auto &f) {
+          return std::any_of(stale.begin(), stale.end(),
+                             [&](const auto &s) { return f == s + ".engine"; });
+        });
+    if (only_stale) {
+      PrepProgress p{PrepState::not_built, 0.0f,
+                     fmt::format("engines from an older recipe; rebuilding "
+                                 "once: {}",
+                                 join(stale))};
+      p.update_engines = stale;
+      return p;
+    }
     return {PrepState::not_built, 0.0f,
             fmt::format("ONNX present, engines not built (missing: {})",
                         join(missing))};
+  }
   return {PrepState::ready, 1.0f, "engines built"};
 #else
   return {PrepState::error, 0.0f, "TensorRT backend not built"};
@@ -722,7 +932,10 @@ fs::path prepare_sam3_model(const Sam3AssetOptions &opts,
   // 3. CUDA: build (or reuse) the device-specific engines.
 #ifdef REUSEX_USE_TENSORRT
   const fs::path engine_dir = sam3_engine_dir(opts);
-  if (!missing_engine_files(onnx_dir, engine_dir).empty())
+  // A text-only fallback build is loadable (not missing); it is retried
+  // only when its ONNX changed since its profile failed.
+  if (!missing_engine_files(onnx_dir, engine_dir).empty() ||
+      !fallback_engines_to_retry(onnx_dir, engine_dir).empty())
     build_engines(onnx_dir, engine_dir, cb, opts.cancel);
   report(cb, PrepState::ready, 1.0f, "ready (TensorRT engines)");
   return engine_dir;

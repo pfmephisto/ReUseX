@@ -19,6 +19,7 @@ import argparse
 from pathlib import Path
 
 from . import ENGINE_IO_CONTRACT
+from .build_engines import GEOM_MAX_BOXES
 from .fixes import apply_all
 from .load_native import load
 from .wrappers_detector import (
@@ -31,10 +32,17 @@ from .wrappers_detector import (
 OPSET = 17
 DEFAULT_ONNX_DIR = Path(__file__).resolve().parent.parent / "onnx"
 
-# Fixed number of geometry (box) prompts baked into the geometry-encoder graph.
-# The attention head-reshape constant-folds this value, so the engine is built
-# at exactly this count (see build_engines.SHAPE_PROFILES["geometry-encoder"]).
-GEOM_NUM_BOXES = 8
+# Number of geometry (box) prompts in the tracing example. The released
+# sam3.1-onnx-v1 geometry encoder keeps num_boxes dynamic (verified with
+# onnxruntime at N=1/3/8), but that bundle was not produced by this script; the
+# TorchScript export here was earlier observed to constant-fold N into the
+# attention head-reshape and is not re-verified. The engine range is
+# build_engines.SHAPE_PROFILES["geometry-encoder"]; the C++ builder falls back
+# to N pinned at this value if the range cannot be built. That fallback pins N
+# to the profile MAX, so the trace shape must equal it: tied by construction
+# (and to the C++ sam3::kGeometryTraceBoxes, checked by a unit test against the
+# emitted recipe).
+GEOM_NUM_BOXES = GEOM_MAX_BOXES
 
 
 def _names_axes(engine: str):
@@ -76,11 +84,9 @@ def _example_inputs(engine: str):
         mask = torch.ones(1, 32, dtype=torch.long)
         return (ids, mask)
     if engine == "geometry-encoder":
-        # num_boxes is baked as a constant into the attention head-reshape by the
-        # TorchScript exporter (same failure mode as the decoder prompt_len), so
-        # it must be fixed. We use GEOM_NUM_BOXES; a geometry-prompted decoder
-        # must then be built with prompt_len = 32 + GEOM_NUM_BOXES + 1 (the
-        # text-only path here uses prompt_len=32 and does not invoke geometry).
+        # Traced at GEOM_NUM_BOXES. Dynamic in the released bundle (N=1/3/8);
+        # this exporter may bake it (see GEOM_NUM_BOXES). A geometry-prompted
+        # decoder call uses prompt_len = 32 + N + 1.
         n = GEOM_NUM_BOXES
         boxes = torch.rand(1, n, 4)          # N boxes cxcywh in [0,1]
         labels = torch.ones(1, n, dtype=torch.long)
@@ -92,10 +98,10 @@ def _example_inputs(engine: str):
         f1 = torch.randn(1, 256, 144, 144)
         f2 = torch.randn(1, 256, 72, 72)
         p2 = torch.randn(1, 256, 72, 72)
-        # L is baked as a constant into the attention head-reshape by the
-        # TorchScript ONNX exporter, so it must match what the C++ sends: the
-        # text encoder emits exactly 32 tokens (make_ids pads to 32), and the
-        # text-prompted path uses no geometry, so prompt_len is always 32.
+        # Traced at the text-only L=32 (make_ids pads to 32 tokens). Dynamic in
+        # the released bundle (L=32/34/41); this TorchScript exporter was
+        # earlier seen to bake L and is not re-verified. If it does, the C++
+        # builder falls back to a text-only decoder (L=32).
         L = 32
         prompt = torch.randn(1, L, 256)
         pmask = torch.zeros(1, L, dtype=torch.bool)

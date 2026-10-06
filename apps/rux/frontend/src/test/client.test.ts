@@ -599,7 +599,6 @@ describe('segmentPanorama (#448)', () => {
   it('POSTs to /panoramas/{id}/segment with JSON body', async () => {
     const { api, calls } = clientFor(PANO_SEGMENT_RESULT);
     const result = await api.segmentPanorama(5, {
-      model_path: '/models/sam3',
       prompts: [{ text: 'wall' }, { text: 'floor' }],
       confidence: 0.6,
       n_yaw: 8,
@@ -610,10 +609,9 @@ describe('segmentPanorama (#448)', () => {
     expect(calls[0].url).toBe('/api/v1/panoramas/5/segment');
     expect(calls[0].method).toBe('POST');
     expect(calls[0].headers?.['Content-Type']).toBe('application/json');
-    expect(JSON.parse(calls[0].body ?? '')).toMatchObject({
-      model_path: '/models/sam3',
-      confidence: 0.6,
-    });
+    const sent = JSON.parse(calls[0].body ?? '') as Record<string, unknown>;
+    expect(sent).toMatchObject({ confidence: 0.6 });
+    expect(sent).not.toHaveProperty('model_path');
     expect(result.pano_id).toBe(5);
     expect(result.saved).toBe(true);
     expect(result.labeled_pixels).toBe(12480);
@@ -626,7 +624,7 @@ describe('segmentPanorama (#448)', () => {
       { status: 503, statusText: 'Service Unavailable' },
     );
     await expect(
-      api.segmentPanorama(5, { model_path: '/models/sam3' }),
+      api.segmentPanorama(5, {}),
     ).rejects.toBeInstanceOf(ApiRequestError);
   });
 });

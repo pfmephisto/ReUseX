@@ -11,7 +11,7 @@
  */
 
 import { api } from '../api/client';
-import type { FrameVisibilityList } from '../api/types';
+import type { FrameVisibilityList, VisibleFrame } from '../api/types';
 import { bestFrame, formatScore, rankLabel } from '../data/sourceImage';
 import styles from './SourceImagePanel.module.css';
 
@@ -29,13 +29,11 @@ export interface SourceImagePanelProps {
   /** Close the panel (the host sets `pickedPoint` back to null). */
   onClose: () => void;
   /**
-   * Open a frame in the detail view.
-   *
-   * The host wires this to whatever frame-detail surface already exists on the
-   * page (e.g. setting `selectedFrame` in `FramesPage`, or navigating to a
-   * `/frames?frame=<id>` deep-link).
+   * Open a frame. The whole `VisibleFrame` is passed so the host can use the
+   * pixel (`u`, `v`) where the picked point projects — the viewport opens
+   * Segmentering with that pixel seeded as a point prompt.
    */
-  onOpenFrame: (frameId: number) => void;
+  onOpenFrame: (frame: VisibleFrame) => void;
 }
 
 export function SourceImagePanel({
@@ -77,9 +75,9 @@ export function SourceImagePanel({
               <button
                 type="button"
                 className={styles.bestButton}
-                onClick={() => onOpenFrame(best.frame_id)}
+                onClick={() => onOpenFrame(best)}
               >
-                Open best source image
+                Segmentér bedste kildebillede
               </button>
             )}
 
@@ -89,8 +87,8 @@ export function SourceImagePanel({
                   key={frame.frame_id}
                   type="button"
                   className={styles.thumb}
-                  onClick={() => onOpenFrame(frame.frame_id)}
-                  title={`Frame ${frame.frame_id} — score ${formatScore(frame.score)} — depth ${frame.depth.toFixed(1)} m`}
+                  onClick={() => onOpenFrame(frame)}
+                  title={`Billede ${frame.frame_id} — score ${formatScore(frame.score)} — dybde ${frame.depth.toFixed(1)} m — åbn i Segmentering`}
                 >
                   <img
                     src={api.frameImageUrl(frame.frame_id, 'color', { maxSize: THUMB_MAX_SIZE })}

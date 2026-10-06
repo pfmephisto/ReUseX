@@ -380,10 +380,42 @@ length `L`, memory-bank length `M`. For each such input TensorRT needs an
 these from the contract (`SHAPE_PROFILES`), e.g.:
 
 - `vision-encoder`: `images` batch `1 → 1 → 4`.
-- `decoder`: `prompt_features` length `1 → 40 → 300` (200 queries + text/geo).
-- `geometry-encoder`: `input_boxes` `N` from `1 → 8 → 64`.
+- `decoder`: `prompt_features` length `32 → 32 → 41` (32 text tokens, plus
+  `N + 1` geometry tokens for a boxed prompt; `opt` stays at the text-only 32
+  that `rux create annotate` uses).
+- `geometry-encoder`: `input_boxes` `N` from `1 → 1 → 8`.
 - `tracker-memory-attention`: `memory` length from one frame's worth
   (`5184`) up to the full bank (`5184 × 7`).
+
+What was verified, and on which export: the **released `sam3.1-onnx-v1`**
+geometry encoder and decoder keep `N` and `L` dynamic (onnxruntime at
+N = 1/3/8 and L = 32/34/41). That bundle was not produced by
+`export_detector.py`; this repo's TorchScript export traces at `N = 8`,
+`L = 32` and was earlier seen to constant-fold them — not re-verified. Recipe
+v1 pinned both to the trace shapes, which left no room for geometry tokens;
+recipe v2 (`recipe_version: 2`) opens them up. If the v2 decoder or geometry
+encoder cannot be **built** from an export because of a shape error
+(`EngineProfileError`: the profile contradicts a baked dim, or the builder's
+errors are about shapes), the C++ builder rebuilds that engine with the v1
+shape (`text_only_fallback`), warns, and lists it under `fallback_engines` in
+the engine dir's `engine-build.json` stamp, together with the sha256 of the
+ONNX it failed against (`fallback_onnx_sha256`). The fallback is permanent: a
+later preparation retries the v2 profile only when that ONNX changes (a
+re-export, e.g. via `$REUSEX_SAM3_ONNX_DIR`) or the recipe changes (the engine
+is then stale and rebuilt from scratch) — the failure is a deterministic
+property of the graph against the profile, so retrying it every session would
+only repeat a multi-minute build. sha256 rather than size+mtime, because a copy
+or re-extraction of the same bundle changes the mtime and would cause a
+pointless rebuild; hashing the two affected graphs (~130 MB) costs well under
+a second per preparation. To force a retry anyway, delete
+`<engine-dir>/decoder.engine` (or `geometry-encoder.engine`): it is then
+missing and rebuilt, falling back again if the profile still fails. The build
+warnings name that path. A stamp from before fingerprints existed is retried
+once and then fingerprinted. Any other build failure (out of memory, disk)
+fails the build as before. If the engines build but a geometry batch fails to **run**,
+`TensorRTSam3` re-runs that whole request text-only, and turns geometry off for
+the model only after three such requests in a row. Either way text
+segmentation keeps working.
 
 `opt` is the shape TensorRT tunes kernels for; `min`/`max` bound what's legal.
 `_fmt` formats these into `--minShapes/--optShapes/--maxShapes` strings.
@@ -600,13 +632,62 @@ Dynamic axes: `batch` (axis 0); `num_boxes`/`num_prompts` (axis 1).
 | in  | `fpn_feat_2` | `[B, 256, 72, 72]` | float32 |
 | in  | `fpn_pos_2` | `[B, 256, 72, 72]` | float32 |
 | in  | `prompt_features` | `[B, L, 256]` (text ⊕ geometry, right-padded) | float32 |
-| in  | `prompt_mask` | `[B, L]` (True == pad) | bool |
+| in  | `prompt_mask` | `[B, L]` (**True == valid token**, see below) | bool |
 | out | `pred_masks` | `[B, 200, 288, 288]` | float32 |
 | out | `pred_boxes` | `[B, 200, 4]` (cxcywh) | float32 |
 | out | `pred_logits` | `[B, 200, 1]` | float32 |
 | out | `presence_logits` | `[B, 1]` | float32 |
 
 Dynamic axes: `batch` (axis 0); `prompt_len` (axis 1) on `prompt_features`/`prompt_mask`.
+
+> **Mask polarity differs between exports.** The released `sam3.1-onnx-v1`
+> graphs use **True == valid token** for `text_mask`, `geometry_mask` and
+> `prompt_mask` (its text encoder computes `attention_mask > 0`; checked with
+> onnxruntime: the decoder ignores tokens marked False). This repo's exporter
+> writes the pytorch convention, True == padding (`wrappers_detector.py`:
+> `text_mask = attention_mask == 0`). The text-only path works with either,
+> because it copies `text_mask` straight into `prompt_mask`. The geometry slot
+> mask is written by the C++, so `TensorRTSam3` reads the polarity at load:
+> it runs the text encoder on `"a"` (3 real tokens, 29 padding) and checks
+> which way `text_mask` points (`sam3_mask_true_is_valid`). A probe that does
+> not split cleanly turns geometry off rather than guess.
+
+### How the image model feeds geometry (`TensorRTSam3`)
+
+- The geometry encoder runs **once per boxed prompt**, batch 1, at the prompt's
+  exact box count. The exported graph has no box-padding mask, so padding a
+  batch to a common `N` would leak the pad boxes into the encoder's
+  self-attention.
+- Each prompt's `N + 1` tokens land in a per-prompt slot sized for the batch's
+  largest prompt; the slot's spare tokens, and the whole slot of a text-only
+  prompt batched alongside, are masked. A batch with no boxes decodes at
+  `L = 32` exactly as before.
+- Geometry is enabled only when the loaded engines can take it (encoder accepts
+  `N = 1`, decoder `L` max has room for a box + CLS); recipe-v1 engines fall
+  back to text-only, and `segment_image` clips boxed prompts instead. A
+  `geometry-encoder.engine` that fails to load (stale, another TensorRT) is
+  skipped with a warning; it never fails model creation.
+- Text-only runs (`rux create annotate`, panoramas) take the same code path as
+  before, but they are not bit-for-bit identical to the v1 engines: the
+  decoder is built with a wider `L` profile (TensorRT may pick other tactics:
+  small numeric drift), and the geometry encoder is now loaded (VRAM, load
+  time) whenever the engine dir has one.
+- Box labels: 1 for `pos`, 0 for `neg`; boxes are normalised `cxcywh`.
+- **A box is an exemplar**: SAM3 returns every object like the boxed one.
+  Single-image selection callers (`segment_image`, i.e. `rux gui` and
+  `rux create segment-frame`) set `select_box_instances` and keep only the
+  detections the geometry points at (`sam3_detection_selected`).
+- **Points** (`Sam3Prompt::points`): the exported detector has no point input,
+  and an exemplar's result tracks its size (a small box finds the patch under
+  the click). Each point is tried as an exemplar box at 3/5/8/12 % of the
+  shorter image side — four prompts, one decoder batch — and the most
+  confident detection whose mask covers the point wins
+  (`sam3_best_detection_per_point`). A prompt with both points and boxes
+  keeps the union: each point's winner plus everything its positive boxes
+  select (`sam3_point_prompt_selection`). On NewOffice frame 1500 that picked the
+  whole monitor (9 888 px), chair (15 119 px) and bag (2 541 px), each at a
+  different size; large surfaces (a desk top, a pillar) come back partial, and
+  a box is the better tool there.
 
 ### Tracker engines
 
@@ -740,6 +821,24 @@ python -m reusex_sam3.build_engines --emit-profiles
 directory, so a fully exported bundle is self-describing. An ONNX dir without
 it (a bare `make -C python export`) falls back to the canonical copy embedded
 at C++ build time (`EngineBuildProfiles::builtin()`).
+
+**Recipe versions.** `engine-build.json` carries `recipe_version` (absent ⟹ 1),
+bumped in `build_engines.py` (`RECIPE_VERSION`) whenever a profile changes. A
+downloaded bundle ships the recipe it was released with, so the C++ side uses
+the bundle's recipe only when it is at least as new as the built-in one;
+otherwise the built-in recipe supersedes it. That is how recipe v2 (geometry
+prompts) reaches installs of the v1 bundle without a new ONNX release.
+
+**Stale engines.** After a build the engine directory is stamped with the
+recipe it was built from (`<engine-dir>/engine-build.json`, written last).
+`stale_engines()` compares that stamp — or, for a directory built before
+stamps existed, the ONNX dir's own `engine-build.json` — with the selected
+recipe, engine by engine. A stale engine counts as missing, so the status
+reads `not_built` and the next segment request rebuilds just those engines in
+place (on a v1 install: `geometry-encoder` and `decoder`, ~2.5 min on an
+RTX 6000 Ada; the fp32 vision encoder is kept). When stale engines are the only
+gap, the status names them in `update_engines`, and the GUI shows a one-time
+update rather than the first-run download-and-build copy.
 
 ### 9.2 Managed model location and cache-key scheme
 

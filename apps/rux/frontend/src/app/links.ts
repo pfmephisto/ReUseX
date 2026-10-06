@@ -16,6 +16,9 @@ export const RAPPORT_PATH = '/rapport';
 export const INDBERETNING_PATH = '/indberetning';
 export const PROJEKTDATA_PATH = '/projektdata';
 
+/** Segmentering — interactive SAM3 on one sensor frame (spec B3). */
+export const SEGMENTERING_PATH = '/segmentering';
+
 /** Skabeloner — the template editor (resources/templates spec §6.2). Its page arrives in Phase 4. */
 export const SKABELONER_PATH = '/skabeloner';
 
@@ -59,4 +62,42 @@ export function parseMiljoeQuery(search: string): MiljoeQuery {
 /** `?type=<id>` on /kortlaegning. */
 export function parseTypeQuery(search: string): number | null {
   return positiveId(new URLSearchParams(search).get('type'));
+}
+
+/** A pixel in the frame's colour image (intrinsics pixel grid), seeding a point prompt. */
+export interface SegmentSeed {
+  u: number;
+  v: number;
+}
+
+/** `/segmentering[?frame=<id>[&u=<px>&v=<px>]]`; u/v are rounded to whole pixels. */
+export function segmentHref(frameId?: number, seed?: SegmentSeed | null): string {
+  if (frameId === undefined) return SEGMENTERING_PATH;
+  const q = new URLSearchParams({ frame: String(frameId) });
+  if (seed) {
+    q.set('u', String(Math.round(seed.u)));
+    q.set('v', String(Math.round(seed.v)));
+  }
+  return `${SEGMENTERING_PATH}?${q.toString()}`;
+}
+
+export interface SegmentQuery {
+  frameId: number | null;
+  /** Only with a frame, and only when both u and v are non-negative numbers. */
+  seed: SegmentSeed | null;
+}
+
+function nonNegative(value: string | null): number | null {
+  if (value === null || !/^\d+(\.\d+)?$/.test(value)) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function parseSegmentQuery(search: string): SegmentQuery {
+  const q = new URLSearchParams(search);
+  const frameId = positiveId(q.get('frame'));
+  if (frameId === null) return { frameId: null, seed: null };
+  const u = nonNegative(q.get('u'));
+  const v = nonNegative(q.get('v'));
+  return { frameId, seed: u !== null && v !== null ? { u, v } : null };
 }

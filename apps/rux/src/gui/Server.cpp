@@ -623,6 +623,22 @@ class Server::Impl {
     }
   }
 
+  /// Send a non-job message (e.g. `clouds.changed`) to every connection.
+  /// Job subscriptions filter job events only; a data-change notice concerns
+  /// every view, so it ignores them. Same locking invariant as broadcast().
+  void broadcast_message(const nlohmann::json &message) {
+    const std::string payload = message.dump();
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    for (auto &[connection, subscription] : clients_) {
+      (void)subscription;
+      try {
+        connection->send_text(payload);
+      } catch (const std::exception &e) {
+        spdlog::debug("WebSocket send failed: {}", e.what());
+      }
+    }
+  }
+
   // --- routes --------------------------------------------------------------
 
   void register_routes() {
@@ -853,7 +869,8 @@ class Server::Impl {
           nlohmann::json out{{"state", st.state},
                              {"progress", st.progress},
                              {"message", st.message},
-                             {"use_cuda", use_cuda}};
+                             {"use_cuda", use_cuda},
+                             {"update_engines", st.update_engines}};
           if (st.state == "ready")
             out["model_path"] = st.model_path;
           return json_response(200, out);
@@ -920,9 +937,38 @@ class Server::Impl {
 
             return json_response(
                 200, segment_frame_result_json(id, result.label_map,
-                                               result.class_names, saved));
+                                               result.class_names, saved,
+                                               result.geometry_prompts_used));
           });
         });
+
+    // POST /api/v1/frames/<id>/segment/resource — project one label of the
+    // frame's saved segmentation into the base cloud, file it as a new
+    // instance + survey part (spec B2), then tell every client which clouds
+    // changed so a viewport can reload them.
+    app_.route_dynamic(std::string(kApiPrefix) +
+                       "/frames/<int>/segment/resource")
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &req, int id) {
+              // Parse first: a bad body is a 400 whether or not a job holds the
+              // writer lock.
+              SegmentResourceRequest body;
+              try {
+                body = parse_segment_resource_request(req.body);
+              } catch (const HttpError &e) {
+                return error_response(e.status(), e.what());
+              }
+              std::vector<std::string> changed;
+              auto res = with_write([&](reusex::ProjectDB &db) {
+                auto out = execute_segment_resource(db, id, body);
+                changed = out.at("clouds").get<std::vector<std::string>>();
+                return json_response(201, out);
+              });
+              if (res.code == 201 && !changed.empty())
+                broadcast_message(clouds_changed_json(
+                    changed, options_.project.filename().string()));
+              return res;
+            });
 
     // ---- panoramas ----
     get("/api/v1/panoramas")([this](const crow::request &req) {

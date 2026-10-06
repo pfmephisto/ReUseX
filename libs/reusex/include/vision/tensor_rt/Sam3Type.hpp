@@ -19,6 +19,8 @@ using BoxPrompt = std::pair<std::string, std::array<float, 4>>;
 struct Sam3PromptUnit {
   std::string text;
   std::vector<BoxPrompt> boxes;
+  // Positive click points [x, y] in pixels (see vision::Sam3Prompt::points).
+  std::vector<std::array<float, 2>> points;
   // Per-prompt detection confidence threshold. Negative => use the frame/global
   // threshold (TensorRTData::confidence_threshold). Lets each concept be tuned
   // independently (e.g. a low threshold for a hard-to-see "electrical outlet",

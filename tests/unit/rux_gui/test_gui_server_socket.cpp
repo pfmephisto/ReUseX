@@ -30,10 +30,13 @@
 
 #include <sqlite3.h>
 
+#include <opencv2/core.hpp>
+
 #include "../../support/survey_fixture.hpp"
 #include "../../support/temp_path.hpp"
 
 #include <core/ProjectDB.hpp>
+#include <core/SensorIntrinsics.hpp>
 #include <core/resources.hpp>
 
 #include <algorithm>
@@ -224,6 +227,83 @@ class KeepAliveConnection {
     buffer_.append(chunk, static_cast<std::size_t>(n));
   }
 
+  int fd_ = -1;
+  std::string buffer_;
+};
+
+/// A minimal WebSocket client for /api/v1/events: performs the upgrade and
+/// reads unfragmented server text frames (server frames are never masked).
+class WebSocketClient {
+    public:
+  explicit WebSocketClient(std::uint16_t port) {
+    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(fd_ >= 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+    addr.sin_port = ::htons(port);
+    REQUIRE(::connect(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+            0);
+    timeval timeout{};
+    timeout.tv_sec = 10;
+    ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    const std::string upgrade =
+        "GET /api/v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    REQUIRE(::send(fd_, upgrade.data(), upgrade.size(), MSG_NOSIGNAL) ==
+            static_cast<ssize_t>(upgrade.size()));
+    std::size_t end;
+    while ((end = buffer_.find("\r\n\r\n")) == std::string::npos)
+      fill();
+    REQUIRE(buffer_.rfind("HTTP/1.1 101", 0) == 0);
+    buffer_.erase(0, end + 4);
+  }
+  WebSocketClient(const WebSocketClient &) = delete;
+  WebSocketClient &operator=(const WebSocketClient &) = delete;
+  ~WebSocketClient() { ::close(fd_); }
+
+  /// The payload of the next text frame.
+  std::string next_text() {
+    while (true) {
+      need(2);
+      const auto b0 = static_cast<unsigned char>(buffer_[0]);
+      std::size_t len = static_cast<unsigned char>(buffer_[1]) & 0x7f;
+      std::size_t head = 2;
+      if (len == 126) {
+        need(4);
+        len = (static_cast<std::size_t>(static_cast<unsigned char>(buffer_[2]))
+               << 8) |
+              static_cast<unsigned char>(buffer_[3]);
+        head = 4;
+      } else if (len == 127) {
+        need(10);
+        len = 0;
+        for (int i = 2; i < 10; ++i)
+          len = (len << 8) | static_cast<unsigned char>(buffer_[i]);
+        head = 10;
+      }
+      need(head + len);
+      std::string payload = buffer_.substr(head, len);
+      buffer_.erase(0, head + len);
+      if ((b0 & 0x0f) == 0x1)
+        return payload;
+    }
+  }
+
+    private:
+  void need(std::size_t n) {
+    while (buffer_.size() < n)
+      fill();
+  }
+  void fill() {
+    char chunk[4096];
+    const ssize_t n = ::recv(fd_, chunk, sizeof(chunk), 0);
+    if (n <= 0)
+      throw std::runtime_error("websocket closed or stalled");
+    buffer_.append(chunk, static_cast<std::size_t>(n));
+  }
   int fd_ = -1;
   std::string buffer_;
 };
@@ -586,4 +666,72 @@ TEST_CASE("RunningServer_EditThenShutdown_LeavesTheEditInTheMainFile",
   sqlite3_finalize(stmt);
   sqlite3_close(raw);
   CHECK(stored == name);
+}
+
+TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
+          "[gui][server][socket][segment]") {
+  // POST /frames/<id>/segment/resource sits under /frames/<id>/segment; both
+  // must route. Frame 1 is posed with depth and a saved mask whose label 0
+  // covers the one cloud point; frame 2 has a colour image only.
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempPath project("test_gui_server_socket", ".rux");
+  {
+    reusex::ProjectDB db(project.path);
+    reusex::core::SensorIntrinsics in;
+    in.fx = in.fy = 50.0;
+    in.cx = in.cy = 32.0;
+    in.width = in.height = 64;
+    db.save_sensor_frame(1, cv::Mat(64, 64, CV_8UC3, cv::Scalar(0)),
+                         cv::Mat(64, 64, CV_16UC1, cv::Scalar(2000)), cv::Mat(),
+                         {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, in,
+                         1.0, -1);
+    db.save_segmentation_image(1, cv::Mat(64, 64, CV_32S, cv::Scalar(0)));
+    db.save_sensor_frame(2, cv::Mat(8, 8, CV_8UC3, cv::Scalar(0)));
+    reusex::Cloud cloud;
+    reusex::PointT p;
+    p.x = 0.0f;
+    p.y = 0.0f;
+    p.z = 2.0f;
+    cloud.push_back(p);
+    db.save_point_cloud("cloud", cloud);
+  }
+  ServerOptions options;
+  options.project = project.path;
+  options.port = free_port();
+  options.open_browser = false;
+  options.threads = 2;
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  const std::string route = "/api/v1/frames/1/segment/resource";
+  CHECK(connection.send_json("POST", route, "not json").status == 400);
+  CHECK(connection.send_json("POST", route, R"({"mask_label":0})").status ==
+        400);
+  CHECK(connection
+            .send_json("POST", "/api/v1/frames/2/segment/resource",
+                       R"({"mask_label":0,"class_name":"Dør"})")
+            .status == 422);
+  CHECK(connection
+            .send_json("POST", "/api/v1/frames/99/segment/resource",
+                       R"({"mask_label":0,"class_name":"Dør"})")
+            .status == 404);
+  const Response created = connection.send_json(
+      "POST", route, R"({"mask_label":0,"class_name":"Dør"})");
+  INFO(created.body);
+  CHECK(created.status == 201);
+  CHECK(created.body.find("\"resource_code\":\"RX-001\"") != std::string::npos);
+  // Every WebSocket client hears which clouds changed.
+  WebSocketClient ws(server.port());
+  CHECK(ws.next_text().find("\"type\":\"hello\"") != std::string::npos);
+  CHECK(connection
+            .send_json("POST", route, R"({"mask_label":0,"class_name":"Væg"})")
+            .status == 201);
+  const std::string event = ws.next_text();
+  INFO(event);
+  CHECK(event.find("\"type\":\"clouds.changed\"") != std::string::npos);
+  CHECK(event.find("\"names\":[\"labels\",\"instances\"]") !=
+        std::string::npos);
+  // The sibling segment route still answers (no segmenter registered here).
+  CHECK(connection.send_json("POST", "/api/v1/frames/1/segment", "{}").status ==
+        503);
 }

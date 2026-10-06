@@ -7,6 +7,7 @@
 #include "reusex/vision/sam3/EngineBuildProfiles.hpp"
 
 #include <filesystem>
+#include <stdexcept>
 
 namespace reusex::vision::tensor_rt {
 
@@ -21,6 +22,15 @@ struct EngineBuildRequest {
   sam3::EngineProfile profile;
 };
 
+/// A build that failed because the requested optimization profile does not
+/// fit the network's shapes (an export that bakes a dimension the profile
+/// leaves dynamic), as opposed to a resource or I/O failure. Only this one
+/// justifies retrying with a narrower profile.
+class EngineProfileError : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
 /// Build a serialized TensorRT engine from an ONNX file using nvonnxparser +
 /// IBuilder, applying ``req.profile`` (precision, workspace, optimization
 /// profile). This is the native, self-contained equivalent of the Python
@@ -28,8 +38,9 @@ struct EngineBuildRequest {
 /// first use instead of shipping prebuilt (non-portable) ``.engine`` files.
 ///
 /// The parent directory of ``engine_path`` is created if needed. Throws
-/// ``std::runtime_error`` on any parse/build/IO failure. Returns the engine
-/// path on success.
+/// ``EngineProfileError`` when the profile cannot apply to the network's
+/// shapes, ``std::runtime_error`` on any other parse/build/IO failure. Returns
+/// the engine path on success.
 std::filesystem::path build_engine(const EngineBuildRequest &req);
 
 } // namespace reusex::vision::tensor_rt

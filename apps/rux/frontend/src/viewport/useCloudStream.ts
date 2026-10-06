@@ -66,6 +66,11 @@ export interface CloudStreamOptions {
   labelCloud?: string | null;
   pageSize?: number;
   /**
+   * Bumped when `cloud` or `labelCloud` was rewritten on the server
+   * (`clouds.changed`); a change restarts the stream from scratch.
+   */
+  revision?: number;
+  /**
    * Budget for the coarse whole-scene overview fetched first (#320). `0`
    * disables it and restores the plain prefix-paging behaviour.
    */
@@ -231,6 +236,7 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
   const {
     cloud,
     labelCloud = null,
+    revision = 0,
     pageSize = DEFAULT_PAGE_SIZE,
     overviewPoints = DEFAULT_OVERVIEW_POINTS,
   } = options;
@@ -503,7 +509,7 @@ export function useCloudStream(options: CloudStreamOptions): CloudStreamState {
       controller.abort();
       cameraMoveCleanup?.();
     };
-  }, [cloud, labelCloud, pageSize, overviewPoints]);
+  }, [cloud, labelCloud, revision, pageSize, overviewPoints]);
 
   return state;
 }

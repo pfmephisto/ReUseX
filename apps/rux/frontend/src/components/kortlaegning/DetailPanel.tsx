@@ -87,6 +87,8 @@ export interface DetailPanelProps {
    * A3). Reached through a two-click armed confirm; separate from Afvis.
    */
   onDelete: () => void;
+  /** Open the part's best frame in Segmentering (also the S key); absent when not scan-backed. */
+  onSegment?: () => void;
   /** The selected part's values; null for a type. */
   resource: Resource | null;
   catalogue: ResourceKey[];
@@ -161,6 +163,7 @@ export function DetailPanel({
   onDone,
   manual,
   onDelete,
+  onSegment,
   resource,
   catalogue,
   onCellCommit,
@@ -330,6 +333,16 @@ export function DetailPanel({
         >
           {deleteLabel(type, part, armed)}
         </button>
+        {onSegment && (
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={onSegment}
+            title="Åbn ressourcens bedste billede i Segmentering (S)"
+          >
+            Segmentér
+          </button>
+        )}
         <div className={styles.spacer} />
         {queued ? (
           <>

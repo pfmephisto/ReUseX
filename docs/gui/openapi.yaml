@@ -985,10 +985,13 @@ paths:
         is being prepared the endpoint answers 503; poll
         `GET /models/sam3/status` until it reports `ready`.
 
-        **Point-click emulation:** SAM3 does not natively support point prompts.
-        To guide segmentation toward a viewport click, pass a small positive box
-        centred on the click, e.g. `[x-8, y-8, x+8, y+8]`. Native point-prompt
-        support is a follow-up to issue #409.
+        **Selecting with boxes and points:** a prompt's `boxes` and `points`
+        pick objects in this frame. SAM3 itself treats a box as an exemplar
+        and finds every similar object; this endpoint keeps only the
+        detections the prompt's geometry points at — a `pos` box keeps what it
+        covers (at least half of the detection inside the box, or half of the
+        box inside the detection), a `neg` box drops what it covers, and a
+        point keeps the one object under it.
 
         **503 without a model registered:** the endpoint returns 503 when the
         server was started without `rux gui` (e.g. from a test harness) because
@@ -1021,18 +1024,57 @@ paths:
                     default class list (18 architectural classes for TRT).
                   items:
                     type: object
-                    required: [text]
+                    description: |
+                      A prompt needs a non-empty `text`, a box or a point (or
+                      any combination).
+
+                      How boxes and points are honoured: with the TensorRT
+                      backend and engines built from engine-build recipe
+                      v2+ (the managed model rebuilds older ones on first
+                      use), they go to SAM3's geometry encoder. SAM3 has no
+                      native point input in the exported detector, so a point
+                      is tried as an exemplar box at four sizes around it and
+                      the most confident object whose mask covers the point
+                      wins. The ONNX backend, and TensorRT engines that
+                      cannot take geometry, cannot feed them to the model; the
+                      server then clips each such prompt's pixels to its `pos`
+                      boxes (a point to a small box around it) minus its `neg`
+                      boxes and logs a warning once. A geometry-only prompt
+                      there is a `"visual"` concept search clipped to the
+                      box, so it can come back empty.
                     properties:
                       text:
                         type: string
-                        description: Open-vocabulary class name, e.g. "wall".
+                        description: |
+                          Open-vocabulary class name, e.g. "wall". May be
+                          omitted, null or "" when the prompt has a box or a
+                          point: SAM3 then segments what the geometry points
+                          at, and the prompt is sent to the model as the text
+                          `"visual"` — the upstream SAM3 convention for a
+                          geometry-only prompt (`rux create segment-frame`
+                          uses the same text). Its entry in the response's
+                          `labels` reads `"visual"`. Without a box or a point
+                          an empty text is a 400.
                       boxes:
                         type: array
                         description: |
                           Optional bounding-box hints: `["pos"|"neg",
-                          [x1, y1, x2, y2]]`.
+                          [x1, y1, x2, y2]]` in colour-image pixels.
                         items:
                           type: array
+                          minItems: 2
+                          maxItems: 2
+                      points:
+                        type: array
+                        description: |
+                          Optional positive click points `[x, y]` in
+                          colour-image pixels; each selects the object under
+                          it. Boxes and points together are capped at 8 per
+                          prompt (the engine recipe's geometry limit); extras
+                          are dropped with a warning.
+                        items:
+                          type: array
+                          items: { type: number }
                           minItems: 2
                           maxItems: 2
                       confidence:
@@ -1082,10 +1124,28 @@ paths:
                       from the request `prompts`; empty when the model default
                       list was used.
                     additionalProperties: { type: string }
+                  geometry_prompts_used:
+                    type: boolean
+                    description: |
+                      True when at least one prompt carried a box or point and
+                      that geometry reached SAM3's geometry encoder. False
+                      when no prompt had geometry, or when it could not reach
+                      the model (ONNX backend, text-only TensorRT engines, a
+                      geometry path that failed at run time) and the boxed
+                      prompts were clipped to their boxes instead — a client
+                      that sent geometry can say so.
+                  mask_revision:
+                    type: [string, "null"]
+                    description: |
+                      Fingerprint of the saved segmentation (16 hex digits);
+                      null when `saved` is false. Echo it in
+                      `POST /frames/{id}/segment/resource` to refuse a mask
+                      that was overwritten since this run.
         "400":
           description: |
             `model_path` omitted on a server with no managed SAM3 model,
-            a non-string `model_path`, malformed prompts, or invalid box
+            a non-string `model_path`, malformed prompts (including a prompt
+            with neither text nor a box nor a point), or invalid box or point
             format.
           content:
             application/json:
@@ -1114,6 +1174,134 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /frames/{id}/segment/resource:
+    post:
+      tags: [frames]
+      operationId: segmentFrameResource
+      summary: Project one label of a frame's saved mask into the cloud as a new instance and survey part
+      description: |
+        Takes the pixels of label `mask_label` in frame `{id}`'s **saved**
+        segmentation image (the prompt index from a
+        `POST /frames/{id}/segment` run with `save: true`), projects the base
+        cloud `cloud` through the frame's pose and pinhole intrinsics (rescaled
+        to the mask size) and keeps the points that land on the mask and agree
+        with the frame's own depth image within 0.10 m (points beyond 8 m are
+        ignored). The selection is then, in one transaction
+        (`core::apply_mask_selection`):
+
+        * labelled `class_name` in the semantic cloud `labels` — the class id
+          whose label definition is exactly that name, else a new one; the
+          cloud is created all-zero when the project has none;
+        * made one new instance in `instances` (created when absent) with a
+          fresh GUID and an `SM<class>-<id> (<n>p)` label definition; the
+          instances that gave up points have their point counts updated
+          (existing instance rows, and so their material links, are kept);
+        * filed as a new survey part (resource) linked to the new instance, in
+          `type_id` when given, else the survey type `POST /survey/sync` uses
+          for this class, else a type named `class_name` (created when
+          absent). `POST /survey/sync` will not add a second part for it.
+          Rejected (`review_status: rejected`, Afvist) types never take a new
+          part: the automatic choice skips them and, when only a rejected
+          type matches, creates a new type instead of reviving it; an
+          explicit `type_id` naming a rejected type is a 422.
+
+        A `pipeline_log` row with stage `segment_resource` records the run.
+        On success the server broadcasts a `clouds.changed` WebSocket message
+        naming `labels` and `instances` (see `docs/gui/websocket-events.md`).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mask_label, class_name]
+              properties:
+                mask_label:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Label value in the saved segmentation (API encoding, the
+                    prompt index; -1 is background and not selectable).
+                class_name:
+                  type: string
+                  minLength: 1
+                  description: Semantic class name; surrounding whitespace is trimmed.
+                type_id:
+                  type: [integer, "null"]
+                  description: |
+                    Survey type for the new part. Omitted or null ⟹ chosen
+                    as described above. Must not be a rejected type.
+                mask_revision:
+                  type: [string, "null"]
+                  description: |
+                    The `mask_revision` of the segment run the mask came from.
+                    When given and the frame's saved segmentation has changed
+                    since (a label-queue run, another tab), the request is a
+                    409 and nothing is written. Omitted or null ⟹ no check.
+      responses:
+        "201":
+          description: The instance and the survey part were created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resource_code, type_id, type_created, instance_id,
+                           instance_guid, point_count, label_id,
+                           label_created, clouds]
+                properties:
+                  resource_code: { type: string, example: "RX-042" }
+                  type_id: { type: integer }
+                  type_created:
+                    type: boolean
+                    description: True when the survey type was created by this call.
+                  instance_id: { type: integer, minimum: 1 }
+                  instance_guid: { type: string }
+                  point_count: { type: integer, minimum: 1 }
+                  label_id:
+                    type: integer
+                    minimum: 1
+                    description: The class id in `labels` (a CloudL value, 0 = unlabeled).
+                  label_created:
+                    type: boolean
+                    description: True when the class was new to `labels`.
+                  clouds:
+                    type: array
+                    items: { type: string }
+                    description: The clouds that were rewritten (`labels`, `instances`).
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404":
+          description: No such sensor frame, or `type_id` names no survey type.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            Not applied: a pipeline job holds the write lock (retry once it
+            finishes), or `mask_revision` no longer matches the frame's saved
+            segmentation — message "Segmenteringen er ændret — kør igen." —
+            so the mask must be segmented again before it can be filed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: |
+            The frame cannot be turned into a resource: it has no saved
+            segmentation, `mask_label` has no pixels in it, the frame has no
+            stored pose or no depth image, the project has no `cloud`, the
+            mask covers no visible point, the label clouds are out of sync
+            with `cloud`, or `type_id` names a rejected survey type. Nothing
+            was written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- panoramas ----
@@ -1362,6 +1550,9 @@ paths:
         * `absent` — the ONNX bundle is not on disk and nothing has started.
         * `not_built` — the ONNX bundle is present but the device-specific
           TensorRT engines have not been built, and no build is running.
+          When `update_engines` is non-empty the engines are all there and
+          only those were built from an older engine recipe: a one-time
+          rebuild of those engines, with no download.
         * `downloading` / `building` — preparation is in progress.
         * `ready` — loadable; `model_path` is set.
         * `error` — the last preparation attempt failed (see `message`); the
@@ -1395,6 +1586,14 @@ paths:
                   model_path:
                     type: string
                     description: Directory the segmenter loads; only when `ready`.
+                  update_engines:
+                    type: array
+                    items: { type: string }
+                    description: |
+                      In `not_built`: the engines (e.g. `decoder`,
+                      `geometry-encoder`) the next preparation rebuilds for a
+                      newer engine recipe, when that is all it has to do.
+                      Empty for a first-time download or build.
         "500":
           description: The status probe itself failed.
           content:

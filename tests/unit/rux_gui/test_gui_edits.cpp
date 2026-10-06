@@ -377,6 +377,39 @@ TEST_CASE(
   CHECK_FALSE(image.at<cv::Vec3b>(0, 1) == image.at<cv::Vec3b>(0, 3));
 }
 
+TEST_CASE("FrameImage_Segmentation_ServesStorageEncodingKeepingPromptZero",
+          "[gui][frames]") {
+  TempDB tmp;
+  reusex::ProjectDB db(tmp.path);
+
+  // Background, prompt 0, prompt 1: three distinct values on the wire.
+  save_frame(db, 9, cv::Mat(1, 3, CV_8UC3, cv::Scalar(0, 0, 0)));
+  cv::Mat labels(1, 3, CV_32S, cv::Scalar(-1));
+  labels.at<int32_t>(0, 1) = 0;
+  labels.at<int32_t>(0, 2) = 1;
+  db.save_segmentation_image(9, labels);
+
+  SECTION("raw: CV_16U with 0 = unlabeled and label k stored as k + 1") {
+    const cv::Mat image =
+        decode(frame_image(db, 9, params_of({{"kind", "segmentation"}})).blob);
+    REQUIRE(image.depth() == CV_16U);
+    CHECK(image.at<uint16_t>(0, 0) == 0);
+    CHECK(image.at<uint16_t>(0, 1) == 1);
+    CHECK(image.at<uint16_t>(0, 2) == 2);
+  }
+
+  SECTION("normalized: prompt 0 is coloured, not background black") {
+    const cv::Mat image = decode(
+        frame_image(db, 9,
+                    params_of({{"kind", "segmentation"}, {"normalize", "1"}}))
+            .blob);
+    REQUIRE(image.channels() == 3);
+    CHECK(image.at<cv::Vec3b>(0, 0) == cv::Vec3b(0, 0, 0));
+    CHECK_FALSE(image.at<cv::Vec3b>(0, 1) == cv::Vec3b(0, 0, 0));
+    CHECK_FALSE(image.at<cv::Vec3b>(0, 1) == image.at<cv::Vec3b>(0, 2));
+  }
+}
+
 TEST_CASE("FrameImage_DownscaledLabelMask_ResamplesIdsWithoutInterpolating",
           "[gui][frames]") {
   TempDB tmp;
@@ -398,8 +431,9 @@ TEST_CASE("FrameImage_DownscaledLabelMask_ResamplesIdsWithoutInterpolating",
   for (int y = 0; y < image.rows; ++y)
     for (int x = 0; x < image.cols; ++x) {
       INFO("pixel " << x << "," << y);
+      // Storage encoding: API label k is served as k + 1.
       const uint16_t value = image.at<uint16_t>(y, x);
-      CHECK((value == 3 || value == 5));
+      CHECK((value == 4 || value == 6));
     }
 }
 

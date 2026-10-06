@@ -46,6 +46,10 @@ class Engine {
   virtual DType dtype(const std::string &name) = 0;
   virtual DType dtype(int ibinding) = 0;
   virtual bool has_dynamic_dim() = 0;
+  /// Optimization-profile 0 bounds of input @p name: @p which is 0 (min),
+  /// 1 (opt) or 2 (max). A static input returns its fixed shape; an unknown
+  /// name returns an empty vector.
+  virtual std::vector<int> profile_dims(const std::string &name, int which) = 0;
   virtual void print(const char *name = "TensorRT-Engine") = 0;
 };
 

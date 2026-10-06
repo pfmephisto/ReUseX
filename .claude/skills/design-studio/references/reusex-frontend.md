@@ -35,8 +35,10 @@ apps/rux/frontend/src/
 │                 on one chain; `busy` gates buttons, never field commits),
 │                 keyTargets (isField/isControl), saveError (failed-save
 │                 copy), errorCopy (failed-*load* copy, `ErrorBanner`'s),
-│                 links (Kortlægning ↔ Miljø & prøver ↔ Overblik deep links
-│                 and route constants), editorKeys (in-place editor keys),
+│                 links (Kortlægning ↔ Miljø & prøver ↔ Overblik deep links,
+│                 segmentHref for Segmentering, route constants), useSam3
+│                 (managed SAM3 status + runWithProvisioning for one view),
+│                 editorKeys (in-place editor keys),
 │                 textDraft (commit-on-blur rule, pure) + useTextDraft (its
 │                 hook, shared by Miljø & prøver and Overblik)
 ├── components/   Presentational, contract-agnostic blocks — reuse these:
@@ -54,6 +56,10 @@ apps/rux/frontend/src/
 │                 rapport/  VersionList — Rapport's version list
 │                 indberetning/  FractionTable — Indberetning's fraction table
 │                 sager/  CaseCard — Sager's case card
+│                 segmentering/  Filmstrip, SegmentStage, ResourceDialog —
+│                 the Segmentering view's frame strip, drawing stage and
+│                 "Opret ressource fra markering" dialog
+│                 Sam3StatusChip — the SAM3 model's provisioning chip
 │                 controls.module.css (buttons and fields) and
 │                 surfaces.module.css (panels and notices) are the shared
 │                 CSS every case screen's own components `composes` from
@@ -61,7 +67,14 @@ apps/rux/frontend/src/
 │                 number formatting), model.ts (tabs, filters, selection, row
 │                 flattening, initialViewFor), samples.ts (a type's linked
 │                 samples, the sample line), keys.ts (tableAction/dialogAction
-│                 keyboard maps)
+│                 keyboard maps), segmentLink.ts (the S key: a part's best
+│                 frame and pixel for Segmentering)
+├── data/         Pure data modules for the technical views: segmentView.ts
+│                 (Segmentering: filmstrip, prompts, request, results, mask
+│                 overlay, resource-dialog choices), sam3Provisioning.ts
+│                 (SAM3 status copy, 503 → poll → retry), labelPng.ts
+│                 (16-bit segmentation PNG decode), labelQueue.ts,
+│                 segmentPrompts.ts (point marker size), …
 ├── miljoe/       Pure modules behind Miljø & prøver: model.ts (stage chain,
 │                 patches, link toggling, gate feedback)
 ├── overblik/     Pure module behind Overblik: model.ts (circularity percents,
@@ -78,8 +91,9 @@ apps/rux/frontend/src/
 │                 Projektdata inventory), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage,
-│                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,
-│                 SagerPage, SkabelonerPage
+│                 KortlaegningPage, SegmenteringPage (/segmentering, the
+│                 case-group nav entry after Viewport), MiljoePage,
+│                 RapportPage, IndberetningPage, SagerPage, SkabelonerPage
 │                 (KortlaegningPage and MiljoePage use app/SurveyCountsContext
 │                 for the two sidebar badges: review queue and pending
 │                 samples), plus viewHead.module.css, the shared header CSS

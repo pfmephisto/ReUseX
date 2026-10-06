@@ -138,8 +138,11 @@ src/
 │                 gates buttons only, field commits are never dropped),
 │                 keyTargets.ts (classifies a key event's target so page
 │                 shortcuts never fire while typing), links.ts (the
-│                 Kortlægning ↔ Miljø & prøver ↔ Overblik deep links
-│                 and route constants), saveError.ts (Danish copy for a failed
+│                 Kortlægning ↔ Miljø & prøver ↔ Overblik deep links,
+│                 segmentHref for a Segmentering frame + seed pixel, and
+│                 route constants), useSam3.ts (the managed SAM3 model's
+│                 status chip and runWithProvisioning for one view),
+│                 saveError.ts (Danish copy for a failed
 │                 save: 409/503 get their own message, else the server's),
 │                 errorCopy.ts (Danish copy for a failed *load*, keyed by a
 │                 definite noun phrase naming what didn't load),
@@ -156,15 +159,27 @@ src/
 │                 QuickLinks, ProjectMetaForm), skabeloner/ (TemplateList,
 │                 TemplateEditor, ColumnList), rapport/ (DataExportPanel,
 │                 TemplateSelect, VersionList), indberetning/ (FractionTable),
-│                 and sager/ (CaseCard) — plus the shared controls.module.css
+│                 sager/ (CaseCard) and segmentering/ (Filmstrip,
+│                 SegmentStage, ResourceDialog), Sam3StatusChip (the SAM3
+│                 model's provisioning chip) — plus the shared controls.module.css
 │                 (buttons, fields and the crossLink every cross-screen link
 │                 composes) and surfaces.module.css (panels and notices)
 │                 every case screen composes from
+├── data/         Pure data modules for the technical views, among them
+│                 segmentView.ts (the Segmentering view: filmstrip, prompts
+│                 in image pixels, the request, result list, mask overlay,
+│                 resource-dialog choices), sam3Provisioning.ts (managed
+│                 SAM3 status copy and the 503 → poll → retry flow),
+│                 labelPng.ts (decodes the 16-bit segmentation PNG),
+│                 labelQueue.ts (the batch label queue) and
+│                 segmentPrompts.ts (the point marker size)
 ├── kortlaegning/ Pure modules for the Kortlægning workbench: vocab.ts
 │                 (Danish labels, number formatting), model.ts (tabs,
 │                 filters, selection, row flattening, initialViewFor for a
 │                 `?type=` deep link), samples.ts (a type's linked samples
-│                 and its sample line), keys.ts (keyboard maps)
+│                 and its sample line), keys.ts (keyboard maps),
+│                 segmentLink.ts (the S key: a part's best frame and pixel
+│                 for Segmentering)
 ├── miljoe/       Pure modules for Miljø & prøver: model.ts (stage chain,
 │                 patches, link toggling, gate feedback)
 ├── overblik/     Pure module for Overblik: model.ts (circularity percents,
@@ -189,8 +204,9 @@ src/
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
 ├── routes/       Page-level compositions (OverblikPage, PipelinePage, ViewportPage,
-│                 KortlaegningPage, MiljoePage, SkabelonerPage, RapportPage,
-│                 IndberetningPage, SagerPage), plus the shared
+│                 KortlaegningPage, SegmenteringPage, MiljoePage,
+│                 SkabelonerPage, RapportPage, IndberetningPage, SagerPage),
+│                 plus the shared
 │                 viewHead.module.css a case screen's header composes from
 ├── viewport/     three.js point-cloud rendering: PointCloudScene, the paged
 │                 cloud stream (useCloudStream, pagination), point decoding
@@ -204,7 +220,10 @@ src/
 Projektdata screen) is its closed "Projektdata" section at the foot, and
 `/projektdata` redirects to `/`. The sidebar's Værktøjer group is collapsed by
 default and opens itself on a tools route.
-`/sager` lists the one open case. Below 900px the sidebar is a drawer.
+`/sager` lists the one open case. `/segmentering` (Segmentering, in the case
+group after Viewport) runs SAM3 on one frame with text, box and point prompts
+and files a mask as a new resource; Billeder's old segment fold-out is now a
+link there. Below 900px the sidebar is a drawer.
 Retired paths (`/on-site`, `/onsite`, `/materials`, `/export`, `/projektdata`)
 redirect to Kortlægning (the first three), Rapport (`/export`) or Overblik
 (`/projektdata`); see `REDIRECTS` in

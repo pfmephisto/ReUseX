@@ -13,8 +13,10 @@
  *
  * The run must NOT start automatically — it only fires on explicit user action,
  * because a full scan can have hundreds of frames and inference is slow.
- * A 503 response means the server has no segmenter; the run stops immediately
- * with a clear message rather than failing every remaining item.
+ * Every item uses the server's managed SAM3 model through `useSam3().run`, so
+ * a first run waits out the model download/build instead of failing. A
+ * refusal that would hit every item (a pipeline job holding the write lock,
+ * a failed model preparation) stops the run rather than failing them all.
  *
  * Follow-up: for hundreds of frames a server-side batch job (`rux create
  * annotate` already does this) would be materially better — the client-
@@ -23,9 +25,12 @@
 
 import { useCallback, useRef, useState } from 'react';
 
-import { ApiRequestError, api } from '../api/client';
+import { api } from '../api/client';
 import { useLabelQueue } from '../app/LabelQueueContext';
+import { useSam3 } from '../app/useSam3';
 import type { QueueItem } from '../data/labelQueue';
+import { SegmentCancelled, SegmentRunError, stopsQueue } from '../data/sam3Provisioning';
+import { Sam3StatusChip } from './Sam3StatusChip';
 import styles from './LabelQueuePanel.module.css';
 
 // ------------------------------------------------------------------ panel --
@@ -193,6 +198,7 @@ function LabelLibrarySection() {
 
 function QueueSection() {
   const { items, dequeue, clearFinished, setItemStatus, pendingCount } = useLabelQueue();
+  const sam3 = useSam3();
 
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -215,52 +221,42 @@ function QueueSection() {
       setItemStatus(item.id, 'running');
 
       try {
-        const result = await api.segmentFrame(item.frameId, {
-          model_path: item.modelPath,
-          prompts: item.prompts.length > 0 ? item.prompts : undefined,
-          confidence: item.confidence,
-          save: true,
-        });
+        const result = await sam3.run(
+          () =>
+            api.segmentFrame(item.frameId, {
+              prompts: item.prompts.length > 0 ? item.prompts : undefined,
+              confidence: item.confidence,
+              save: true,
+            }),
+          // Cancel also interrupts a (minutes-long) model preparation wait.
+          { isCancelled: () => cancelRef.current },
+        );
         setItemStatus(item.id, 'done', { labeledPixels: result.labeled_pixels });
         done++;
         setProgress({ done, total: pending.length });
       } catch (err) {
-        if (err instanceof ApiRequestError) {
-          if (err.status === 503) {
-            setItemStatus(item.id, 'failed', {
-              error: 'No SAM3 segmenter registered.',
-            });
-            setRunError(
-              'No SAM3 segmenter registered on this server. ' +
-                'Start `rux gui` with the SAM3 model accessible at the path recorded in each queued item.',
-            );
-            break;
-          } else if (err.status === 409) {
-            setItemStatus(item.id, 'failed', {
-              error: 'Pipeline job holds the write lock.',
-            });
-            setRunError(
-              'A pipeline job is currently running and holds the write lock. ' +
-                'Wait for it to finish, then run the queue again.',
-            );
-            break;
-          } else {
-            setItemStatus(item.id, 'failed', { error: err.message });
-            done++;
-            setProgress({ done, total: pending.length });
-            // Continue to the next item for other errors.
-          }
-        } else {
-          setItemStatus(item.id, 'failed', { error: String(err) });
-          done++;
-          setProgress({ done, total: pending.length });
+        if (err instanceof SegmentCancelled) {
+          setItemStatus(item.id, 'pending');
+          break;
         }
+        const message = err instanceof Error ? err.message : String(err);
+        setItemStatus(item.id, 'failed', { error: message });
+        const cause = err instanceof SegmentRunError ? err.cause : err;
+        // A write lock held by a job, a lasting 503, or a model that could not
+        // be prepared would fail every remaining item the same way: stop here.
+        // A per-frame 500 only fails its own item.
+        if (stopsQueue(cause)) {
+          setRunError(message);
+          break;
+        }
+        done++;
+        setProgress({ done, total: pending.length });
       }
     }
 
     setIsRunning(false);
     setProgress(null);
-  }, [isRunning, items, setItemStatus]);
+  }, [isRunning, items, setItemStatus, sam3]);
 
   const handleCancel = () => {
     cancelRef.current = true;
@@ -292,6 +288,8 @@ function QueueSection() {
           </button>
         )}
       </div>
+
+      {items.length > 0 && sam3.available && <Sam3StatusChip view={sam3.view} />}
 
       {/* ---- run controls ---- */}
       {items.length > 0 && (

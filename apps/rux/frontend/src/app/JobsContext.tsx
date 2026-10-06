@@ -4,6 +4,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -15,6 +16,8 @@ import { api } from '../api/client';
 import {
   EventStream,
   activeJobs,
+  bumpCloudRevisions,
+  type CloudRevisions,
   emptyJobState,
   jobsNewestFirst,
   type ConnectionStatus,
@@ -29,6 +32,17 @@ interface JobsContextValue {
   jobs: Job[];
   /** Jobs that are `queued` or `running`. */
   active: Job[];
+  /**
+   * Per-cloud revisions, bumped by the `clouds.changed` event. The viewport
+   * restarts a cloud's stream and reloads the cloud list when they move.
+   */
+  cloudRevisions: CloudRevisions;
+  /**
+   * A write this client made changed `names`. The server broadcasts
+   * `clouds.changed` for it; this bumps locally only when the socket is not
+   * open to deliver that, so an edit is never left stale on screen.
+   */
+  markCloudsChanged: (names: readonly string[]) => void;
 }
 
 const JobsContext = createContext<JobsContextValue | null>(null);
@@ -48,18 +62,31 @@ const JobsContext = createContext<JobsContextValue | null>(null);
 export function JobsProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<JobState>(emptyJobState);
   const [status, setStatus] = useState<ConnectionStatus>('closed');
+  const [cloudRevisions, setCloudRevisions] = useState<CloudRevisions>({});
 
   useEffect(() => {
     const stream = new EventStream({ url: api.eventsUrl() });
     const offState = stream.onState(setState);
     const offStatus = stream.onStatus(setStatus);
+    const offClouds = stream.onCloudsChanged((names) =>
+      setCloudRevisions((revs) => bumpCloudRevisions(revs, names)),
+    );
     stream.start();
     return () => {
       offState();
       offStatus();
+      offClouds();
       stream.close();
     };
   }, []);
+
+  const markCloudsChanged = useCallback(
+    (names: readonly string[]) => {
+      if (status === 'open') return; // the broadcast will arrive
+      setCloudRevisions((revs) => bumpCloudRevisions(revs, names));
+    },
+    [status],
+  );
 
   const value = useMemo<JobsContextValue>(
     () => ({
@@ -67,8 +94,10 @@ export function JobsProvider({ children }: { children: ReactNode }) {
       status,
       jobs: jobsNewestFirst(state),
       active: activeJobs(state),
+      cloudRevisions,
+      markCloudsChanged,
     }),
-    [state, status],
+    [state, status, cloudRevisions, markCloudsChanged],
   );
 
   return <JobsContext.Provider value={value}>{children}</JobsContext.Provider>;

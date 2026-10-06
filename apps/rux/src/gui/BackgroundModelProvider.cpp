@@ -55,13 +55,13 @@ void BackgroundModelProvider::start(Slot &slot, bool use_cuda) {
     slot.worker.join();
   slot.started = true;
   slot.running = true;
-  slot.status = {"downloading", 0.0f, "preparing managed SAM3 model", ""};
+  slot.status = {"downloading", 0.0f, "preparing managed SAM3 model", "", {}};
   slot.worker = std::thread([this, &slot, use_cuda] { run(slot, use_cuda); });
 }
 
 ModelPrepStatus BackgroundModelProvider::ensure(bool use_cuda) {
   if (!explicit_model_.empty())
-    return {"ready", 1.0f, "explicit model", explicit_model_};
+    return {"ready", 1.0f, "explicit model", explicit_model_, {}};
 
   Slot &slot = *slots_[use_cuda ? 1 : 0];
   std::lock_guard<std::mutex> lock(slot.m);
@@ -81,7 +81,7 @@ ModelPrepStatus BackgroundModelProvider::ensure(bool use_cuda) {
 
 ModelPrepStatus BackgroundModelProvider::status(bool use_cuda) {
   if (!explicit_model_.empty())
-    return {"ready", 1.0f, "explicit model", explicit_model_};
+    return {"ready", 1.0f, "explicit model", explicit_model_, {}};
 
   Slot &slot = *slots_[use_cuda ? 1 : 0];
   {
@@ -105,19 +105,19 @@ void BackgroundModelProvider::run(Slot &slot, bool use_cuda) {
     std::string dir = prepare_(use_cuda, progress, stop_);
     if (dir.empty())
       throw std::runtime_error("model preparation returned no directory");
-    final_status = {"ready", 1.0f, "ready", std::move(dir)};
+    final_status = {"ready", 1.0f, "ready", std::move(dir), {}};
   } catch (const std::exception &e) {
     if (stop_.load())
       spdlog::info("Managed SAM3 model preparation stopped: {}", e.what());
     else
       spdlog::error("Managed SAM3 model preparation failed (cuda={}): {}",
                     use_cuda, e.what());
-    final_status = {"error", 0.0f, e.what(), ""};
+    final_status = {"error", 0.0f, e.what(), "", {}};
   } catch (...) {
     spdlog::error("Managed SAM3 model preparation failed (cuda={}): unknown "
                   "exception",
                   use_cuda);
-    final_status = {"error", 0.0f, "unknown error", ""};
+    final_status = {"error", 0.0f, "unknown error", "", {}};
   }
 
   std::lock_guard<std::mutex> lock(slot.m);

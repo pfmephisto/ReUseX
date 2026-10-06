@@ -3523,8 +3523,11 @@ class ProjectDB::Impl {
                           size_t pointCount, int pointStep, uint32_t width,
                           uint32_t height, const std::vector<uint8_t> &data,
                           std::string_view stage, std::string_view paramsJson) {
-    execOrThrow("BEGIN TRANSACTION;");
-    try {
+    // A savepoint rather than a plain transaction: atomic on its own exactly
+    // as before, and it nests inside a ProjectDB::Transaction so a caller can
+    // save a cloud together with other writes (core::apply_mask_selection).
+    Savepoint sp(db, "save_point_cloud");
+    {
       // Upsert point_clouds row
       const char *upsert = R"(
         INSERT INTO point_clouds (name, point_type, point_count, point_step, width, height, stage, parameters)
@@ -3638,12 +3641,8 @@ class ProjectDB::Impl {
         offset += len;
         ++chunkIndex;
       } while (offset < total);
-
-      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
-    } catch (...) {
-      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-      throw;
     }
+    sp.release();
   }
 
   int getCloudId(std::string_view name) const {
@@ -3994,8 +3993,10 @@ class ProjectDB::Impl {
                             const std::map<int, std::string> &labelMap) {
     int cloudId = getCloudId(cloudName);
 
-    execOrThrow("BEGIN TRANSACTION;");
-    try {
+    // Savepoint: nests inside a ProjectDB::Transaction (see
+    // savePointCloudMeta).
+    Savepoint sp(db, "save_label_definitions");
+    {
       // Delete existing definitions for this cloud
       {
         const char *del = "DELETE FROM label_definitions WHERE cloud_id = ?;";
@@ -4025,12 +4026,8 @@ class ProjectDB::Impl {
           throw std::runtime_error("Failed to insert label definition");
         sqlite3_reset(stmt);
       }
-
-      sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
-    } catch (...) {
-      sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-      throw;
     }
+    sp.release();
   }
 
   std::map<int, std::string>
@@ -6974,6 +6971,18 @@ std::string ProjectDB::point_cloud_storage_order(std::string_view name) const {
   return impl_->getCloudStorageOrder(name);
 }
 
+std::pair<std::string, std::string>
+ProjectDB::point_cloud_provenance(std::string_view name) const {
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db, "SELECT stage, parameters FROM point_clouds WHERE name = ?;",
+      "point_cloud_provenance");
+  StmtGuard guard(stmt);
+  bind_text(stmt, 1, name);
+  if (sqlite3_step(stmt) != SQLITE_ROW)
+    throw std::runtime_error("Point cloud not found: " + std::string(name));
+  return {column_text(stmt, 0), column_text(stmt, 1)};
+}
+
 void ProjectDB::save_tile_index(std::string_view name,
                                 const std::vector<uint8_t> &blob) {
   impl_->checkWritable();
@@ -7015,6 +7024,55 @@ void ProjectDB::save_instances(
 std::vector<ProjectDB::InstanceRecord>
 ProjectDB::instances(const std::string &cloud_name) const {
   return impl_->getInstances(cloud_name);
+}
+
+void ProjectDB::add_instance(const std::string &cloud_name,
+                             const InstanceRecord &record) {
+  impl_->checkWritable();
+  if (record.guid.empty())
+    throw std::runtime_error(
+        fmt::format("add_instance: instance {} in cloud '{}' has an empty guid",
+                    record.instance_id, cloud_name));
+  const int cloudId = impl_->getCloudId(cloud_name);
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "INSERT INTO instances (cloud_id, instance_id, guid, semantic_class, "
+      "point_count) VALUES (?, ?, ?, ?, ?);",
+      "add_instance");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int(stmt, 1, cloudId);
+  sqlite3_bind_int(stmt, 2, static_cast<int>(record.instance_id));
+  bind_text(stmt, 3, record.guid);
+  sqlite3_bind_int(stmt, 4, record.semantic_class);
+  sqlite3_bind_int(stmt, 5, record.point_count);
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error(fmt::format(
+        "add_instance: failed to insert instance {} (guid {}) into '{}': {}",
+        record.instance_id, record.guid, cloud_name,
+        sqlite3_errmsg(impl_->db)));
+}
+
+void ProjectDB::set_instance_point_count(const std::string &cloud_name,
+                                         uint32_t instance_id,
+                                         int point_count) {
+  impl_->checkWritable();
+  const int cloudId = impl_->getCloudId(cloud_name);
+  sqlite3_stmt *stmt = prepare_or_throw(
+      impl_->db,
+      "UPDATE instances SET point_count = ? WHERE cloud_id = ? AND "
+      "instance_id = ?;",
+      "set_instance_point_count");
+  StmtGuard guard(stmt);
+  sqlite3_bind_int(stmt, 1, point_count);
+  sqlite3_bind_int(stmt, 2, cloudId);
+  sqlite3_bind_int(stmt, 3, static_cast<int>(instance_id));
+  if (sqlite3_step(stmt) != SQLITE_DONE)
+    throw std::runtime_error("set_instance_point_count: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  if (sqlite3_changes(impl_->db) == 0)
+    throw std::out_of_range(
+        fmt::format("set_instance_point_count: no instance {} in cloud '{}'",
+                    instance_id, cloud_name));
 }
 
 std::string ProjectDB::instance_guid(const std::string &cloud_name,

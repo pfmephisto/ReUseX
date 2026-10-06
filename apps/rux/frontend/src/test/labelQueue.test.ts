@@ -17,6 +17,7 @@ import {
   makeLabel,
   makeQueueItems,
   neighborFrameIds,
+  parseStoredState,
   removeItem,
   removeLabel,
   setItemStatus,
@@ -101,30 +102,30 @@ describe('removeLabel', () => {
 // -------------------------------------------------------------- queue ops --
 
 function makeItems(): QueueItem[] {
-  return makeQueueItems([10, 20, 30], [{ text: 'wall' }], '/models/sam3', 0.5);
+  return makeQueueItems([10, 20, 30], [{ text: 'wall' }], 0.5);
 }
 
 describe('makeQueueItems', () => {
   it('creates one item per frame id', () => {
-    const items = makeQueueItems([1, 2, 3], [{ text: 'wall' }], '/m', 0.5);
+    const items = makeQueueItems([1, 2, 3], [{ text: 'wall' }], 0.5);
     expect(items).toHaveLength(3);
     expect(items.map((i) => i.frameId)).toEqual([1, 2, 3]);
   });
 
   it('sets status to pending', () => {
-    const items = makeQueueItems([1], [], '/m', 0.5);
+    const items = makeQueueItems([1], [], 0.5);
     expect(items[0].status).toBe('pending');
   });
 
   it('assigns unique ids', () => {
-    const items = makeQueueItems([1, 2, 3], [], '/m', 0.5);
+    const items = makeQueueItems([1, 2, 3], [], 0.5);
     const ids = new Set(items.map((i) => i.id));
     expect(ids.size).toBe(3);
   });
 
   it('copies prompts into each item', () => {
     const prompts = [{ text: 'wall' }, { text: 'floor' }];
-    const items = makeQueueItems([1, 2], prompts, '/m', 0.5);
+    const items = makeQueueItems([1, 2], prompts, 0.5);
     expect(items[0].prompts).toEqual(prompts);
     expect(items[1].prompts).toEqual(prompts);
     // Shallow copy — mutations to original do not affect items
@@ -132,14 +133,14 @@ describe('makeQueueItems', () => {
     expect(items[0].prompts).toHaveLength(2);
   });
 
-  it('stores modelPath and confidence', () => {
-    const items = makeQueueItems([5], [], '/engines/sam3', 0.75);
-    expect(items[0].modelPath).toBe('/engines/sam3');
+  it('stores confidence and no model path', () => {
+    const items = makeQueueItems([5], [], 0.75);
     expect(items[0].confidence).toBe(0.75);
+    expect(items[0]).not.toHaveProperty('modelPath');
   });
 
   it('returns an empty list for an empty frame array', () => {
-    expect(makeQueueItems([], [{ text: 'x' }], '/m', 0.5)).toEqual([]);
+    expect(makeQueueItems([], [{ text: 'x' }], 0.5)).toEqual([]);
   });
 });
 
@@ -280,5 +281,30 @@ describe('label entry round-trip', () => {
 
     const removed = removeLabel(updated, a.id);
     expect(removed).toHaveLength(0);
+  });
+});
+
+describe('parseStoredState', () => {
+  it('loads items stored with the old modelPath field, dropping it', () => {
+    const raw = JSON.stringify({
+      labels: [{ id: 'lbl-1', text: 'wall' }],
+      items: [
+        { id: 'qi-1', frameId: 3, prompts: [{ text: 'wall' }], modelPath: '/old/engines', confidence: 0.5, status: 'pending' },
+        { id: 'qi-2', frameId: 4, prompts: [], modelPath: '', confidence: 0.4, status: 'running' },
+      ],
+    });
+    const state = parseStoredState(raw);
+    expect(state.labels).toHaveLength(1);
+    expect(state.items).toHaveLength(2);
+    expect(state.items[0]).toEqual({ id: 'qi-1', frameId: 3, prompts: [{ text: 'wall' }], confidence: 0.5, status: 'pending' });
+    expect(state.items[0]).not.toHaveProperty('modelPath');
+    // A run interrupted by a reload comes back retryable.
+    expect(state.items[1].status).toBe('pending');
+  });
+
+  it('answers empty state for missing or corrupt storage', () => {
+    expect(parseStoredState(null)).toEqual({ labels: [], items: [] });
+    expect(parseStoredState('{nope')).toEqual({ labels: [], items: [] });
+    expect(parseStoredState('{"items":5}')).toEqual({ labels: [], items: [] });
   });
 });

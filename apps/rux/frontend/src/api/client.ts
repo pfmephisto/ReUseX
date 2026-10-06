@@ -50,6 +50,9 @@ import type {
   PanoramaInfo,
   PanoramaSegmentRequest,
   PanoramaSegmentResult,
+  Sam3ModelStatus,
+  SegmentResourceRequest,
+  SegmentResourceResult,
   PipelineLogEntry,
   IcpRefineRequest,
   IcpRefineResult,
@@ -701,14 +704,12 @@ export class RuxApiClient {
   /**
    * Run SAM3 segmentation on one frame and optionally store the label mask (#409).
    *
-   * Returns 503 when no SAM3 segmenter is registered on the server (i.e. the
-   * server was not started via `rux gui` with a SAM3 model available). That
-   * status arrives as an `ApiRequestError` with `isRetryable` — note that 503
-   * here means "model not configured", not "transient DB lock", even though
-   * both share the status code. Handle it with a specific message.
-   *
-   * Returns 409 when a pipeline job holds the write lock; safe to retry after
-   * the job completes.
+   * Always uses the server's managed SAM3 model. Statuses worth branching on:
+   * 503 is ambiguous — the model is being prepared (poll
+   * {@link sam3Status}) *or* the project database was busy; 500 "SAM3 model
+   * preparation failed…" means the managed download/build failed; 409 means a
+   * pipeline job holds the write lock. `data/sam3Provisioning.ts` owns that
+   * decision so every caller handles it the same way.
    */
   segmentFrame(
     id: number,
@@ -716,6 +717,30 @@ export class RuxApiClient {
     signal?: AbortSignal,
   ): Promise<FrameSegmentResult> {
     return this.postJson<FrameSegmentResult>(`/frames/${id}/segment`, request, signal);
+  }
+
+  /**
+   * Project one prompt's pixels of a frame's **saved** segmentation into the
+   * base cloud and file them as a new instance + survey part (resource).
+   * Answers 201; 422 when the frame has no pose/depth/saved mask or the mask
+   * covers no visible point. The server then broadcasts `clouds.changed`.
+   */
+  segmentResource(
+    id: number,
+    request: SegmentResourceRequest,
+    signal?: AbortSignal,
+  ): Promise<SegmentResourceResult> {
+    return this.postJson<SegmentResourceResult>(`/frames/${id}/segment/resource`, request, signal);
+  }
+
+  /**
+   * Provisioning status of the managed SAM3 model — a pure probe that never
+   * starts preparation. `cuda` picks the slot; omit it to report the slot a
+   * segment request without `use_cuda` would use. 501 when the server has
+   * no managed model provider.
+   */
+  sam3Status(cuda?: boolean, signal?: AbortSignal): Promise<Sam3ModelStatus> {
+    return this.requestJson<Sam3ModelStatus>('/models/sam3/status', { cuda }, signal);
   }
 
   /**
@@ -787,8 +812,8 @@ export class RuxApiClient {
    * Run SAM3 segmentation on a 360 panorama and optionally store the equirect
    * label mask (#448).
    *
-   * Returns 503 when no panorama segmenter is registered (started without
-   * `rux gui`). Returns 409 when a pipeline job holds the write lock.
+   * Uses the managed SAM3 model; the 503/500/409 statuses mean what they do
+   * for {@link segmentFrame}.
    */
   segmentPanorama(
     id: number,

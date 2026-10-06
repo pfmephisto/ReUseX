@@ -91,6 +91,7 @@ should key on `job.id` and replace their local copy wholesale.
 | `job.progress` | progress counters changed | **throttled to at most one per 100 ms per job** |
 | `job.finished` | the job reached a terminal status | `job.status` is `succeeded`, `failed` or `cancelled` |
 | `hello` | sent once, immediately on connect | server/project handshake, no `job` |
+| `clouds.changed` | an editor endpoint rewrote named clouds | carries `names`, no `job`, no `seq` |
 | `error` | the server rejected a client message | carries `error`, no `job` |
 
 Throttling matters: the stages call `update()` per point or per voxel, which is
@@ -113,6 +114,27 @@ sees an exact record.
 
 `jobs` lets a client render the correct state on connect without a separate
 `GET /jobs` round trip.
+
+### `clouds.changed`
+
+```json
+{
+  "type": "clouds.changed",
+  "timestamp": "2026-10-06T11:22:33Z",
+  "project": "scan.rux",
+  "names": ["labels", "instances"]
+}
+```
+
+Sent after an editor endpoint rewrote point clouds outside a job — today
+`POST /frames/{id}/segment/resource`, which rewrites `labels` and `instances`
+(and may create them). A client showing any of `names` should refetch those
+clouds' points and the cloud list (`GET /clouds`, for new label definitions).
+Pipeline jobs do not send it: their clouds change under `job.finished`.
+
+It is not about a job, so it carries no `job` and no `seq`, and a connection's
+`subscribe` filter does not apply to it: every connection receives it. Like any
+event it is not replayed; a client that reconnects should reload what it shows.
 
 ### `job.progress`
 

@@ -190,6 +190,36 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-06** — **GUI: Segmentering view and mask → resource**
+  ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md),
+  Stream B). Interactive SAM3 segmentation gets its own screen and can now
+  feed the survey:
+  - **`/segmentering`** (§B3), a case-section nav entry between Viewport and
+    Miljø & prøver: a frame filmstrip, a stage for drawing boxes and clicking
+    points, the per-prompt result list with the mask overlay, and "Tilføj til
+    kø" for the neighbouring frames. It replaces the SegmentPanel fold-out in
+    Billeder, which now links here; Kortlægning's **S** key opens the selected
+    part's best frame with its pixel as a point prompt.
+  - **No model path in the GUI** (§B1): the server's managed SAM3 model is
+    always used; a status chip reports download/build progress and a pending
+    run restarts by itself when the model is ready.
+  - **Box and point prompts reach SAM3 on TensorRT** (engine recipe v2,
+    `recipe_version: 2`): the geometry encoder and decoder are built with room
+    for geometry tokens, so a box selects the object(s) it covers and a click
+    the object under it. Existing managed installs rebuild those two engines
+    once on first use (no download; the status reports `update_engines`). An
+    export whose graph cannot take the v2 profile falls back to a text-only
+    build, recorded permanently with the ONNX's sha256 and retried only when
+    the recipe or the ONNX changes; the segment response's
+    `geometry_prompts_used` tells the UI when geometry was only clipped to.
+  - **Mask → resource** (§B2, `POST /frames/{id}/segment/resource`): one
+    label of a frame's saved mask is projected through the frame's pose and
+    depth into the cloud and filed as a new instance and survey part, never
+    in a rejected (Afvist) type. The request echoes the run's `mask_revision`,
+    so a mask overwritten in between (the label queue) is refused with 409.
+  - **`clouds.changed`**: a WebSocket message naming the rewritten clouds;
+    the Viewport reloads them in place.
+
 - **2026-10-06** — **GUI: Kortlægning and navigation fixes**
   ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md),
   Stream A). Several independent fixes to the 2026-09-30 GUI redesign, landed

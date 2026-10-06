@@ -14,6 +14,8 @@
 #include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
 #include <reusex/core/instance_evidence.hpp>
+#include <reusex/core/label_semantics.hpp>
+#include <reusex/core/mask_selection.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/report_version_json.hpp>
 #include <reusex/core/resource_keys.hpp>
@@ -40,6 +42,8 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <map>
@@ -269,17 +273,20 @@ cv::Mat displayable(const cv::Mat &image, const std::string &kind,
   if (kind == "segmentation") {
     // Colourise with the same categorical palette the viewport uses, so a mask
     // and the 3D labels of the same scan are recognisably the same classes.
+    //
+    // `image` is in the storage encoding (CV_16U, 0 = unlabeled, prompt k is
+    // k + 1; core/label_semantics.hpp), so prompt 0 gets a colour of its own
+    // instead of vanishing into the background. LUT slots 0 and 255 are not
+    // categorical colours (255 is black), so values cycle through 1..254.
     const cv::Mat &lut = reusex::utils::get_glasbey_lut();
     cv::Mat rgb(image.size(), CV_8UC3, cv::Scalar(0, 0, 0));
     for (int y = 0; y < image.rows; ++y) {
-      const auto *row = image.ptr<int32_t>(y);
+      const auto *row = image.ptr<uint16_t>(y);
       auto *out = rgb.ptr<cv::Vec3b>(y);
       for (int x = 0; x < image.cols; ++x) {
-        // The API encoding is CV_32S with -1 for background
-        // (core/label_semantics.hpp); leave both it and 0 black.
-        if (row[x] <= 0)
+        if (row[x] == 0)
           continue;
-        out[x] = lut.at<cv::Vec3b>(0, row[x] % lut.cols);
+        out[x] = lut.at<cv::Vec3b>(0, 1 + (row[x] - 1) % 254);
       }
     }
     return rgb;
@@ -677,6 +684,9 @@ const std::vector<Endpoint> &endpoint_table() {
        "An encoded image for one sensor frame", true},
       {"POST", "/api/v1/frames/<int>/segment",
        "Run SAM3 on one frame and store the label mask"},
+      {"POST", "/api/v1/frames/<int>/segment/resource",
+       "Project one label of a frame's saved mask into the cloud as a new "
+       "instance and survey part"},
       {"GET", "/api/v1/panoramas", "All 360 panoramas with pose provenance"},
       {"GET", "/api/v1/panoramas/<int>", "One panorama's metadata"},
       {"GET", "/api/v1/panoramas/<int>/image", "The equirectangular image",
@@ -1627,7 +1637,12 @@ ImageResponse frame_image(const reusex::ProjectDB &db, int id,
   } else {
     if (!db.has_segmentation_image(id))
       not_found("segmentation image for frame", std::to_string(id));
-    image = db.segmentation_image(id);
+    // Served in the storage encoding the contract documents (CV_16U,
+    // 0 = unlabeled, label k stored as k + 1). Encoding the API image
+    // directly would saturate -1 to 0 and merge prompt 0 into background.
+    const cv::Mat api_labels = db.segmentation_image(id);
+    if (!api_labels.empty())
+      image = reusex::core::api_mat_to_storage(api_labels);
     what = "segmentation image";
   }
 
@@ -1664,9 +1679,14 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
     return prompts;
 
   for (const auto &p : body["prompts"]) {
-    const std::string text = p.value("text", "");
-    if (text.empty())
-      throw HttpError(400, "each prompt must have a non-empty 'text'");
+    if (!p.is_object())
+      throw HttpError(400, "each prompt must be an object");
+    std::string text;
+    if (const auto t = p.find("text"); t != p.end() && !t->is_null()) {
+      if (!t->is_string())
+        throw HttpError(400, "a prompt's 'text' must be a string");
+      text = t->get<std::string>();
+    }
 
     std::vector<reusex::vision::SegmentBox> boxes;
     if (allow_boxes && p.contains("boxes") && p["boxes"].is_array()) {
@@ -1683,8 +1703,31 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
         boxes.emplace_back(lbl, coords);
       }
     }
+    std::vector<reusex::vision::SegmentPoint> points;
+    if (allow_boxes && p.contains("points") && !p["points"].is_null()) {
+      if (!p["points"].is_array())
+        throw HttpError(400, "a prompt's 'points' must be an array of [x, y]");
+      for (const auto &pt : p["points"]) {
+        if (!pt.is_array() || pt.size() != 2 || !pt[0].is_number() ||
+            !pt[1].is_number())
+          throw HttpError(400, "each point must be [x, y]");
+        points.push_back({pt[0].get<float>(), pt[1].get<float>()});
+      }
+    }
+    // A geometry-only prompt (boxes and/or points, no text) is valid: SAM3
+    // segments what the geometry points at. It goes to the model with the
+    // geometry-only text convention.
+    if (text.empty()) {
+      if (boxes.empty() && points.empty())
+        throw HttpError(400, allow_boxes
+                                 ? "each prompt needs a non-empty 'text', a "
+                                   "box or a point"
+                                 : "each prompt must have a non-empty 'text'");
+      text = std::string(kGeometryOnlyPromptText);
+    }
     const float per_conf = p.value("confidence", -1.0f);
     prompts.emplace_back(text, std::move(boxes), per_conf);
+    prompts.back().points = std::move(points);
   }
   return prompts;
 }
@@ -1773,7 +1816,8 @@ nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
   }
 
   return segment_frame_result_json(frame_id, result.label_map,
-                                   result.class_names, saved);
+                                   result.class_names, saved,
+                                   result.geometry_prompts_used);
 }
 
 nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
@@ -1804,15 +1848,132 @@ nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
 }
 
 // ===========================================================================
+// mask -> resource (Segmentering, spec B2)
+// ===========================================================================
+
+SegmentResourceRequest parse_segment_resource_request(std::string_view body) {
+  auto j = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (j.is_discarded() || !j.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  SegmentResourceRequest req;
+  const auto m = j.find("mask_label");
+  if (m == j.end() || !m->is_number_integer() || m->get<int64_t>() < 0 ||
+      m->get<int64_t>() > reusex::core::kMaxStorableLabel)
+    throw HttpError(400, "'mask_label' is required: the label (prompt index, "
+                         ">= 0) in the frame's saved segmentation");
+  req.mask_label = m->get<int>();
+
+  const auto c = j.find("class_name");
+  if (c == j.end() || !c->is_string())
+    throw HttpError(400, "'class_name' is required and must be a string");
+  std::string name = c->get<std::string>();
+  const auto b = name.find_first_not_of(" \t\r\n");
+  if (b == std::string::npos)
+    throw HttpError(400, "'class_name' must not be blank");
+  name = name.substr(b, name.find_last_not_of(" \t\r\n") - b + 1);
+  req.class_name = std::move(name);
+
+  if (const auto t = j.find("type_id"); t != j.end() && !t->is_null()) {
+    if (!t->is_number_integer())
+      throw HttpError(400, "'type_id' must be an integer or null");
+    req.type_id = t->get<int64_t>();
+  }
+  if (const auto r = j.find("mask_revision"); r != j.end() && !r->is_null()) {
+    if (!r->is_string())
+      throw HttpError(400, "'mask_revision' must be a string or null");
+    req.mask_revision = r->get<std::string>();
+  }
+  return req;
+}
+
+json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
+                              const SegmentResourceRequest &req) {
+  if (!db.has_sensor_frame(frame_id))
+    not_found("sensor frame", std::to_string(frame_id));
+  if (!db.has_segmentation_image(frame_id))
+    throw HttpError(422, "frame " + std::to_string(frame_id) +
+                             " has no saved segmentation; run POST "
+                             "/frames/{id}/segment with save=true first");
+  const cv::Mat seg = db.segmentation_image(frame_id); // CV_32S, -1 = bg
+  // The mask must be the one the user saw: a label-queue run (or another
+  // tab) may have overwritten this frame's segmentation since.
+  if (req.mask_revision && *req.mask_revision != segmentation_revision(seg))
+    throw HttpError(409, "Segmenteringen er ændret — kør igen.");
+  const cv::Mat mask = seg == req.mask_label;
+  if (cv::countNonZero(mask) == 0)
+    throw HttpError(
+        422, "the saved segmentation of frame " + std::to_string(frame_id) +
+                 " has no pixels with label " + std::to_string(req.mask_label));
+
+  reusex::core::MaskSelectionOptions opts;
+  opts.type_id = req.type_id;
+  opts.frame_id = frame_id;
+  try {
+    return map_library_errors([&] {
+      const auto indices = reusex::core::project_frame_mask(db, frame_id, mask);
+      const auto r =
+          reusex::core::apply_mask_selection(db, indices, req.class_name, opts);
+      return json{
+          {"resource_code", r.resource_code},
+          {"type_id", r.type_id},
+          {"type_created", r.type_created},
+          {"instance_id", r.instance_id},
+          {"instance_guid", r.instance_guid},
+          {"point_count", r.point_count},
+          {"label_id", r.label_id},
+          {"label_created", r.label_created},
+          {"clouds", json::array({opts.semantic_cloud, opts.instance_cloud})}};
+    });
+  } catch (const reusex::core::MaskSelectionError &e) {
+    throw HttpError(422, e.what());
+  }
+}
+
+json clouds_changed_json(const std::vector<std::string> &names,
+                         std::string_view project) {
+  return json{{"type", "clouds.changed"},
+              {"timestamp", pipeline::iso8601_utc_now()},
+              {"project", std::string(project)},
+              {"names", names}};
+}
+
+// ===========================================================================
 // frame segmentation (#409)
 // ===========================================================================
 
+std::string segmentation_revision(const cv::Mat &api_labels) {
+  // FNV-1a 64 over the size and the storage-encoded pixels: cheap (one pass
+  // over a few MB), deterministic across processes, and no schema change.
+  std::uint64_t h = 1469598103934665603ULL;
+  const auto mix = [&h](const unsigned char *p, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+      h ^= p[i];
+      h *= 1099511628211ULL;
+    }
+  };
+  const std::int32_t dims[2] = {api_labels.rows, api_labels.cols};
+  mix(reinterpret_cast<const unsigned char *>(dims), sizeof dims);
+  if (!api_labels.empty()) {
+    const cv::Mat storage = reusex::core::api_mat_to_storage(api_labels);
+    for (int y = 0; y < storage.rows; ++y)
+      mix(storage.ptr<unsigned char>(y), storage.cols * storage.elemSize());
+  }
+  char hex[17];
+  std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(h));
+  return hex;
+}
+
 json segment_frame_result_json(int frame_id, const cv::Mat &label_map,
                                const std::vector<std::string> &class_names,
-                               bool saved) {
+                               bool saved, bool geometry_prompts_used) {
   const int labeled = label_map.empty() ? 0 : cv::countNonZero(label_map != -1);
-  json out{
-      {"frame_id", frame_id}, {"saved", saved}, {"labeled_pixels", labeled}};
+  json out{{"frame_id", frame_id},
+           {"saved", saved},
+           {"labeled_pixels", labeled},
+           {"geometry_prompts_used", geometry_prompts_used},
+           {"mask_revision",
+            saved ? json(segmentation_revision(label_map)) : json(nullptr)}};
   json labels_obj = json::object();
   for (std::size_t i = 0; i < class_names.size(); ++i)
     labels_obj[std::to_string(i)] = class_names[i];

@@ -217,6 +217,36 @@
         }
       }
     },
+    "CloudsChangedMessage": {
+      "type": "object",
+      "description": "An editor endpoint rewrote these named clouds (e.g. POST /frames/{id}/segment/resource). A client showing them should reload them and the cloud list. Not filtered by a job subscription.",
+      "required": [
+        "type",
+        "timestamp",
+        "project",
+        "names"
+      ],
+      "properties": {
+        "type": {
+          "const": "clouds.changed"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project file name; never a server path."
+        },
+        "names": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "ClientPing": {
       "type": "object",
       "description": "Client -> server liveness probe.",
@@ -353,6 +383,21 @@
       },
       "then": {
         "$ref": "#/$defs/JobMessage"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "clouds.changed"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/CloudsChangedMessage"
       }
     }
   ]

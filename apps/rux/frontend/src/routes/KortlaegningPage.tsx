@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type {
@@ -88,6 +88,7 @@ import {
 } from '../kortlaegning/templatePick';
 import { cellErrorMessage, invalidValueMessage, refreshAfterSave } from '../kortlaegning/writeOutcome';
 import { formatNumber } from '../kortlaegning/vocab';
+import { segmentHrefFromFrames, segmentTargetPart } from '../kortlaegning/segmentLink';
 import styles from './KortlaegningPage.module.css';
 
 /**
@@ -203,6 +204,7 @@ export function KortlaegningPage() {
     onSettled: refresh,
   });
   const location = useLocation();
+  const navigate = useNavigate();
   // `/kortlaegning?type=<id>` (from a sample's "Koblet:" link) selects that
   // type once, in the tab it lives in. Applied in the same effect that seeds
   // `types`, so the first render with data already has the right tab and the
@@ -563,6 +565,23 @@ export function KortlaegningPage() {
     });
   }
 
+  /** "Segmentér" (button + S): the part's best frame in Segmentering, centroid seeded. A read, not a write. */
+  function segmentSelected() {
+    const p = segmentTargetPart(selType, selPart);
+    if (!p) {
+      toast.show('Ressourcen er ikke knyttet til en scannet instans');
+      return;
+    }
+    api.instanceFrames(p.cloud, p.instance_id).then(
+      (frames) => {
+        const href = segmentHrefFromFrames(frames);
+        if (href) navigate(href);
+        else toast.show(`Intet billede ser ${p.code}`);
+      },
+      (cause: unknown) => toast.show(`Kunne ikke finde billeder: ${errorMessage(cause)}`),
+    );
+  }
+
   function invalidValue(label: string) {
     toast.show(invalidValueMessage(label));
   }
@@ -657,6 +676,9 @@ export function KortlaegningPage() {
         return;
       case 'open':
         if (selection) setDialogOpen(true);
+        return;
+      case 'segment':
+        segmentSelected();
         return;
       case 'blur':
         (e.target as HTMLElement).blur();
@@ -831,6 +853,7 @@ export function KortlaegningPage() {
               onDone={() => tableRef.current?.focus({ preventScroll: true })}
               manual={selPart !== null && isManual(selPart)}
               onDelete={deleteSelected}
+              onSegment={segmentTargetPart(selType, selPart) ? segmentSelected : undefined}
               resource={selPart ? (index.get(selPart.code) ?? null) : null}
               catalogue={keys}
               onCellCommit={commitCell}

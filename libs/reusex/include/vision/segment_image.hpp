@@ -17,6 +17,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <cstddef>
 #include <vector>
 
 namespace reusex::vision {
@@ -34,8 +35,43 @@ namespace reusex::vision {
 /// @return CV_32S label map the same size as @p image_bgr.
 ///         -1 = background; 0..N = class index matching prompt order.
 ///         Returns an empty Mat on empty input; all-(-1) on no detections.
+///         When the backend cannot use boxes (see
+///         clip_labels_to_prompt_boxes), boxed prompts are clipped to their
+///         boxes and a warning is logged once per process.
+/// Restrict each boxed prompt's pixels to its boxes — the fallback for a
+/// backend that cannot feed boxes to SAM3 (ONNX, or TensorRT engines that
+/// cannot take geometry, see TensorRTSam3), where a boxed prompt would
+/// otherwise segment its text concept across the whole image.
+///
+/// For prompt k (label value k in @p labels, the prompt-index numbering) with
+/// at least one box: when it has "pos" boxes, its pixels outside the union of
+/// those boxes become background (-1); pixels inside any of its "neg" boxes
+/// become background too. Prompts without boxes and other labels are left
+/// alone. Box coordinates are pixels of @p labels, clamped to the image.
+/// Pixel clipping (not an IoU gate on whole detections) is the chosen rule:
+/// the label map no longer carries per-detection boxes, and clipping keeps
+/// the part of a detection the user actually boxed.
+///
+/// @param labels CV_32S label map, modified in place.
+/// @return Number of pixels set to background.
+std::size_t clip_labels_to_prompt_boxes(cv::Mat &labels,
+                                        const std::vector<Sam3Prompt> &prompts);
+
+/// What segment_image() can report beyond the label map.
+struct SegmentImageInfo {
+  /// True when at least one prompt carried a box or point and the geometry
+  /// reached SAM3's geometry encoder. False when no prompt had geometry, or
+  /// when the backend could not take it (ONNX, text-only TensorRT engines, a
+  /// geometry path that failed at run time) and the boxed prompts were
+  /// clipped to their boxes instead (clip_labels_to_prompt_boxes).
+  bool geometry_prompts_used = false;
+};
+
+/// Segment a single BGR image with a SAM3 model (see the parameters above).
+/// @param info Optional out-parameter; see SegmentImageInfo.
 cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
                       const std::vector<Sam3Prompt> &prompts = {},
-                      float confidence = 0.5f);
+                      float confidence = 0.5f,
+                      SegmentImageInfo *info = nullptr);
 
 } // namespace reusex::vision

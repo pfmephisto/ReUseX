@@ -325,7 +325,7 @@ export function SurveyTable(props: SurveyTableProps) {
         <Kbd>↑</Kbd>
         <Kbd>↓</Kbd> naviger · <Kbd>→</Kbd>
         <Kbd>←</Kbd> fold ud/ind · <Kbd>Enter</Kbd> åbn redigering · <Kbd>G</Kbd> godkend ·{' '}
-        <Kbd>A</Kbd> afvis · <Kbd>V</Kbd> vigtig · <Kbd>1</Kbd>–<Kbd>{EVIDENCE_LAST_KEY}</Kbd> evidens ·{' '}
+        <Kbd>A</Kbd> afvis · <Kbd>V</Kbd> vigtig · <Kbd>S</Kbd> segmentér · <Kbd>1</Kbd>–<Kbd>{EVIDENCE_LAST_KEY}</Kbd> evidens ·{' '}
         <Kbd>Esc</Kbd> tilbage
       </div>
 

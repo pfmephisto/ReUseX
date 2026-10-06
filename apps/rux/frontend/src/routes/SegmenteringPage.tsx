@@ -142,6 +142,10 @@ export function SegmenteringPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [dialogFor, setDialogFor] = useState<ResultClass | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  // The frame and mask revision the dialog was opened for, captured at open so
+  // a re-run or a frame switch while it is open cannot pair this class with a
+  // newer mask (the server's stale-mask check then answers 409).
+  const [dialogTarget, setDialogTarget] = useState<{ frameId: number; maskRevision: string | null } | null>(null);
   const [created, setCreated] = useState<SegmentResourceResult | null>(null);
   const [before, setBefore] = useState(0);
   const [after, setAfter] = useState(0);
@@ -253,6 +257,8 @@ export function SegmenteringPage() {
   const [types, setTypes] = useState<SurveyType[] | null>(null);
   const [labelNames, setLabelNames] = useState<Record<string, string> | null>(null);
   const openDialog = useCallback((cls: ResultClass) => {
+    if (frameId === null) return;
+    setDialogTarget({ frameId, maskRevision: outcome?.result.mask_revision ?? null });
     setDialogFor(cls);
     setDialogError(null);
     setTypes(null);
@@ -261,12 +267,12 @@ export function SegmenteringPage() {
       (clouds) => setLabelNames(clouds.find((c) => c.name === 'labels')?.labels ?? null),
       () => setLabelNames(null),
     );
-  }, []);
+  }, [frameId, outcome]);
 
   const createResource = useCallback(
     (request: SegmentResourceRequest) => {
-      if (frameId === null) return;
-      const id = frameId;
+      if (dialogTarget === null) return;
+      const id = dialogTarget.frameId;
       void writeQueue.mutate(
         async () => {
           const result = await api.segmentResource(id, request);
@@ -278,7 +284,7 @@ export function SegmenteringPage() {
         (cause) => setDialogError(cause.message),
       );
     },
-    [frameId, writeQueue, markCloudsChanged, toast],
+    [dialogTarget, writeQueue, markCloudsChanged, toast],
   );
 
   // Keys: ←/→ frames, M mask, Ctrl/⌘+Enter run. Never while typing.
@@ -614,7 +620,7 @@ export function SegmenteringPage() {
           cls={dialogFor}
           types={types}
           labelNames={labelNames}
-          maskRevision={outcome?.result.mask_revision ?? null}
+          maskRevision={dialogTarget?.maskRevision ?? null}
           busy={writeQueue.busy}
           error={dialogError}
           onCancel={() => setDialogFor(null)}

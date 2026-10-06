@@ -80,4 +80,17 @@ std::vector<FrameVisibility> visible_frames(const ProjectDB &db,
                                             const Eigen::Vector3d &world_point,
                                             const VisibilityQuery &query = {});
 
+/**
+ * @brief `visible_frames()` for many points at once.
+ *
+ * Reads every frame's pose and intrinsics once and projects all points
+ * through them, so the cost is one pass over the sensor frames rather than
+ * one per point. `result[i]` is exactly `visible_frames(db, world_points[i],
+ * query)`, sorted the same way.
+ */
+std::vector<std::vector<FrameVisibility>>
+visible_frames_batch(const ProjectDB &db,
+                     const std::vector<Eigen::Vector3d> &world_points,
+                     const VisibilityQuery &query = {});
+
 } // namespace reusex::core

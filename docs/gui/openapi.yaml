@@ -985,10 +985,13 @@ paths:
         is being prepared the endpoint answers 503; poll
         `GET /models/sam3/status` until it reports `ready`.
 
-        **Point-click emulation:** SAM3 does not natively support point prompts.
-        To guide segmentation toward a viewport click, pass a small positive box
-        centred on the click, e.g. `[x-8, y-8, x+8, y+8]`. Native point-prompt
-        support is a follow-up to issue #409.
+        **Selecting with boxes and points:** a prompt's `boxes` and `points`
+        pick objects in this frame. SAM3 itself treats a box as an exemplar
+        and finds every similar object; this endpoint keeps only the
+        detections the prompt's geometry points at — a `pos` box keeps what it
+        covers (at least half of the detection inside the box, or half of the
+        box inside the detection), a `neg` box drops what it covers, and a
+        point keeps the one object under it.
 
         **503 without a model registered:** the endpoint returns 503 when the
         server was started without `rux gui` (e.g. from a test harness) because
@@ -1022,38 +1025,56 @@ paths:
                   items:
                     type: object
                     description: |
-                      A prompt needs a non-empty `text`, at least one box, or
-                      both.
+                      A prompt needs a non-empty `text`, a box or a point (or
+                      any combination).
 
-                      How boxes are honoured: with the TensorRT backend and a
-                      `geometry-encoder.engine` (the managed model builds
-                      one), boxes go to SAM3. The ONNX backend, and TensorRT
-                      without that engine, cannot feed boxes to the model;
-                      the server then clips each boxed prompt's pixels to the
-                      union of its `pos` boxes minus its `neg` boxes (pixels
-                      outside become background) and logs a warning once. A
-                      box-only prompt there is a `"visual"` concept search
-                      clipped to the box, so it can come back empty.
+                      How boxes and points are honoured: with the TensorRT
+                      backend and engines built from engine-build recipe
+                      v2+ (the managed model rebuilds older ones on first
+                      use), they go to SAM3's geometry encoder. SAM3 has no
+                      native point input in the exported detector, so a point
+                      is tried as an exemplar box at four sizes around it and
+                      the most confident object whose mask covers the point
+                      wins. The ONNX backend, and TensorRT engines that
+                      cannot take geometry, cannot feed them to the model; the
+                      server then clips each such prompt's pixels to its `pos`
+                      boxes (a point to a small box around it) minus its `neg`
+                      boxes and logs a warning once. A geometry-only prompt
+                      there is a `"visual"` concept search clipped to the
+                      box, so it can come back empty.
                     properties:
                       text:
                         type: string
                         description: |
                           Open-vocabulary class name, e.g. "wall". May be
-                          omitted, null or "" when the prompt has at least one
-                          box: SAM3 then segments what the box encloses, and
-                          the prompt is sent to the model as the text
+                          omitted, null or "" when the prompt has a box or a
+                          point: SAM3 then segments what the geometry points
+                          at, and the prompt is sent to the model as the text
                           `"visual"` — the upstream SAM3 convention for a
                           geometry-only prompt (`rux create segment-frame`
                           uses the same text). Its entry in the response's
-                          `labels` reads `"visual"`. Without a box an empty
-                          text is a 400.
+                          `labels` reads `"visual"`. Without a box or a point
+                          an empty text is a 400.
                       boxes:
                         type: array
                         description: |
                           Optional bounding-box hints: `["pos"|"neg",
-                          [x1, y1, x2, y2]]`.
+                          [x1, y1, x2, y2]]` in colour-image pixels.
                         items:
                           type: array
+                          minItems: 2
+                          maxItems: 2
+                      points:
+                        type: array
+                        description: |
+                          Optional positive click points `[x, y]` in
+                          colour-image pixels; each selects the object under
+                          it. Boxes and points together are capped at 8 per
+                          prompt (the engine recipe's geometry limit); extras
+                          are dropped with a warning.
+                        items:
+                          type: array
+                          items: { type: number }
                           minItems: 2
                           maxItems: 2
                       confidence:
@@ -1107,7 +1128,8 @@ paths:
           description: |
             `model_path` omitted on a server with no managed SAM3 model,
             a non-string `model_path`, malformed prompts (including a prompt
-            with neither text nor a box), or invalid box format.
+            with neither text nor a box nor a point), or invalid box or point
+            format.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

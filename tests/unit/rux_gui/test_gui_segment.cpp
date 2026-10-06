@@ -456,6 +456,39 @@ TEST_CASE("ParseSegmentFrameRequest_EmptyTextWithoutBox_Is400",
   }
 }
 
+TEST_CASE("ParseSegmentFrameRequest_Points_AreParsedAndMakeAPromptValid",
+          "[gui][segment][parse]") {
+  const auto req = parse_segment_frame_request(
+      R"({"prompts":[{"points":[[280,740]]},
+                     {"text":"chair","points":[[1.5,2.5],[3,4]]},
+                     {"text":"door","points":null}]})",
+      true);
+  REQUIRE(req.prompts.size() == 3);
+  CHECK(req.prompts[0].text == "visual"); // a point alone is geometry-only
+  REQUIRE(req.prompts[0].points.size() == 1);
+  CHECK(req.prompts[0].points[0] == reusex::vision::SegmentPoint{280.f, 740.f});
+  CHECK(req.prompts[0].boxes.empty());
+  CHECK(req.prompts[1].text == "chair");
+  CHECK(req.prompts[1].points.size() == 2);
+  CHECK(req.prompts[2].points.empty());
+}
+
+TEST_CASE("ParseSegmentFrameRequest_MalformedPoints_Are400",
+          "[gui][segment][parse]") {
+  for (const char *body : {R"({"prompts":[{"points":[[1]]}]})",
+                           R"({"prompts":[{"points":[["a",2]]}]})",
+                           R"({"prompts":[{"points":{"x":1}}]})",
+                           R"({"prompts":[{"text":"","points":[]}]})"}) {
+    INFO(body);
+    try {
+      parse_segment_frame_request(body, true);
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 400);
+    }
+  }
+}
+
 TEST_CASE("ParseSegmentPanoramaRequest_EmptyText_Is400",
           "[gui][segment][parse][panorama]") {
   // Panorama prompts take no boxes, so there is no geometry to fall back on.

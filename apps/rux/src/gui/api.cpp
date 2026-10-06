@@ -1638,18 +1638,31 @@ std::vector<reusex::vision::Sam3Prompt> parse_prompts(const json &body,
         boxes.emplace_back(lbl, coords);
       }
     }
-    // A box-only prompt is valid: SAM3 segments what the box encloses. It
-    // goes to the model with the geometry-only text convention.
+    std::vector<reusex::vision::SegmentPoint> points;
+    if (allow_boxes && p.contains("points") && !p["points"].is_null()) {
+      if (!p["points"].is_array())
+        throw HttpError(400, "a prompt's 'points' must be an array of [x, y]");
+      for (const auto &pt : p["points"]) {
+        if (!pt.is_array() || pt.size() != 2 || !pt[0].is_number() ||
+            !pt[1].is_number())
+          throw HttpError(400, "each point must be [x, y]");
+        points.push_back({pt[0].get<float>(), pt[1].get<float>()});
+      }
+    }
+    // A geometry-only prompt (boxes and/or points, no text) is valid: SAM3
+    // segments what the geometry points at. It goes to the model with the
+    // geometry-only text convention.
     if (text.empty()) {
-      if (boxes.empty())
+      if (boxes.empty() && points.empty())
         throw HttpError(400, allow_boxes
-                                 ? "each prompt needs a non-empty 'text' or "
-                                   "at least one box"
+                                 ? "each prompt needs a non-empty 'text', a "
+                                   "box or a point"
                                  : "each prompt must have a non-empty 'text'");
       text = std::string(kGeometryOnlyPromptText);
     }
     const float per_conf = p.value("confidence", -1.0f);
     prompts.emplace_back(text, std::move(boxes), per_conf);
+    prompts.back().points = std::move(points);
   }
   return prompts;
 }

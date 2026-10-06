@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 
 #include <array>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -62,6 +63,16 @@ reusex::vision::SegmentBox parse_box(const std::string &spec) {
   return {label, box};
 }
 
+/// Parse "x,y" into a SegmentPoint. Throws std::invalid_argument.
+reusex::vision::SegmentPoint parse_point(const std::string &spec) {
+  float x = 0.f, y = 0.f;
+  char trailing = 0;
+  if (std::sscanf(spec.c_str(), "%f,%f%c", &x, &y, &trailing) != 2)
+    throw std::invalid_argument(
+        fmt::format("invalid --point '{}': expected x,y", spec));
+  return {x, y};
+}
+
 } // namespace
 
 void setup_subcommand_create_segment_frame(
@@ -77,14 +88,17 @@ DESCRIPTION:
   Runs SAM3 segmentation on a single sensor frame from the project and writes
   the resulting CV_32S label map back as the frame's segmentation image.
 
-  Prompts are open-vocabulary text class names. Add box hints with --box to
-  guide SAM3 toward a specific region. To emulate a point-click, pass a small
-  box centred on the clicked pixel (e.g. click ±8 px).
+  Prompts are open-vocabulary text class names. --box adds a box prompt and
+  --point a click; both apply to the last --text prompt (or, without --text,
+  form one geometry-only prompt). With the TensorRT model they reach SAM3's
+  geometry encoder, and only the detections they point at are kept: a box
+  selects the object(s) it covers, a point the object under it.
 
 EXAMPLES:
   rux create segment-frame --net /models/sam3 --frame 42 --text wall floor
   rux create segment-frame --net /models/sam3 --frame 42 \
       --text "electrical outlet" --box pos:200,300,250,360 --confidence 0.3
+  rux create segment-frame --net /models/sam3 --frame 42 --point 280,740
   rux create segment-frame --net /models/sam3 --frame 42 --no-save
 
 NOTES:
@@ -108,6 +122,11 @@ NOTES:
   sub->add_option("-B,--box", opt->boxes,
                   "Bounding-box prompt: 'pos:x1,y1,x2,y2' or 'neg:x1,y1,x2,y2' "
                   "(repeatable; applies to the last --text prompt)")
+      ->allow_extra_args(false);
+
+  sub->add_option("-P,--point", opt->points,
+                  "Click-point prompt 'x,y' (repeatable; applies to the last "
+                  "--text prompt)")
       ->allow_extra_args(false);
 
   sub->add_option("--confidence", opt->confidence,
@@ -154,6 +173,17 @@ int run_subcommand_create_segment_frame(
             std::string(reusex::vision::kGeometryOnlyPromptText));
       try {
         prompts.back().boxes.push_back(parse_box(box_spec));
+      } catch (const std::invalid_argument &e) {
+        spdlog::error("{}", e.what());
+        return RuxError::INVALID_ARGUMENT;
+      }
+    }
+    for (const auto &point_spec : opt.points) {
+      if (prompts.empty())
+        prompts.emplace_back(
+            std::string(reusex::vision::kGeometryOnlyPromptText));
+      try {
+        prompts.back().points.push_back(parse_point(point_spec));
       } catch (const std::invalid_argument &e) {
         spdlog::error("{}", e.what());
         return RuxError::INVALID_ARGUMENT;

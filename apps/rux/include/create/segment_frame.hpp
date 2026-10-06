@@ -18,6 +18,8 @@ struct SubcommandSegmentFrameOptions {
   std::vector<std::string> texts;
   /// Each box: "pos:x1,y1,x2,y2" or "neg:x1,y1,x2,y2"
   std::vector<std::string> boxes;
+  /// Each point: "x,y" (a positive click)
+  std::vector<std::string> points;
   float confidence = 0.5f;
   bool use_cuda = false;
   bool save = true;

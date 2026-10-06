@@ -48,6 +48,13 @@ describe('survey client', () => {
     expect(JSON.parse(calls[0].body!)).toEqual({ review_status: 'approved', mass_t: null });
   });
 
+  it('deletes a type and reads what went with it', async () => {
+    const { calls, api } = client({ parts_deleted: 3, instances_dismissed: 2 });
+    const r = await api.deleteSurveyType(7);
+    expect(calls[0]).toMatchObject({ url: '/api/v1/survey/types/7', method: 'DELETE' });
+    expect(r).toEqual({ parts_deleted: 3, instances_dismissed: 2 });
+  });
+
   it('url-encodes part codes', async () => {
     const { calls, api } = client({ code: 'RX-001' });
     await api.patchSurveyPart('RX-001', { starred: true });

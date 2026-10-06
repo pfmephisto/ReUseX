@@ -66,11 +66,18 @@ export interface SurveyTableProps {
   onAddColumn: () => void;
 }
 
-const TABS: { id: Tab; label: string }[] = [
+export const TABS: { id: Tab; label: string }[] = [
   { id: 'queue', label: 'Til gennemsyn' },
   { id: 'approved', label: 'Godkendt' },
   { id: 'all', label: 'Alle' },
+  { id: 'rejected', label: 'Afvist' },
 ];
+
+/** The table's empty row: an empty Afvist tab is not a filter miss. */
+export function emptyRowText(tab: Tab, inTab: number): string {
+  if (tab === 'rejected' && inTab === 0) return 'Ingen afviste typer.';
+  return 'Ingen rækker matcher filtrene.';
+}
 
 /**
  * How long a click on the already-selected type row waits before it folds the
@@ -319,7 +326,7 @@ export function SurveyTable(props: SurveyTableProps) {
             {rows.length === 0 ? (
               <tr>
                 <td className={styles.emptyRow} colSpan={columns.length + 2}>
-                  Ingen rækker matcher filtrene.
+                  {emptyRowText(tab, counts[tab])}
                 </td>
               </tr>
             ) : (
@@ -394,6 +401,8 @@ export function SurveyTable(props: SurveyTableProps) {
                       <td className={styles.stickyEnd}>
                         {type.review_status === 'approved' ? (
                           <Pill tone="good">Godkendt ✓</Pill>
+                        ) : type.review_status === 'rejected' ? (
+                          <Pill tone="wait">Afvist</Pill>
                         ) : (
                           <ConfidenceBar percent={confidencePercent(type.confidence)} />
                         )}

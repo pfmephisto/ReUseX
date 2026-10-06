@@ -929,6 +929,15 @@ export interface SurveySyncReport {
   orphaned_codes: string[];
   /** Instance links put back for instance-backed parts that lost theirs (a `create instances` re-run cascade-deletes them). */
   links_restored?: number;
+  /** Instances skipped because the user deleted their part (schema v26 tombstones); absent from older servers. */
+  parts_dismissed?: number;
+}
+
+/** Body of `DELETE /survey/types/<id>`. */
+export interface SurveyTypeDeletion {
+  parts_deleted: number;
+  /** Scan-backed parts among them, tombstoned so a sync does not re-create them. */
+  instances_dismissed: number;
 }
 
 /** Body of `POST /survey/types`. */

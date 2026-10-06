@@ -82,6 +82,7 @@ import type {
   SurveySyncReport,
   SurveyType,
   SurveyTypeCreate,
+  SurveyTypeDeletion,
   SurveyTypePatch,
   TextureInfo,
   VisibleFrame,
@@ -936,7 +937,7 @@ export class RuxApiClient {
     return this.postJson<Resource>('/resources', body);
   }
 
-  /** Delete a manual part (an instance-backed one is a 409). 204, no body. */
+  /** Delete any part; a scan-backed one is tombstoned so a sync does not re-create it. 204, no body. */
   async deleteResource(code: string): Promise<void> {
     await this.deleteNoContent(`/resources/${encodeURIComponent(code)}`);
   }
@@ -1191,6 +1192,16 @@ export class RuxApiClient {
   /** Sparse edit. `review_status: 'approved'` is refused with a 422 while a sample is pending. */
   patchSurveyType(id: number, patch: SurveyTypePatch): Promise<SurveyType> {
     return this.patchJson<SurveyType>(`/survey/types/${id}`, patch);
+  }
+
+  /** Delete a type and all its parts (scan-backed ones are tombstoned). */
+  async deleteSurveyType(id: number): Promise<SurveyTypeDeletion> {
+    const url = this.url(`/survey/types/${id}`);
+    const response = await this.doFetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, await describeFailure(response), url);
+    }
+    return (await response.json()) as SurveyTypeDeletion;
   }
 
   patchSurveyPart(code: string, patch: SurveyPartPatch): Promise<SurveyPart> {

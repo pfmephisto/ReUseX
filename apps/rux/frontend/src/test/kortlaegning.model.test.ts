@@ -13,6 +13,8 @@ import {
   NO_FILTERS,
   partLabel,
   partOf,
+  removePart,
+  removeType,
   replacePart,
   replaceType,
   roomName,
@@ -74,8 +76,30 @@ const TYPES: SurveyType[] = [
 ];
 
 describe('kortlægning model', () => {
-  it('counts tabs without rejected types', () => {
-    expect(tabCounts(TYPES)).toEqual({ queue: 3, approved: 1, all: 4 });
+  it('counts rejected types in their own tab, never in Alle', () => {
+    expect(tabCounts(TYPES)).toEqual({ queue: 3, approved: 1, all: 4, rejected: 1 });
+  });
+
+  it('lists only rejected types in the Afvist tab, and them in no other', () => {
+    expect(visibleTypes(TYPES, 'rejected', NO_FILTERS).map((t) => t.id)).toEqual([4]);
+    for (const tab of ['queue', 'approved', 'all'] as const)
+      expect(visibleTypes(TYPES, tab, NO_FILTERS).map((t) => t.id)).not.toContain(4);
+    expect(visibleTypes(TYPES, 'rejected', { ...NO_FILTERS, search: 'vindue' })).toEqual([]);
+  });
+
+  it('never picks a rejected type as the next in the queue', () => {
+    const list = [type(1, 'a'), type(2, 'b', { review_status: 'rejected' }), type(3, 'c')];
+    expect(nextInQueue(list, 1)).toEqual({ typeId: 3, partCode: null });
+    expect(nextInQueue([type(2, 'b', { review_status: 'rejected' })], 2)).toBeNull();
+  });
+
+  it('removes a deleted type, and a deleted part with its quantity', () => {
+    expect(removeType(TYPES, 2).map((t) => t.id)).toEqual([1, 3, 4, 5]);
+    const p = removePart(TYPES, 'RX-002');
+    expect(p[0].parts.map((x) => x.code)).toEqual(['RX-001']);
+    expect(p[0].quantity).toBe(18);
+    expect(p[1]).toBe(TYPES[1]);
+    expect(removePart(TYPES, 'RX-404')).toEqual(TYPES);
   });
 
   it('filters by tab, search, room and miljø', () => {
@@ -176,8 +200,11 @@ describe('initialViewFor', () => {
     expect(initialViewFor(types, 3)).toEqual({ tab: 'approved', selection: { typeId: 3, partCode: null } });
   });
 
-  it('ignores rejected and unknown types', () => {
-    expect(initialViewFor(types, 4)).toBeNull();
+  it('opens a rejected type in the Afvist tab', () => {
+    expect(initialViewFor(types, 4)).toEqual({ tab: 'rejected', selection: { typeId: 4, partCode: null } });
+  });
+
+  it('ignores unknown types', () => {
     expect(initialViewFor(types, 99)).toBeNull();
   });
 });

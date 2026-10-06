@@ -188,8 +188,7 @@ src/
 ├── pipeline/     Pure stage-runner logic: the card view model (stageModel),
 │                 parameter-form parsing and the omit-defaults submit rule
 │                 (params), and the pipeline_log timeline (history)
-├── routes/       Page-level compositions (OverblikPage, Dashboard — now at
-│                 `/projektdata` — PipelinePage, ViewportPage,
+├── routes/       Page-level compositions (OverblikPage, PipelinePage, ViewportPage,
 │                 KortlaegningPage, MiljoePage, SkabelonerPage, RapportPage,
 │                 IndberetningPage, SagerPage), plus the shared
 │                 viewHead.module.css a case screen's header composes from
@@ -201,11 +200,14 @@ src/
 └── base.css      Global reset / element defaults, built on the tokens
 ```
 
-`/` is Overblik, the case landing page; the old dashboard/inventory screen
-lives at `/projektdata` now (a `Værktøjer` entry).
+`/` is Overblik, the case landing page; the technical inventory (the old
+Projektdata screen) is its closed "Projektdata" section at the foot, and
+`/projektdata` redirects to `/`. The sidebar's Værktøjer group is collapsed by
+default and opens itself on a tools route.
 `/sager` lists the one open case. Below 900px the sidebar is a drawer.
-Retired paths (`/on-site`, `/onsite`, `/materials`, `/export`) redirect to
-Kortlægning (the first three) or Rapport (`/export`); see `REDIRECTS` in
+Retired paths (`/on-site`, `/onsite`, `/materials`, `/export`, `/projektdata`)
+redirect to Kortlægning (the first three), Rapport (`/export`) or Overblik
+(`/projektdata`); see `REDIRECTS` in
 `src/app/navigation.ts`. Materialedata (`MaterialsPage`, `MaterialTable`) is
 gone — its data lives under Alle egenskaber on Kortlægning now. Eksport
 (`ExportPage`) is gone too — Rapport's Data-eksport panel (`DataExportPanel`)

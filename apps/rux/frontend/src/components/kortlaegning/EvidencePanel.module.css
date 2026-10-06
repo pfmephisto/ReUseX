@@ -77,6 +77,17 @@
   text-align: right;
 }
 
+.openLink {
+  align-self: flex-end;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent-deep);
+}
+
+.openLink:hover {
+  text-decoration: underline;
+}
+
 /* ---------------------------------------------------------- stage variant -- */
 
 .stageWrap {
@@ -87,7 +98,7 @@
 
 .thumbGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: var(--space-2);
 }
 
@@ -168,6 +179,18 @@
   color: var(--color-on-chrome);
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
+}
+
+.stageLink {
+  /* The tagline's chip, in the opposite corner. */
+  composes: tagline;
+  left: auto;
+  right: var(--space-2);
+  font-weight: var(--font-weight-medium);
+}
+
+.stageLink:hover {
+  text-decoration: underline;
 }
 
 /* Phone width (the shell's 56.25rem breakpoint): 44px tap targets. */

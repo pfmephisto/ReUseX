@@ -111,7 +111,7 @@ std::vector<std::string> names(const ProjectDB &db) {
 TEST_CASE("MigrationV25_FreshProject_HasBothSeeds", "[ProjectDB][migration]") {
   TempDB tmp;
   ProjectDB db(tmp.path);
-  CHECK(db.schema_version() == 25);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
   const auto list = db.resource_templates();
   REQUIRE(list.size() == 2);
   CHECK(list[0].name == "Materialepas (fuld)");
@@ -141,7 +141,7 @@ TEST_CASE("MigrationV25_MovesExportTemplates_ClashUnmatchedAndBroken",
       ('Ødelagt', 'not json');
   )sql");
   ProjectDB db(tmp.path);
-  CHECK(db.schema_version() == 25);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
   CHECK_FALSE(table_exists(tmp.path, "export_templates"));
   CHECK(names(db) == std::vector<std::string>{
                          "Materialepas (fuld)", "Hurtig genbrugsscreening",
@@ -234,7 +234,7 @@ TEST_CASE("MigrationV25_LinksAndSplitsPassports_DropsPartCode",
   roll_back_to_v24(tmp.path);
   exec_raw(tmp.path, "UPDATE samples SET part_code = 'RX-001';");
   ProjectDB db(tmp.path);
-  CHECK(db.schema_version() == 25);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
   CHECK(db.survey_part("RX-001")->material_guid ==
         std::optional<std::string>("guid-shared")); // first by code keeps it
   const auto copy = db.survey_part("RX-002")->material_guid;
@@ -315,7 +315,7 @@ TEST_CASE("MigrationV25_ReRunOverMigratedData_ChangesNothing",
   // (column, index, links, part_code, templates).
   exec_raw(tmp.path, "DELETE FROM schema_version WHERE version = 25;");
   ProjectDB db(tmp.path);
-  CHECK(db.schema_version() == 25);
+  CHECK(db.schema_version() == ProjectDB::latest_schema_version());
   std::vector<std::optional<std::string>> parts_after;
   for (const auto &p : db.survey_parts())
     parts_after.push_back(p.material_guid);

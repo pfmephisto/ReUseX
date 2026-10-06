@@ -9,7 +9,7 @@
  * rule: another key's photo or error is never shown as the current part's.
  */
 
-import type { SurveyPart, VisibleFrame } from '../api/types';
+import type { PartPhotos, SurveyPart, VisibleFrame } from '../api/types';
 
 /**
  * A part counts as linked when it names a cloud and an instance id — and that
@@ -64,4 +64,89 @@ export function resolvePhotoState(
   if (!data || data.key !== currentKey) return { photoFrameId: undefined, photoFailed: false };
   if (data.failed) return { photoFrameId: undefined, photoFailed: true };
   return { photoFrameId: data.frames[0]?.frame_id ?? null, photoFailed: false };
+}
+
+// ---------------------------------------------------------------- table ----
+
+/** Edge length asked of the server for a table-row thumbnail. */
+export const ROW_THUMB_MAX_SIZE = 96;
+
+/**
+ * The table's "n fotos" text for a part. `undefined` photos (the batch has not
+ * resolved, or the part has no instance) render as an empty string, never as
+ * a guess.
+ */
+export function photoCountText(photos: PartPhotos | undefined): string {
+  if (!photos) return '';
+  return photos.count === 1 ? '1 foto' : `${photos.count} fotos`;
+}
+
+/**
+ * The best frame to show as a row thumbnail: a part row its own best frame; a
+ * type row the best frame of its first part (in part order) that has one.
+ * `null` when there is none (or the batch has not resolved) — the row then
+ * shows its quiet placeholder.
+ */
+export function rowThumbFrame(
+  parts: readonly Pick<SurveyPart, 'code'>[],
+  photos: Readonly<Record<string, PartPhotos>> | null,
+): number | null {
+  if (!photos) return null;
+  for (const part of parts) {
+    const id = photos[part.code]?.best_frame_id;
+    if (id !== null && id !== undefined) return id;
+  }
+  return null;
+}
+
+// ------------------------------------------------------------ Fotos strip ----
+
+/** Thumbnails shown in the Fotos row before collapsing the rest into `+n`. */
+export const PHOTO_STRIP_MAX = 5;
+
+/** Edge length asked of the server for a Fotos-strip thumbnail. */
+export const PHOTO_STRIP_THUMB_SIZE = 160;
+
+/** Splits a frame list into the thumbnails shown and the `+n` overflow count. */
+export function photoStrip(
+  frames: readonly VisibleFrame[],
+  max: number = PHOTO_STRIP_MAX,
+): { visible: VisibleFrame[]; overflow: number } {
+  return { visible: frames.slice(0, max), overflow: Math.max(0, frames.length - max) };
+}
+
+/**
+ * What the Fotos strip shows for a (possibly stale) lookup: the strip itself,
+ * the `(n)` count in its label, or the line that stands in for it. A lookup
+ * for another key counts as loading, never as this part's photos.
+ */
+export function photoStripModel(
+  currentKey: string | null,
+  data: FrameLookup | undefined,
+): { strip: { visible: VisibleFrame[]; overflow: number } | null; count: number | null; message: string | null } {
+  if (currentKey === null) {
+    return { strip: null, count: null, message: 'Ingen fotos — bygningsdelen er ikke koblet til en instans.' };
+  }
+  if (!data || data.key !== currentKey) return { strip: null, count: null, message: 'Indlæser fotos…' };
+  if (data.failed) return { strip: null, count: null, message: 'Fotos kunne ikke hentes.' };
+  if (data.frames.length === 0) {
+    return { strip: null, count: 0, message: 'Ingen fotos fundet for denne instans.' };
+  }
+  return { strip: photoStrip(data.frames), count: data.frames.length, message: null };
+}
+
+/**
+ * What the table's photo batch depends on: the instance-backed parts, by code
+ * and instance. The page re-fetches `GET /survey/photos` when this changes (a
+ * sync adds parts, a delete removes one) and not on every edit of a quantity
+ * or a note. Empty when no part is linked — nothing to fetch.
+ */
+export function photoBatchKey(types: readonly { parts: readonly SurveyPart[] }[]): string {
+  const keys: string[] = [];
+  for (const t of types) {
+    for (const p of t.parts) {
+      if (hasInstanceLink(p)) keys.push(`${p.code}=${instanceKey(p.cloud, p.instance_id)}`);
+    }
+  }
+  return keys.sort().join(',');
 }

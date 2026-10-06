@@ -651,3 +651,27 @@ TEST_CASE("CreateSample_Refusals_WriteNothing_OnsiteFieldsIgnored",
   CHECK_FALSE(s.contains("part_code"));
   CHECK_FALSE(samples_json(db).at("samples").at(0).contains("part_code"));
 }
+
+TEST_CASE("DeleteSurveyType_Json_200And404", "[gui][survey][edits]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+  const auto id = add_type(db, "Vinduer", core::Treatment::genbrug, 3.1);
+  db.add_survey_part({"RX-001",
+                      id,
+                      std::nullopt,
+                      std::nullopt,
+                      std::nullopt,
+                      "",
+                      1,
+                      false,
+                      "",
+                      {},
+                      {}});
+  CHECK(status_of([&] { delete_survey_type_json(db, 999); }) == 404);
+  const auto j = delete_survey_type_json(db, id);
+  CHECK(j.at("parts_deleted") == 1);
+  CHECK(j.at("instances_dismissed") == 0);
+  CHECK_FALSE(db.survey_type(id).has_value());
+  CHECK_FALSE(db.survey_part("RX-001").has_value());
+  CHECK(status_of([&] { delete_survey_type_json(db, id); }) == 404);
+}

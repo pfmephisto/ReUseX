@@ -4,10 +4,13 @@
 
 #include "gui/survey.hpp"
 
+#include <reusex/core/instance_evidence.hpp>
+#include <reusex/core/resources.hpp>
 #include <reusex/core/survey.hpp>
 #include <reusex/core/survey_service.hpp>
 
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <cstdint>
@@ -205,6 +208,43 @@ namespace {
 double wire_tonnes(double t) { return std::round(t * 1e6) / 1e6; }
 } // namespace
 
+json survey_photos_json(const reusex::ProjectDB &db,
+                        const InstancePhotoSource &source) {
+  // Instance-backed parts, grouped by the cloud their instance lives in.
+  std::map<std::string, std::vector<std::pair<std::string, std::uint32_t>>>
+      by_cloud;
+  for (const auto &part : db.survey_parts())
+    if (part.cloud_name && part.instance_id && *part.instance_id != 0)
+      by_cloud[*part.cloud_name].emplace_back(part.code, *part.instance_id);
+
+  json parts = json::object();
+  for (const auto &[cloud, list] : by_cloud) {
+    std::set<std::uint32_t> wanted;
+    for (const auto &entry : list)
+      wanted.insert(entry.second);
+    std::map<std::uint32_t, core::PartPhotos> photos;
+    try {
+      photos =
+          source ? source(db, cloud, wanted) : core::instance_photos(db, cloud);
+    } catch (const std::exception &e) {
+      // One stale cloud must not blank the table's photos (STANDARDS §5).
+      spdlog::warn("survey photos: skipping {} part(s) on cloud '{}': {}",
+                   list.size(), cloud, e.what());
+      continue;
+    }
+    for (const auto &[code, id] : list) {
+      const auto it = photos.find(id);
+      if (it == photos.end())
+        continue; // the instance has no points (orphaned part)
+      parts[code] = {{"count", it->second.count},
+                     {"best_frame_id", it->second.best_frame_id
+                                           ? json(*it->second.best_frame_id)
+                                           : json(nullptr)}};
+    }
+  }
+  return json{{"parts", std::move(parts)}};
+}
+
 json survey_fractions_json(const reusex::ProjectDB &db) {
   const auto report = core::fractions_by_eak(core::type_totals(db));
   json list = json::array();
@@ -369,6 +409,7 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
     return {{"types_created", r.types_created},
             {"parts_created", r.parts_created},
             {"parts_existing", r.parts_existing},
+            {"parts_dismissed", r.parts_dismissed},
             {"instances_seen", r.instances_seen},
             {"instances_backfilled", r.instances_backfilled},
             {"rooms_assigned", r.rooms_assigned},
@@ -380,6 +421,14 @@ json sync_survey_json(reusex::ProjectDB &db, const std::string &body) {
       throw HttpError(422, e.what());
     throw;
   }
+}
+
+json delete_survey_type_json(reusex::ProjectDB &db, int64_t id) {
+  return mapped([&] {
+    const auto r = core::delete_survey_type(db, id);
+    return json{{"parts_deleted", r.parts_deleted},
+                {"instances_dismissed", r.instances_dismissed}};
+  });
 }
 
 json create_survey_type_json(reusex::ProjectDB &db, const std::string &body) {

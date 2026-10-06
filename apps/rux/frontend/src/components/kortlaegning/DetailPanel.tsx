@@ -21,9 +21,10 @@
  * effect), so nothing depends on the caller re-keying the panel.
  */
 
-import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
+import type { KeyboardEvent, RefObject } from 'react';
 
 import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
+import { useArmedConfirm } from '../../app/useArmedConfirm';
 import type { Resource, ResourceKey, Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
 import { allPropertyGroups, PANEL_FIELD_KEYS } from '../../kortlaegning/resources';
@@ -39,6 +40,7 @@ import { ConfidenceBar } from '../ConfidenceBar';
 import { EmptyState } from '../EmptyState';
 import { Pill } from '../Pill';
 import styles from './DetailPanel.module.css';
+import { PhotoStrip } from './PhotoStrip';
 import { ResourceCell } from './ResourceCell';
 import { SampleLine } from './SampleLine';
 import { TypeMark } from './TypeMark';
@@ -78,9 +80,13 @@ export interface DetailPanelProps {
    * Esc it was dropped; the page puts focus back on the table.
    */
   onDone: () => void;
-  /** The selected part was added by hand: it can be deleted (spec §4.4). */
+  /** The selected part was added by hand (shown as "Manuel"). */
   manual: boolean;
-  onDeleteResource: () => void;
+  /**
+   * Delete the selection — the part, or the type with all its parts (spec
+   * A3). Reached through a two-click armed confirm; separate from Afvis.
+   */
+  onDelete: () => void;
   /** Open the part's best frame in Segmentering (also the S key); absent when not scan-backed. */
   onSegment?: () => void;
   /** The selected part's values; null for a type. */
@@ -95,6 +101,15 @@ export interface DetailPanelProps {
 /** `RX-### · {type name}` for a part, or just the type name. */
 export function panelTitle(type: SurveyType, part: SurveyPart | null): string {
   return part ? `${part.code} · ${type.name}` : type.name;
+}
+
+/** The delete button: what it deletes, and what the armed second click confirms. */
+export function deleteLabel(type: SurveyType, part: SurveyPart | null, armed: boolean): string {
+  if (part) return armed ? `Bekræft: slet ${part.code}` : 'Slet ressource';
+  if (!armed) return 'Slet type';
+  const n = type.parts.length;
+  if (n === 0) return 'Bekræft: slet typen';
+  return `Bekræft: slet typen og ${n} ${n === 1 ? 'ressource' : 'ressourcer'}`;
 }
 
 /** `environment_status === 'afventer'` blocks approval, regardless of `busy`. */
@@ -147,7 +162,7 @@ export function DetailPanel({
   onReopen,
   onDone,
   manual,
-  onDeleteResource,
+  onDelete,
   onSegment,
   resource,
   catalogue,
@@ -169,10 +184,11 @@ export function DetailPanel({
     onDone();
   }
 
-  // Two-step delete: the first click arms, the second deletes. Re-armed per selection.
-  const [armed, setArmed] = useState(false);
-  const partCode = part?.code ?? null;
-  useEffect(() => setArmed(false), [partCode]);
+  // Two-step delete: the first click arms, the second deletes. Disarms on a
+  // new selection, Esc, a press elsewhere, blur or a busy page.
+  const selectionKey = part ? `part:${part.code}` : type ? `type:${type.id}` : null;
+  const confirm = useArmedConfirm<string>(busy, selectionKey);
+  const armed = selectionKey !== null && confirm.armed === selectionKey;
 
   if (!type || !current) {
     return (
@@ -196,6 +212,7 @@ export function DetailPanel({
           <Pill tone="accent">{type.bim7aa_code}</Pill>
         )}
         {part && manual && <Pill variant="outline">Manuel</Pill>}
+        {type.review_status === 'rejected' && <Pill>Afvist</Pill>}
         <Pill tone={ENV_TONE[type.environment_status]}>{ENV_LABEL[type.environment_status]}</Pill>
         {current.starred && <Pill tone="warn">★ Vigtig</Pill>}
       </div>
@@ -258,6 +275,8 @@ export function DetailPanel({
         />
       </div>
 
+      <PhotoStrip type={type} part={part} fieldClassName={styles.field} labelClassName={styles.label} />
+
       <section className={styles.props} aria-label="Alle egenskaber">
         <h3 className={styles.propsHeading}>Alle egenskaber</h3>
         {!part ? (
@@ -298,23 +317,22 @@ export function DetailPanel({
         <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>
           {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
         </button>
-        {part && manual && (
-          <button
-            type="button"
-            className={styles.danger}
-            disabled={busy}
-            onClick={() => {
-              if (!armed) {
-                setArmed(true);
-                return;
-              }
-              setArmed(false);
-              onDeleteResource();
-            }}
-          >
-            {armed ? `Bekræft: slet ${part.code}` : 'Slet ressource'}
-          </button>
-        )}
+        <button
+          type="button"
+          className={styles.danger}
+          disabled={busy}
+          onBlur={confirm.disarm}
+          onClick={(e) => {
+            if (!armed) {
+              if (selectionKey) confirm.arm(selectionKey, e.currentTarget);
+              return;
+            }
+            confirm.disarm();
+            onDelete();
+          }}
+        >
+          {deleteLabel(type, part, armed)}
+        </button>
         {onSegment && (
           <button
             type="button"

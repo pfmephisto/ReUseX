@@ -223,7 +223,7 @@ Create one material passport per instance and link it back to the instance.
 
 | | |
 |---|---|
-| Consumes | `instances` |
+| Consumes | `instances`, `survey_dismissed_instances` (skipped) |
 | Produces | `instance_materials` (the `instance_materials` link table + `material_passports`) |
 | Options  | `rux create materials` CLI options (`--instances`, `--clear`) |
 | Checks   | `instances` present |
@@ -240,7 +240,7 @@ instance.
 
 | | |
 |---|---|
-| Consumes | `instances` |
+| Consumes | `instances`, `survey_dismissed_instances` (schema v26 tombstones) |
 | Produces | `survey_types`, `survey_parts` |
 | Options  | `rux create survey` CLI options (`--instances`, `--semantic`, `--rooms`) |
 | Checks   | `instances` cloud present |
@@ -257,6 +257,12 @@ points fall in (`majority_room`), named from that cloud's label definitions
 or `"Rum <id>"`; a missing or size-mismatched rooms cloud is logged and parts
 get no room. Idempotent — existing types/parts are never modified, so edits
 made in the GUI survive a rerun.
+
+Deleting a scan-backed part (or its whole type) in Kortlægning records the
+instance guid in `survey_dismissed_instances`. `sync_survey` skips every
+tombstoned instance, so a deleted part is not re-created, and reports how
+many it skipped as `parts_dismissed`. `rux create materials` skips them too,
+so a deleted part's instance does not get a new passport.
 
 An instance cloud written before schema v10 can have labels but no
 `instances` rows: the v10 migration backfilled rows only for clouds that had

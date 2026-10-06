@@ -946,6 +946,54 @@ export interface SurveyFractions {
   ready: boolean;
 }
 
+/** `PartPhotos` — one survey part's photo evidence (`GET /survey/photos`). */
+export interface PartPhotos {
+  /**
+   * Occlusion-aware: posed sensor frames whose depth image confirms the
+   * instance centroid or one of 8 surface samples of the instance (within
+   * 0.15 m); a frame without a depth image falls back to the frustum-only
+   * test.
+   */
+  count: number;
+  /** The most central of them; null when `count` is 0. */
+  best_frame_id: number | null;
+}
+
+/**
+ * `SurveyPhotos` — `GET /survey/photos`: photo evidence for every
+ * instance-backed part, keyed on part code. Parts without an instance link
+ * are absent.
+ */
+export interface SurveyPhotos {
+  parts: Record<string, PartPhotos>;
+}
+
+/** `InstancePanorama` — one placeable 360 panorama near an instance. */
+export interface InstancePanorama {
+  panorama_id: number;
+  /** Matched sensor frame, -1 if none. */
+  node_id: number;
+  /** Panorama centre to the instance centroid, metres. */
+  distance: number;
+  /** Equirect column of the centroid, 0..1 left to right. */
+  u: number;
+  /** Equirect row of the centroid, 0..1 from the top (north pole). */
+  v: number;
+  /** `levelled` = heading unknown, so `u` is only as good as that guess. */
+  heading: 'resected' | 'levelled';
+}
+
+/** `InstancePanoramaList` — `GET /instances/{cloud}/{id}/panoramas`. */
+export interface InstancePanoramaList {
+  point: [number, number, number];
+  cloud: string;
+  instance_id: number;
+  max_distance: number;
+  /** Nearest first. */
+  panoramas: InstancePanorama[];
+  total: number;
+}
+
 /** `Sample` — one environmental sample, with its linked survey types. */
 export interface Sample {
   id: number;
@@ -973,6 +1021,15 @@ export interface SurveySyncReport {
   orphaned_codes: string[];
   /** Instance links put back for instance-backed parts that lost theirs (a `create instances` re-run cascade-deletes them). */
   links_restored?: number;
+  /** Instances skipped because the user deleted their part (schema v26 tombstones); absent from older servers. */
+  parts_dismissed?: number;
+}
+
+/** Body of `DELETE /survey/types/<id>`. */
+export interface SurveyTypeDeletion {
+  parts_deleted: number;
+  /** Scan-backed parts among them, tombstoned so a sync does not re-create them. */
+  instances_dismissed: number;
 }
 
 /** Body of `POST /survey/types`. */

@@ -6,6 +6,8 @@
 
 #include <Eigen/Core>
 
+#include <atomic>
+#include <stdexcept>
 #include <vector>
 
 namespace reusex {
@@ -79,5 +81,79 @@ struct VisibilityQuery {
 std::vector<FrameVisibility> visible_frames(const ProjectDB &db,
                                             const Eigen::Vector3d &world_point,
                                             const VisibilityQuery &query = {});
+
+/**
+ * @brief `visible_frames()` for many points at once.
+ *
+ * Reads every frame's pose and intrinsics once and projects all points
+ * through them, so the cost is one pass over the sensor frames rather than
+ * one per point. `result[i]` is exactly `visible_frames(db, world_points[i],
+ * query)`, sorted the same way.
+ */
+std::vector<std::vector<FrameVisibility>>
+visible_frames_batch(const ProjectDB &db,
+                     const std::vector<Eigen::Vector3d> &world_points,
+                     const VisibilityQuery &query = {});
+
+/// Tunables for `visible_frames_occluded()`.
+struct OcclusionQuery {
+  /// The frustum test applied to each probe's anchor first.
+  VisibilityQuery visibility{};
+  /// A probe point counts as seen when its camera-frame depth is within this
+  /// many metres of the frame's measured depth at its pixel. Covers depth
+  /// noise and the distance between a fused-cloud point and the surface the
+  /// sensor measured.
+  double depth_tolerance = 0.15;
+  /// Also compare against depth pixels up to this many pixels away (in the
+  /// depth image) and take the closest match, so a probe on a thin edge or
+  /// next to a depth hole is not lost to one bad pixel. `0` = one pixel.
+  int depth_search_radius = 1;
+  /// A frame with no depth image cannot be occlusion-tested. `true` keeps it
+  /// on the frustum test alone (so a project imported without depth still has
+  /// photos); `false` drops it.
+  bool keep_frames_without_depth = true;
+};
+
+/// What `visible_frames_occluded()` tests for one object: an anchor that
+/// decides the frustum test and the ranking (usually the centroid), plus
+/// surface samples. An object's centroid is often in the air (a door frame,
+/// a chair), so the depth test passes when the anchor **or any sample** lies
+/// on the measured surface.
+struct VisibilityProbe {
+  Eigen::Vector3d anchor = Eigen::Vector3d::Zero();
+  std::vector<Eigen::Vector3d> samples;
+};
+
+/// Thrown by `visible_frames_occluded()` when its cancel flag is raised.
+class OperationCancelled : public std::runtime_error {
+    public:
+  using std::runtime_error::runtime_error;
+};
+
+/**
+ * @brief Occlusion-aware `visible_frames_batch()`: frames that actually see
+ * each probe, not merely frames whose frustum contains it.
+ *
+ * Per posed frame (one pass, each depth image decoded at most once and only
+ * when some anchor projects inside the frame): an anchor that passes the
+ * frustum test of `query.visibility` keeps the frame when the anchor or one
+ * of its samples, projected into the frame, is in front of the camera,
+ * inside the image, and within `query.depth_tolerance` of the stored depth
+ * (CV_16U millimetres; pixel scaled from the intrinsics' size to the depth
+ * image's). Ranking and the reported u/v/depth/centrality are the anchor's,
+ * sorted as in `visible_frames()`.
+ *
+ * Logs (debug) how many frames were depth-tested, had no depth, and how many
+ * frustum hits the depth test removed; warns when no frame is usable.
+ *
+ * @param cancel when non-null, checked once per frame; raising it makes the
+ *        call throw `OperationCancelled` within one frame's work (a server
+ *        shutting down mid-computation does not wait for the whole pass).
+ */
+std::vector<std::vector<FrameVisibility>>
+visible_frames_occluded(const ProjectDB &db,
+                        const std::vector<VisibilityProbe> &probes,
+                        const OcclusionQuery &query = {},
+                        const std::atomic<bool> *cancel = nullptr);
 
 } // namespace reusex::core

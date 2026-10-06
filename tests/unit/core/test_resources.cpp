@@ -231,7 +231,6 @@ TEST_CASE("Resources_CreateAndDelete", "[resources]") {
   CHECK_FALSE(db.survey_part("RX-002").has_value());
   const auto guids = db.list_passport_guids();
   CHECK(std::find(guids.begin(), guids.end(), *guid) == guids.end());
-  CHECK_THROWS_AS(delete_resource(db, "RX-001"), ResourceConflictError);
   CHECK_THROWS_AS(delete_resource(db, "RX-404"), std::out_of_range);
 }
 

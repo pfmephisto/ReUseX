@@ -2068,22 +2068,21 @@ paths:
     delete:
       tags: [resources]
       operationId: deleteResource
-      summary: Delete a manually added resource
+      summary: Delete a resource (manual or from the scan)
       description: |
-        Removes a manual part and its passport (unless something else links
-        it). An instance-backed part comes from the scan and is refused.
+        Removes any part (core::delete_resource). An instance-backed part's
+        instance guid is recorded in `survey_dismissed_instances` (schema v26)
+        so `POST /survey/sync` does not re-create it, and its instance's
+        passport link is dropped when it points at the part's passport. The
+        passport is then deleted unless something else still links it.
+        Rejecting a type (`review_status: rejected`) is the non-destructive
+        alternative.
+
+        Performed under the project's writer lock; see `409`/`503`.
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/NotFound" }
-        "409":
-          description: |
-            Not applied, for one of two reasons the message names: the resource
-            is instance-backed (it comes from the scan; only manual resources
-            can be deleted) — retrying never helps; or a pipeline job is running
-            or queued — retry once it finishes.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -2160,9 +2159,17 @@ paths:
       operationId: instanceVisibility
       summary: Sensor frames that see an instance's centroid, ranked by centrality
       description: |
-        Convenience wrapper over `/frames/visibility` (#453): computes the
-        **centroid** of one instance and returns the frames that see it, ranked
-        most-central-first, for a one-click "best source image" of an object.
+        Computes the **centroid** of one instance and returns the frames that
+        see the instance, ranked most-central-first by the centroid, for a
+        one-click "best source image" of an object (#453).
+
+        Unlike `/frames/visibility` this is **occlusion-aware**, with the same
+        rule as `GET /survey/photos` (so the Kortlægning count and photo strip
+        agree): a frame whose frustum contains the centroid is kept only when
+        its depth image confirms the centroid or one of the instance's surface
+        samples within 0.15 m; frames without depth fall back to the frustum
+        test. The reported `u`, `v`, `depth` and `centrality` are the
+        centroid's.
 
         The centroid is averaged over the points of the base `cloud` (the
         positions the instance-label cloud was segmented from, index-aligned
@@ -2208,6 +2215,66 @@ paths:
                       instance_point_count:
                         type: integer
                         description: Points that contributed to the centroid.
+        "404":
+          description: The cloud or the instance id does not exist
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: |
+            The base positions cloud is missing, or is not index-aligned with
+            the instance-label cloud.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /instances/{cloud}/{id}/panoramas:
+    get:
+      tags: [instances]
+      operationId: instancePanoramas
+      summary: Placeable 360 panoramas near an instance, nearest first, with the equirect u,v of its centroid
+      description: |
+        The 360° evidence for one instance (Kortlægning spec A5). Takes the same
+        centroid as `/instances/{cloud}/{id}/frames` and lists every panorama
+        that can be placed in the world, nearest first (ties by id), with the
+        normalised equirect pixel where the centroid appears.
+
+        Placement follows the viewport: a resected pose (`has_pose`, from
+        `rux align 360`) wins and gives `heading: resected`; otherwise the
+        matched sensor frame's position with the levelled, heading-free basis
+        (`heading: levelled` — `u` is then relative to a guessed heading).
+        Panoramas with neither are skipped. `u` runs 0..1 left to right
+        (longitude -pi..pi), `v` 0..1 from the top (north pole), the
+        convention of `GET /panoramas/{id}/image`.
+      parameters:
+        - name: cloud
+          in: path
+          required: true
+          description: Name of the instance-label cloud (usually `instances`).
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          description: Instance id (the label value in the instance cloud, >= 1).
+          schema: { type: integer, minimum: 1 }
+        - name: max_distance
+          in: query
+          description: |
+            Drop panoramas whose centre is farther than this many metres from
+            the centroid. Default 15; `0` keeps every placeable panorama.
+          schema: { type: number, format: double, minimum: 0, default: 15 }
+      responses:
+        "200":
+          description: Panoramas near the instance centroid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstancePanoramaList" }
+        "400":
+          description: "`max_distance` is not a non-negative number"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404":
           description: The cloud or the instance id does not exist
           content:
@@ -2978,6 +3045,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SurveyFractions" }
         default: { $ref: "#/components/responses/UnexpectedError" }
+  /survey/photos:
+    get:
+      tags: [survey]
+      operationId: getSurveyPhotos
+      summary: Photo count and best sensor frame per instance-backed survey part
+      description: |
+        For every survey part linked to an instance: how many posed sensor
+        frames actually see it, and the most central of them — the same
+        numbers `/instances/{cloud}/{id}/frames` gives one part at a time
+        (`total` and `frames[0]`). **Occlusion-aware:** a frame whose frustum
+        contains the instance centroid counts only when its depth image
+        confirms the centroid or one of 8 surface samples of the instance
+        (within 0.15 m; `core::PhotoQuery` / `core::OcclusionQuery`); a frame
+        without a depth image falls back to the frustum test. Parts without an
+        instance link, or whose instance has no points, are absent. A cloud that
+        cannot be used (no base `cloud`, misaligned) is skipped with a server
+        warning, not an error.
+
+        Computing it decodes every relevant depth image once (about 3.5–3.9 s
+        on a 3876-frame, 155-instance, 1.2M-point project), so `rux gui`
+        computes it in the background at startup and keeps the per-instance
+        result in memory until a pipeline job finishes, the newest
+        pipeline-log entry or the sensor-frame count changes, or a part refers
+        to an instance it has not computed. Cached responses take ~10 ms.
+      responses:
+        "200":
+          description: Photo evidence per part code
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SurveyPhotos" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
   /survey/sync:
     post:
       tags: [survey]
@@ -3013,6 +3111,11 @@ paths:
                   types_created: { type: integer }
                   parts_created: { type: integer }
                   parts_existing: { type: integer }
+                  parts_dismissed:
+                    type: integer
+                    description: |
+                      Instances skipped because the user deleted their part
+                      (tombstoned in `survey_dismissed_instances`, schema v26).
                   rooms_assigned: { type: boolean }
                   parts_orphaned:
                     type: integer
@@ -3141,6 +3244,41 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/WriterBusy" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [survey]
+      operationId: deleteSurveyType
+      summary: Delete a survey type and all its parts
+      description: |
+        core::delete_survey_type: every part of the type is deleted with
+        `DELETE /resources/{code}`'s rules (scan-backed parts tombstoned so a
+        sync does not re-create them, passports deleted unless linked
+        elsewhere), then the type itself; its sample links cascade. One
+        transaction. Rejecting the type instead keeps it, in the Afvist tab.
+
+        Performed under the project's writer lock; see `409`/`503`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The survey type's id.
+          schema: { type: integer }
+      responses:
+        "200":
+          description: What went with the type
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parts_deleted, instances_dismissed]
+                properties:
+                  parts_deleted: { type: integer }
+                  instances_dismissed:
+                    type: integer
+                    description: Scan-backed parts among them, now tombstoned.
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
@@ -3356,7 +3494,7 @@ paths:
       summary: Server-rendered view of the project, optionally highlighting one instance
       description: |
         Renders a view of the project with VTK's headless renderer and
-        answers PNG bytes. Backs the Plan / Punktsky / Rum-model evidence
+        answers PNG bytes. Backs the Plan / Punktsky / Rum evidence
         tabs in Kortlægning: a reviewer can call out one instance (an
         element, a room) against the rest of the scan without opening the
         interactive viewport.
@@ -4786,6 +4924,72 @@ components:
           nullable: true
           description: Share (0..1) of the instance cloud's points that carry an instance label; null without an instance cloud. Overblik's "Klassificeret" KPI.
         rooms_without_parts: { type: array, items: { type: string } }
+    PartPhotos:
+      type: object
+      required: [count, best_frame_id]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: |
+            Occlusion-aware: posed sensor frames whose depth image confirms
+            the instance centroid or one of 8 surface samples of the
+            instance (within 0.15 m); a frame without a depth image falls
+            back to the frustum-only test.
+        best_frame_id:
+          type: integer
+          nullable: true
+          description: The most central of them; null when `count` is 0.
+    SurveyPhotos:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: object
+          description: Keyed on part code (`RX-###`).
+          additionalProperties: { $ref: "#/components/schemas/PartPhotos" }
+    InstancePanorama:
+      type: object
+      required: [panorama_id, node_id, distance, u, v, heading]
+      properties:
+        panorama_id: { type: integer }
+        node_id:
+          type: integer
+          description: Matched sensor frame, -1 if none.
+        distance:
+          type: number
+          format: double
+          description: Panorama centre to the instance centroid, metres.
+        u:
+          type: number
+          format: double
+          description: Equirect column of the centroid, 0..1 left to right.
+        v:
+          type: number
+          format: double
+          description: Equirect row of the centroid, 0..1 from the top.
+        heading:
+          type: string
+          enum: [resected, levelled]
+          description: "`levelled`: heading unknown, so `u` is only as good as that guess."
+    InstancePanoramaList:
+      type: object
+      required: [point, cloud, instance_id, max_distance, panoramas, total]
+      properties:
+        point:
+          type: array
+          items: { type: number, format: double }
+          minItems: 3
+          maxItems: 3
+          description: The instance centroid, world metres.
+        cloud: { type: string }
+        instance_id: { type: integer }
+        max_distance: { type: number, format: double }
+        panoramas:
+          type: array
+          description: Nearest first.
+          items: { $ref: "#/components/schemas/InstancePanorama" }
+        total: { type: integer }
     SurveyFractions:
       type: object
       required: [fractions, total_t, blocking_types, blocking, ready]

@@ -18,6 +18,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <gui/api.hpp>
+#include <gui/photo_cache.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -599,6 +600,23 @@ TEST_CASE("ExecuteSegmentResource_CreatesInstanceAndPart",
   REQUIRE(part);
   CHECK(part->instance_guid == out.at("instance_guid").get<std::string>());
   CHECK(part->type_id == out.at("type_id").get<int64_t>());
+}
+
+TEST_CASE("ExecuteSegmentResource_InvalidatesPhotoEvidence",
+          "[gui][segment][resource]") {
+  // The new instance must reach the photo-evidence cache: the edit writes a
+  // pipeline_log row, and the cache keys its entries on the newest one.
+  TempPath project("test_segment_resource_photo_rev");
+  reusex::ProjectDB db(project.path);
+  make_resource_fixture(db);
+  const auto before = photo_revision(db, "instances", 0);
+
+  SegmentResourceRequest req;
+  req.mask_label = 0;
+  req.class_name = "Dør";
+  execute_segment_resource(db, 1, req);
+
+  CHECK(photo_revision(db, "instances", 0) != before);
 }
 
 TEST_CASE("ExecuteSegmentResource_ErrorStatuses", "[gui][segment][resource]") {

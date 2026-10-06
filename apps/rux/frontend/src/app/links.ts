@@ -22,6 +22,13 @@ export const SEGMENTERING_PATH = '/segmentering';
 /** Skabeloner — the template editor (resources/templates spec §6.2). Its page arrives in Phase 4. */
 export const SKABELONER_PATH = '/skabeloner';
 
+export const VIEWPORT_PATH = '/viewport';
+
+/** The viewport's immersive 360° deep link (`ViewportPage` reads `?pano=`). */
+export function viewportPanoramaHref(panoramaId: number): string {
+  return `${VIEWPORT_PATH}?pano=${panoramaId}`;
+}
+
 export function sampleHref(sampleId: number): string {
   return `${MILJOE_PATH}?sample=${sampleId}`;
 }

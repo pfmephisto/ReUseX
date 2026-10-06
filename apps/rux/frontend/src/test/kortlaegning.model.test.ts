@@ -13,6 +13,9 @@ import {
   NO_FILTERS,
   partLabel,
   partOf,
+  removePart,
+  removeType,
+  reopenedView,
   replacePart,
   replaceType,
   roomName,
@@ -74,8 +77,30 @@ const TYPES: SurveyType[] = [
 ];
 
 describe('kortlægning model', () => {
-  it('counts tabs without rejected types', () => {
-    expect(tabCounts(TYPES)).toEqual({ queue: 3, approved: 1, all: 4 });
+  it('counts rejected types in their own tab, never in Alle', () => {
+    expect(tabCounts(TYPES)).toEqual({ queue: 3, approved: 1, all: 4, rejected: 1 });
+  });
+
+  it('lists only rejected types in the Afvist tab, and them in no other', () => {
+    expect(visibleTypes(TYPES, 'rejected', NO_FILTERS).map((t) => t.id)).toEqual([4]);
+    for (const tab of ['queue', 'approved', 'all'] as const)
+      expect(visibleTypes(TYPES, tab, NO_FILTERS).map((t) => t.id)).not.toContain(4);
+    expect(visibleTypes(TYPES, 'rejected', { ...NO_FILTERS, search: 'vindue' })).toEqual([]);
+  });
+
+  it('never picks a rejected type as the next in the queue', () => {
+    const list = [type(1, 'a'), type(2, 'b', { review_status: 'rejected' }), type(3, 'c')];
+    expect(nextInQueue(list, 1)).toEqual({ typeId: 3, partCode: null });
+    expect(nextInQueue([type(2, 'b', { review_status: 'rejected' })], 2)).toBeNull();
+  });
+
+  it('removes a deleted type, and a deleted part with its quantity', () => {
+    expect(removeType(TYPES, 2).map((t) => t.id)).toEqual([1, 3, 4, 5]);
+    const p = removePart(TYPES, 'RX-002');
+    expect(p[0].parts.map((x) => x.code)).toEqual(['RX-001']);
+    expect(p[0].quantity).toBe(18);
+    expect(p[1]).toBe(TYPES[1]);
+    expect(removePart(TYPES, 'RX-404')).toEqual(TYPES);
   });
 
   it('filters by tab, search, room and miljø', () => {
@@ -140,6 +165,27 @@ describe('kortlægning model', () => {
     expect(nextInQueue(list, 11, shown)).toEqual({ typeId: 12, partCode: null });
   });
 
+  it('switches to the queue tab on "Genåbn" so the reopened type stays selected and visible', () => {
+    expect(reopenedView(4, null)).toEqual({ tab: 'queue', selection: { typeId: 4, partCode: null } });
+    // A selected part under the reopened type stays selected too.
+    expect(reopenedView(4, 'RX-030')).toEqual({ tab: 'queue', selection: { typeId: 4, partCode: 'RX-030' } });
+  });
+
+  it('picks a queued type to select after "Slet type", the same composition the page uses', () => {
+    // "Slet type" removes the type entirely (unlike approve/reject, which only
+    // change its review_status), so `afterTypeId` is gone from `next` too —
+    // nextInQueue must still land on a queued type instead of nothing.
+    const list = [type(1, 'a'), type(2, 'b'), type(3, 'c', { review_status: 'approved' })];
+    const next = removeType(list, 1);
+    expect(nextInQueue(next, 1, visibleTypes(next, 'queue', NO_FILTERS))).toEqual({
+      typeId: 2,
+      partCode: null,
+    });
+    // Deleting the last queued type leaves nothing to select.
+    const onlyOne = removeType(next, 2);
+    expect(nextInQueue(onlyOne, 2, visibleTypes(onlyOne, 'queue', NO_FILTERS))).toBeNull();
+  });
+
   it('labels a part by code and room, falling back to the room id', () => {
     expect(partLabel(part('RX-001', 1, [1, 'Production Hall'], 1))).toBe('RX-001 · Production Hall');
     const unnamed = { ...part('RX-002', 1, [7, ''], 1) };
@@ -176,8 +222,11 @@ describe('initialViewFor', () => {
     expect(initialViewFor(types, 3)).toEqual({ tab: 'approved', selection: { typeId: 3, partCode: null } });
   });
 
-  it('ignores rejected and unknown types', () => {
-    expect(initialViewFor(types, 4)).toBeNull();
+  it('opens a rejected type in the Afvist tab', () => {
+    expect(initialViewFor(types, 4)).toEqual({ tab: 'rejected', selection: { typeId: 4, partCode: null } });
+  });
+
+  it('ignores unknown types', () => {
     expect(initialViewFor(types, 99)).toBeNull();
   });
 });

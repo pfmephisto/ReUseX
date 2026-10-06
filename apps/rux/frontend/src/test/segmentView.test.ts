@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import type { FrameInfo, SurveyType } from '../api/types';
 import {
   buildRequestPrompts,
+  clampNeighborCount,
+  NEIGHBOR_MAX,
   cornersToBox,
   defaultTypeChoice,
   filmstripWindow,
@@ -77,9 +79,15 @@ describe('buildRequestPrompts', () => {
     ]);
   });
 
-  it('sends a clicked point as a point at the centre of its marker, not as a box', () => {
-    const prompts: SegPrompt[] = [{ id: 'p', text: 'chair', box: [92, 42, 108, 58], point: true }];
-    expect(buildRequestPrompts(prompts).prompts).toEqual([{ text: 'chair', points: [[100, 50]] }]);
+  it('sends a clicked point as exactly the clicked pixel, not as a box', () => {
+    const prompts: SegPrompt[] = [{ id: 'p', text: 'chair', box: [92, 42, 108, 58], point: true, at: [100.5, 50.25] }];
+    expect(buildRequestPrompts(prompts).prompts).toEqual([{ text: 'chair', points: [[100.5, 50.25]] }]);
+  });
+
+  it('keeps a click at the image edge where it was, though its marker is clamped', () => {
+    const at: [number, number] = [2, 479];
+    const prompts: SegPrompt[] = [{ id: 'p', text: '', box: pointBox(2, 479, 640, 480), point: true, at }];
+    expect(buildRequestPrompts(prompts).prompts).toEqual([{ text: '', points: [[2, 479]] }]);
   });
 });
 
@@ -178,7 +186,7 @@ describe('geometryHint', () => {
     pixels,
   });
   it('only speaks up when a drawn point or box found nothing', () => {
-    const point: SegPrompt = { id: 'p', text: '', box: [0, 0, 16, 16], point: true };
+    const point: SegPrompt = { id: 'p', text: '', box: [0, 0, 16, 16], point: true, at: [8, 8] };
     const box: SegPrompt = { id: 'b', text: '', box: [0, 0, 50, 50], point: false };
     const text: SegPrompt = { id: 't', text: 'wall', box: null, point: false };
     // A point that found its object is fine now that points reach SAM3.
@@ -187,5 +195,26 @@ describe('geometryHint', () => {
     expect(geometryHint([cls('b', '', 0)], [box])).toMatch(/boks/i);
     expect(geometryHint([cls('b', '', 10)], [box])).toBeNull();
     expect(geometryHint([cls('t', 'wall', 0)], [text])).toBeNull();
+  });
+
+  it('suggests a class name only when the prompt has none', () => {
+    const unnamed: SegPrompt = { id: 'b', text: '', box: [0, 0, 50, 50], point: false };
+    const named: SegPrompt = { id: 'n', text: 'dør', box: [0, 0, 50, 50], point: false };
+    const namedPoint: SegPrompt = { id: 'q', text: 'dør', box: [0, 0, 16, 16], point: true, at: [8, 8] };
+    expect(geometryHint([cls('b', '', 0)], [unnamed])).toMatch(/klassenavn/);
+    expect(geometryHint([cls('n', 'dør', 0)], [named])).not.toMatch(/klassenavn/);
+    expect(geometryHint([cls('n', 'dør', 0)], [named])).toMatch(/dør/);
+    expect(geometryHint([cls('q', 'dør', 0)], [namedPoint])).not.toMatch(/klassenavn/);
+  });
+});
+
+describe('clampNeighborCount', () => {
+  it('clamps the Før/Efter count to 0..max and drops junk', () => {
+    expect(clampNeighborCount('7')).toBe(7);
+    expect(clampNeighborCount('100000')).toBe(NEIGHBOR_MAX);
+    expect(clampNeighborCount('-3')).toBe(0);
+    expect(clampNeighborCount('')).toBe(0);
+    expect(clampNeighborCount('abc')).toBe(0);
+    expect(clampNeighborCount('2.9')).toBe(2);
   });
 });

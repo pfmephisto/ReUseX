@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiRequestError, api } from '../api/client';
 import type { Sam3ModelStatus } from '../api/types';
-import { runWithProvisioning, sam3View, type Sam3View } from '../data/sam3Provisioning';
+import { POLL_MS, runWithProvisioning, sam3View, shouldPollStatus, type Sam3View } from '../data/sam3Provisioning';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -20,9 +20,10 @@ export interface Sam3Handle {
    * Run a segment request through the managed-model flow: waits out
    * preparation (polling every 2 s) and busy-database 503s, then retries.
    * Rejects with `SegmentRunError` (show its message) or `SegmentCancelled`
-   * (ignore: the component went away).
+   * (the component went away, or `isCancelled` said so — e.g. the label
+   * queue's Cancel, which must interrupt a long model preparation).
    */
-  run: <T>(request: () => Promise<T>) => Promise<T>;
+  run: <T>(request: () => Promise<T>, opts?: { isCancelled?: () => boolean }) => Promise<T>;
 }
 
 /**
@@ -50,14 +51,31 @@ export function useSam3(): Sam3Handle {
     };
   }, []);
 
-  const run = useCallback(async <T,>(request: () => Promise<T>): Promise<T> => {
+  // Keep the chip live while a download/build is in flight, even with no run
+  // of ours pending (another tab or client may have started it).
+  useEffect(() => {
+    if (!shouldPollStatus(status)) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      api.sam3Status(undefined, controller.signal).then(
+        (s) => mounted.current && setStatus(s),
+        () => undefined,
+      );
+    }, POLL_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [status]);
+
+  const run = useCallback(async <T,>(request: () => Promise<T>, opts?: { isCancelled?: () => boolean }): Promise<T> => {
     const result = await runWithProvisioning(request, {
       status: () => api.sam3Status().catch(() => null),
       sleep,
       onStatus: (s) => {
         if (mounted.current) setStatus(s);
       },
-      isCancelled: () => !mounted.current,
+      isCancelled: () => !mounted.current || (opts?.isCancelled?.() ?? false),
     });
     // A run succeeded, so the model is loadable now; refresh the chip.
     if (mounted.current) api.sam3Status().then((s) => mounted.current && setStatus(s), () => undefined);

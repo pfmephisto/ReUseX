@@ -12,6 +12,8 @@ import {
   SegmentCancelled,
   SegmentRunError,
   decideAfterError,
+  shouldPollStatus,
+  stopsQueue,
   runWithProvisioning,
   sam3View,
 } from '../data/sam3Provisioning';
@@ -38,6 +40,38 @@ describe('sam3View', () => {
     });
     expect(sam3View(st('building', 2, ''))).toMatchObject({ phase: 'preparing', progress: 1 });
     expect(sam3View(st('error', 0, 'disk full'))).toMatchObject({ phase: 'error', message: 'disk full' });
+  });
+});
+
+describe('decideAfterError: unreadable status', () => {
+  it("keeps the server's own 503 reason when the status cannot be read", () => {
+    const err = httpError(503, 'no SAM3 model registered');
+    expect(decideAfterError(err, null, 3)).toEqual({ kind: 'fail', message: 'no SAM3 model registered' });
+    // A readable "ready" status means the 503 was the busy database.
+    expect(decideAfterError(err, st('ready'), 3)).toEqual({ kind: 'fail', message: BUSY_COPY });
+  });
+});
+
+describe('stopsQueue', () => {
+  it('stops on a held write lock, an exhausted 503 and a failed model preparation only', () => {
+    expect(stopsQueue(httpError(409, 'job'))).toBe(true);
+    expect(stopsQueue(httpError(503, 'busy'))).toBe(true);
+    expect(stopsQueue(httpError(500, 'SAM3 model preparation failed: no GPU'))).toBe(true);
+    // A per-frame 500 (a DB read error, an inference exception) skips the item.
+    expect(stopsQueue(httpError(500, 'cannot read frame 12'))).toBe(false);
+    expect(stopsQueue(httpError(404, 'no such frame'))).toBe(false);
+    expect(stopsQueue(new Error('network'))).toBe(false);
+  });
+});
+
+describe('shouldPollStatus', () => {
+  it('polls while a download or build is in flight, even with no run pending', () => {
+    expect(shouldPollStatus(st('downloading'))).toBe(true);
+    expect(shouldPollStatus(st('building'))).toBe(true);
+    for (const s of ['ready', 'error', 'absent', 'not_built'] as Sam3ModelState[]) {
+      expect(shouldPollStatus(st(s))).toBe(false);
+    }
+    expect(shouldPollStatus(null)).toBe(false);
   });
 });
 

@@ -48,6 +48,8 @@ import { neighborFrameIds } from '../data/labelQueue';
 import { SegmentCancelled, SegmentRunError } from '../data/sam3Provisioning';
 import {
   buildRequestPrompts,
+  clampNeighborCount,
+  NEIGHBOR_MAX,
   pointBox,
   resourceBlockReason,
   geometryHint,
@@ -115,7 +117,13 @@ export function SegmenteringPage() {
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [prompts, setPrompts] = useState<SegPrompt[]>([]);
   const [confidence, setConfidence] = useState(0.5);
-  const [running, setRunning] = useState(false);
+  // The frame a run is in flight for (one at a time), or null.
+  const [runningFrame, setRunningFrame] = useState<number | null>(null);
+  const running = runningFrame !== null;
+  // The frame on screen now, for a run that resolves after the user moved on.
+  const currentFrame = useRef(frameId);
+  currentFrame.current = frameId;
+  const [touchDraw, setTouchDraw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<RunOutcome | null>(null);
   const [mask, setMask] = useState<LabelImage | null>(null);
@@ -152,7 +160,7 @@ export function SegmenteringPage() {
     if (!at) return;
     setPrompts((current) => [
       ...current,
-      { id: newPromptId(), text: '', box: pointBox(at.x, at.y, size.width, size.height), point: true },
+      { id: newPromptId(), text: '', box: pointBox(at.x, at.y, size.width, size.height), point: true, at: [at.x, at.y] },
     ]);
   }, [frameId, query.seed, size, frame.data]);
 
@@ -170,42 +178,50 @@ export function SegmenteringPage() {
     [outcome, counts],
   );
 
-  const addDrawn = useCallback((box: ImageBox, point: boolean) => {
-    setPrompts((current) => [...current, { id: newPromptId(), text: '', box, point }]);
+  const addDrawn = useCallback((box: ImageBox, at: [number, number] | null) => {
+    setPrompts((current) => [
+      ...current,
+      at ? { id: newPromptId(), text: '', box, point: true, at } : { id: newPromptId(), text: '', box, point: false },
+    ]);
   }, []);
 
   const run = useCallback(() => {
     if (frameId === null || running) return;
     const { prompts: wire, sent } = buildRequestPrompts(prompts);
     const id = frameId;
-    setRunning(true);
+    setRunningFrame(id);
     setError(null);
     setCreated(null);
+    // A run outlives a frame switch: its result is filed (segmented dot) but
+    // only shown — mask, selection, error — if its frame is still on screen.
+    const stillHere = () => currentFrame.current === id;
     void runQueue.mutate(async () => {
       try {
         const result = await sam3.run(() =>
           api.segmentFrame(id, { prompts: wire.length > 0 ? wire : undefined, confidence, save: true }),
         );
+        if (result.saved) setSegmentedLocal((s) => [...s, id]);
+        if (!stillHere()) return;
         setOutcome({ frameId: id, result, sent });
         // One class: select it, so "Opret ressource" is one click away.
         const reported = new Set([...sent.map((_, i) => i), ...Object.keys(result.labels).map(Number)]);
         setSelected(reported.size === 1 ? [...reported][0] : null);
         setShowMask(true);
         if (result.saved) {
-          setSegmentedLocal((s) => [...s, id]);
           setMask(null);
           setMaskError(null);
           try {
-            setMask(await fetchLabelImage(id, new AbortController().signal));
+            const image = await fetchLabelImage(id, new AbortController().signal);
+            if (stillHere()) setMask(image);
           } catch (e) {
-            setMaskError(e instanceof Error ? e.message : String(e));
+            if (stillHere()) setMaskError(e instanceof Error ? e.message : String(e));
           }
         }
       } catch (e) {
-        if (e instanceof SegmentCancelled) return;
+        if (e instanceof SegmentCancelled || !stillHere()) return;
         setError(e instanceof SegmentRunError ? e.message : errorText(e));
       } finally {
-        setRunning(false);
+        setRunningFrame(null);
       }
     });
   }, [frameId, running, prompts, confidence, runQueue, sam3]);
@@ -332,6 +348,7 @@ export function SegmenteringPage() {
               showMask={showMask}
               selected={selected}
               disabled={running}
+              touchDraw={touchDraw}
             />
           )}
           <Filmstrip ids={ids} current={frameId} segmented={segmented} onSelect={selectFrame} />
@@ -402,6 +419,15 @@ export function SegmenteringPage() {
                   Ryd alle
                 </button>
               )}
+              <button
+                type="button"
+                className={styles.touchOnly}
+                aria-pressed={touchDraw}
+                onClick={() => setTouchDraw((v) => !v)}
+                title="Med en finger: træk en boks på billedet i stedet for at rulle siden"
+              >
+                {touchDraw ? 'Tegn boks: til' : 'Tegn boks'}
+              </button>
             </div>
             <label className={styles.slider}>
               <span>
@@ -425,9 +451,11 @@ export function SegmenteringPage() {
               title="Ctrl/⌘ + Enter"
             >
               {running
-                ? sam3.view.phase === 'preparing' || sam3.view.phase === 'first-run'
-                  ? 'Klargør model…'
-                  : 'Segmenterer…'
+                ? runningFrame !== frameId
+                  ? `Segmenterer billede ${runningFrame}…`
+                  : sam3.view.phase === 'preparing' || sam3.view.phase === 'first-run'
+                    ? 'Klargør model…'
+                    : 'Segmenterer…'
                 : promptCount === 0
                   ? 'Kør med standardklasser'
                   : `Kør segmentering (${promptCount})`}
@@ -533,9 +561,9 @@ export function SegmenteringPage() {
                 <input
                   type="number"
                   min={0}
-                  max={500}
+                  max={NEIGHBOR_MAX}
                   value={before}
-                  onChange={(e) => setBefore(Math.max(0, Number(e.target.value) | 0))}
+                  onChange={(e) => setBefore(clampNeighborCount(e.target.value))}
                 />
               </label>
               <label className={styles.num}>
@@ -543,9 +571,9 @@ export function SegmenteringPage() {
                 <input
                   type="number"
                   min={0}
-                  max={500}
+                  max={NEIGHBOR_MAX}
                   value={after}
-                  onChange={(e) => setAfter(Math.max(0, Number(e.target.value) | 0))}
+                  onChange={(e) => setAfter(clampNeighborCount(e.target.value))}
                 />
               </label>
               <button type="button" className={styles.ghost} onClick={enqueue} disabled={frameId === null}>

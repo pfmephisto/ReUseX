@@ -54,6 +54,13 @@
   position: absolute;
   inset: 0;
   cursor: crosshair;
+  /* Touch: one finger still scrolls the page (a scroll cancels the press, so
+     it adds no prompt); a tap adds a point. Drawing a box by finger needs the
+     page's draw mode, which switches this layer to .layerDraw. */
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.layerDraw {
   touch-action: none;
 }
 

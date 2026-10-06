@@ -32,8 +32,10 @@ export interface SegPrompt {
   /** Class name; may be empty when `box` is set (sent as SAM3's "visual"). */
   text: string;
   box: ImageBox | null;
-  /** The box is a clicked point's marker (drawn as a dot; sent as `points`, its centre). */
+  /** The box is a clicked point's marker (drawn as a dot; the click itself is `at`). */
   point: boolean;
+  /** The clicked pixel of a point prompt, exactly (the marker box is clamped to the image). */
+  at?: [number, number];
 }
 
 /** The server's text for a box-only prompt (`kGeometryOnlyPromptText`). */
@@ -75,9 +77,19 @@ export function pointBox(u: number, v: number, width: number, height: number, ra
   ];
 }
 
-/** The image pixel a point marker stands for: its centre. */
+/** A point marker's centre — the click, unless the marker was clamped at an edge (prefer `SegPrompt.at`). */
 export function pointOf(box: ImageBox): [number, number] {
   return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+}
+
+/** Upper bound for the Før/Efter neighbour counts ("Tilføj til kø"). */
+export const NEIGHBOR_MAX = 500;
+
+/** A Før/Efter input value as a whole count in 0..NEIGHBOR_MAX (junk → 0). */
+export function clampNeighborCount(raw: string): number {
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(NEIGHBOR_MAX, Math.max(0, n));
 }
 
 /** Two corners in any order → a normalised, clamped, integer box. */
@@ -136,7 +148,7 @@ export function buildRequestPrompts(prompts: readonly SegPrompt[]): {
     const text = p.text.trim();
     if (!text && !p.box) continue; // an empty text-only prompt is nothing
     const prompt: FrameSegmentPrompt = { text };
-    if (p.box && p.point) prompt.points = [pointOf(p.box)];
+    if (p.box && p.point) prompt.points = [p.at ?? pointOf(p.box)];
     else if (p.box) prompt.boxes = [['pos', p.box]];
     out.push(prompt);
     sent.push({ promptId: p.id, text });
@@ -196,13 +208,18 @@ export function resultClasses(
 export function geometryHint(classes: readonly ResultClass[], prompts: readonly SegPrompt[]): string | null {
   const byId = new Map(prompts.map((p) => [p.id, p]));
   const empty = classes.filter((c) => c.promptId !== null && byId.get(c.promptId)?.box && c.pixels === 0);
-  if (empty.some((c) => byId.get(c.promptId!)?.point)) {
-    return 'Punktet ramte intet objekt. Klik midt på objektet, træk en boks om det, eller skriv et klassenavn.';
+  const point = empty.find((c) => byId.get(c.promptId!)?.point);
+  const hit = point ?? empty[0];
+  if (!hit) return null;
+  const name = hit.className;
+  if (point) {
+    return name
+      ? `Punktet ramte ingen ${name}. Klik midt på den, eller træk en boks om den.`
+      : 'Punktet ramte intet objekt. Klik midt på objektet, træk en boks om det, eller skriv et klassenavn.';
   }
-  if (empty.length > 0) {
-    return 'Boksen fandt intet objekt. Træk den tættere om objektet, eller skriv et klassenavn.';
-  }
-  return null;
+  return name
+    ? `Boksen fandt ingen ${name}. Træk den om hele objektet, eller prøv en lavere konfidens.`
+    : 'Boksen fandt intet objekt. Træk den tættere om objektet, eller skriv et klassenavn.';
 }
 
 /** Why "Opret ressource fra markering" cannot run on this frame, or null. */

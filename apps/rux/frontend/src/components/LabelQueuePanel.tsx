@@ -25,11 +25,11 @@
 
 import { useCallback, useRef, useState } from 'react';
 
-import { ApiRequestError, api } from '../api/client';
+import { api } from '../api/client';
 import { useLabelQueue } from '../app/LabelQueueContext';
 import { useSam3 } from '../app/useSam3';
 import type { QueueItem } from '../data/labelQueue';
-import { SegmentCancelled, SegmentRunError } from '../data/sam3Provisioning';
+import { SegmentCancelled, SegmentRunError, stopsQueue } from '../data/sam3Provisioning';
 import { Sam3StatusChip } from './Sam3StatusChip';
 import styles from './LabelQueuePanel.module.css';
 
@@ -221,12 +221,15 @@ function QueueSection() {
       setItemStatus(item.id, 'running');
 
       try {
-        const result = await sam3.run(() =>
-          api.segmentFrame(item.frameId, {
-            prompts: item.prompts.length > 0 ? item.prompts : undefined,
-            confidence: item.confidence,
-            save: true,
-          }),
+        const result = await sam3.run(
+          () =>
+            api.segmentFrame(item.frameId, {
+              prompts: item.prompts.length > 0 ? item.prompts : undefined,
+              confidence: item.confidence,
+              save: true,
+            }),
+          // Cancel also interrupts a (minutes-long) model preparation wait.
+          { isCancelled: () => cancelRef.current },
         );
         setItemStatus(item.id, 'done', { labeledPixels: result.labeled_pixels });
         done++;
@@ -239,9 +242,10 @@ function QueueSection() {
         const message = err instanceof Error ? err.message : String(err);
         setItemStatus(item.id, 'failed', { error: message });
         const cause = err instanceof SegmentRunError ? err.cause : err;
-        // A write lock held by a job, or a model that could not be prepared,
-        // would fail every remaining item the same way: stop here.
-        if (cause instanceof ApiRequestError && (cause.isConflict || cause.status === 500 || cause.isRetryable)) {
+        // A write lock held by a job, a lasting 503, or a model that could not
+        // be prepared would fail every remaining item the same way: stop here.
+        // A per-frame 500 only fails its own item.
+        if (stopsQueue(cause)) {
           setRunError(message);
           break;
         }

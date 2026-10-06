@@ -180,6 +180,23 @@
   font-size: var(--font-size-sm);
 }
 
+/* Touch-only: "Tegn boks" switches a finger drag on the image from scrolling
+   the page to drawing a box. A mouse or pen draws boxes without it. */
+.touchOnly {
+  composes: textBtn;
+}
+
+.touchOnly[aria-pressed='true'] {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-bold);
+}
+
+@media (pointer: fine) {
+  .touchOnly {
+    display: none;
+  }
+}
+
 .slider {
   display: flex;
   flex-direction: column;

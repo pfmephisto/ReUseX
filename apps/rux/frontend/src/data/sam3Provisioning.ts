@@ -114,11 +114,32 @@ export function decideAfterError(
   if (err.status === 503) {
     if (status && PREPARING.has(status.state)) return { kind: 'await-model' };
     if (status?.state === 'error') return { kind: 'fail', message: sam3View(status).message ?? err.message };
-    return busyRetries < maxBusyRetries ? { kind: 'retry-busy' } : { kind: 'fail', message: BUSY_COPY };
+    if (busyRetries < maxBusyRetries) return { kind: 'retry-busy' };
+    // A readable "ready" status pins the 503 on the busy database; with no
+    // readable status the server's own reason is the honest message.
+    return { kind: 'fail', message: status ? BUSY_COPY : err.message };
   }
   // 500 "SAM3 model preparation failed: …" and everything else: the server's
   // own message is the most specific thing to show.
   return { kind: 'fail', message: err.message };
+}
+
+/**
+ * Whether a label-queue item's failure stops the whole queue: only causes that
+ * would fail every remaining frame the same way — a write lock held by a job
+ * (409), a 503 that outlived the busy retries, or a model that could not be
+ * prepared (500 "SAM3 model preparation failed: …"). A per-frame 500 (a DB
+ * read error, an inference exception) only fails its item.
+ */
+export function stopsQueue(cause: unknown): boolean {
+  if (!isHttpFailure(cause)) return false;
+  if (cause.status === 409 || cause.status === 503) return true;
+  return cause.status === 500 && cause.message.includes('SAM3 model preparation failed');
+}
+
+/** Whether the status chip should keep polling with no run pending: a download or build is in flight. */
+export function shouldPollStatus(status: Sam3ModelStatus | null | undefined): boolean {
+  return status?.state === 'downloading' || status?.state === 'building';
 }
 
 /** A run that failed for a reason the user should read. `cause` is the HTTP error, if any. */

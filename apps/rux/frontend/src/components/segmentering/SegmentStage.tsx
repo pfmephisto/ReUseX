@@ -34,7 +34,10 @@ export interface SegmentStageProps {
   /** Palette slot (prompt index) of a prompt, or null when it would not be sent. */
   slotOf: (promptId: string) => number | null;
   paletteSize: number;
-  onDraw: (box: ImageBox, point: boolean) => void;
+  /** A drawn box (`at` null) or a click: its marker box and the exact clicked pixel. */
+  onDraw: (box: ImageBox, at: [number, number] | null) => void;
+  /** Touch draw mode: a finger drag draws a box instead of scrolling the page. */
+  touchDraw?: boolean;
   mask: LabelImage | null;
   showMask: boolean;
   /** Highlighted prompt index in the mask, or null. */
@@ -65,6 +68,7 @@ export function SegmentStage({
   showMask,
   selected,
   disabled,
+  touchDraw = false,
 }: SegmentStageProps) {
   const maskRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -108,11 +112,15 @@ export function SegmentStage({
     const sy = size.height / p.h;
     const moved = Math.abs(p.x - drag.x0) >= CLICK_SLOP || Math.abs(p.y - drag.y0) >= CLICK_SLOP;
     if (!moved) {
-      onDraw(pointBox(drag.x0 * sx, drag.y0 * sy, size.width, size.height), true);
+      const at: [number, number] = [
+        Math.min(size.width - 1, Math.max(0, drag.x0 * sx)),
+        Math.min(size.height - 1, Math.max(0, drag.y0 * sy)),
+      ];
+      onDraw(pointBox(at[0], at[1], size.width, size.height), at);
     } else {
       onDraw(
         cornersToBox({ x: drag.x0 * sx, y: drag.y0 * sy }, { x: p.x * sx, y: p.y * sy }, size.width, size.height),
-        false,
+        null,
       );
     }
   };
@@ -145,11 +153,12 @@ export function SegmentStage({
             const [x1, y1, x2, y2] = p.box;
             const number = slot === null ? '·' : String(slot + 1);
             if (p.point) {
+              const [cx, cy] = p.at ?? [(x1 + x2) / 2, (y1 + y2) / 2];
               return (
                 <span
                   key={p.id}
                   className={styles.point}
-                  style={{ ...colour, left: pct((x1 + x2) / 2, size.width), top: pct((y1 + y2) / 2, size.height) }}
+                  style={{ ...colour, left: pct(cx, size.width), top: pct(cy, size.height) }}
                 >
                   <span className={styles.tag}>{number}</span>
                 </span>
@@ -184,7 +193,7 @@ export function SegmentStage({
         )}
         <div
           ref={layerRef}
-          className={`${styles.layer} ${disabled ? styles.layerDisabled : ''}`}
+          className={`${styles.layer} ${touchDraw ? styles.layerDraw : ''} ${disabled ? styles.layerDisabled : ''}`}
           aria-label="Tegn en boks eller klik et punkt for at tilføje en prompt"
           role="application"
           onPointerDown={onPointerDown}

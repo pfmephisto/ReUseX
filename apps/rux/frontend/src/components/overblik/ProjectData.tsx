@@ -75,7 +75,7 @@ function ProjectDataBody({ summary }: { summary: ProjectSummary }) {
           rows={summary.clouds}
           rowKey={(c) => c.name}
           empty={
-            <EmptyState
+            <EmptyState bare
               title="Ingen punktskyer"
               detail="`rux create clouds` projicerer de importerede dybdebilleder til en samlet punktsky."
             />
@@ -91,7 +91,7 @@ function ProjectDataBody({ summary }: { summary: ProjectSummary }) {
           columns={MESH_COLUMNS}
           rows={summary.meshes}
           rowKey={(m) => m.name}
-          empty={<EmptyState title="Ingen meshes" detail="`rux create mesh` løser cellekomplekset til en lukket flade." />}
+          empty={<EmptyState bare title="Ingen meshes" detail="`rux create mesh` løser cellekomplekset til en lukket flade." />}
         />
       </section>
 
@@ -104,7 +104,7 @@ function ProjectDataBody({ summary }: { summary: ProjectSummary }) {
           rows={types}
           rowKey={(r) => r.type}
           empty={
-            <EmptyState
+            <EmptyState bare
               title="Ingen bygningskomponenter"
               detail="Komponenter dukker op, når rekonstruktionen har klassificeret fladerne."
             />

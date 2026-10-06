@@ -77,11 +77,6 @@ inline constexpr std::string_view kDesignationField = "designation";
 Resource create_resource(ProjectDB &db, int64_t type_id,
                          const std::optional<std::string> &name = std::nullopt);
 
-/// A resource write the project state refuses. The GUI answers 409.
-class ResourceConflictError : public std::runtime_error {
-    public:
-  using std::runtime_error::runtime_error;
-};
 /// Delete a part — manual or instance-backed — in one transaction.
 /// An instance-backed part's instance guid is tombstoned
 /// (ProjectDB::dismiss_instance) so sync_survey does not re-create it, and

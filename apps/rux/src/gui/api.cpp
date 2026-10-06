@@ -617,8 +617,6 @@ void rethrow_as_http_error() {
     throw HttpError(400, e.what());
   } catch (const reusex::core::NameConflictError &e) {
     throw HttpError(409, e.what());
-  } catch (const reusex::core::ResourceConflictError &e) {
-    throw HttpError(409, e.what());
   } catch (const std::out_of_range &e) {
     throw HttpError(404, e.what());
   } catch (const std::invalid_argument &e) {

@@ -8,7 +8,7 @@
 // 2026-10-02-resources-templates-ia-design.md §4.4, §5.5, §6.3). Thin: each
 // parses, calls one reusex::core function, and maps its exceptions through
 // map_library_errors (gui/api.hpp) — KeyValueError/invalid_argument 400,
-// out_of_range 404, NameConflictError and ResourceConflictError 409.
+// out_of_range 404, NameConflictError 409.
 
 #include "gui/api.hpp"
 

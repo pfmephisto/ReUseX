@@ -104,8 +104,7 @@ class HttpError : public std::runtime_error {
 /// Translate the exception in flight into the documented HTTP status — the
 /// ONE mapping every resources/templates handler shares:
 /// core::KeyValueError and std::invalid_argument -> 400, std::out_of_range
-/// -> 404, core::NameConflictError and core::ResourceConflictError (an
-/// instance-backed resource) -> 409. HttpError and anything else are
+/// -> 404, core::NameConflictError -> 409. HttpError and anything else are
 /// rethrown unchanged. Call only from inside a catch block.
 [[noreturn]] void rethrow_as_http_error();
 

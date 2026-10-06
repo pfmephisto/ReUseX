@@ -7,6 +7,7 @@ import { useState } from 'react';
 import type { SegmentResourceRequest, SurveyType } from '../../api/types';
 import {
   defaultTypeChoice,
+  effectiveTypeChoice,
   newTypeLabel,
   resourceRequest,
   selectableTypes,
@@ -22,6 +23,8 @@ export interface ResourceDialogProps {
   types: SurveyType[] | null;
   /** `labels` cloud definitions (id → name), to preselect the type the server would use. */
   labelNames: Record<string, string> | null;
+  /** The run's `mask_revision`, echoed so the server refuses a mask overwritten since. */
+  maskRevision: string | null;
   busy: boolean;
   error: string | null;
   onCancel: () => void;
@@ -34,15 +37,16 @@ export interface ResourceDialogProps {
  * an existing type or a new one named after the class. "Ny type" is offered
  * only when the server would really create one (see `defaultTypeChoice`).
  */
-export function ResourceDialog({ cls, types, labelNames, busy, error, onCancel, onSubmit }: ResourceDialogProps) {
+export function ResourceDialog({ cls, types, labelNames, maskRevision, busy, error, onCancel, onSubmit }: ResourceDialogProps) {
   const [className, setClassName] = useState(cls.className);
   const [picked, setPicked] = useState<TypeChoice | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const options = selectableTypes(types ?? []);
   const automatic = defaultTypeChoice(types ?? [], className, labelNames);
-  // Until the user picks, follow the class name as they type it.
-  const choice: TypeChoice = picked !== null && (picked !== 'new' || automatic === 'new') ? picked : automatic;
+  // Until the user picks, follow the class name as they type it. Always a
+  // rendered option, so the select shows exactly what is submitted.
+  const choice: TypeChoice = effectiveTypeChoice(picked, automatic, options);
 
   function submit() {
     if (busy) return;
@@ -50,7 +54,7 @@ export function ResourceDialog({ cls, types, labelNames, busy, error, onCancel, 
       setLocalError('Giv markeringen et klassenavn, fx “dør”.');
       return;
     }
-    onSubmit(resourceRequest(cls.index, className, choice));
+    onSubmit(resourceRequest(cls.index, className, choice, maskRevision));
   }
 
   return (

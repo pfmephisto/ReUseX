@@ -728,6 +728,14 @@ export interface FrameSegmentResult {
    * built-in default list was used.
    */
   labels: Record<string, string>;
+  /**
+   * True when box/point prompts reached SAM3's geometry encoder; false when
+   * none were sent or they were only clipped to (ONNX, text-only engines).
+   * Absent from an older server.
+   */
+  geometry_prompts_used?: boolean;
+  /** Fingerprint of the saved mask; null when not saved. Echo it in `SegmentResourceRequest`. */
+  mask_revision?: string | null;
 }
 
 /** Provisioning state of the managed SAM3 model. */
@@ -742,6 +750,12 @@ export interface Sam3ModelStatus {
   use_cuda: boolean;
   /** Set when `state` is `ready`. */
   model_path?: string;
+  /**
+   * In `not_built`: engines built from an older recipe that the next
+   * preparation rebuilds, when that is all it needs (a one-time update, no
+   * download). Empty or absent for a first-time download/build.
+   */
+  update_engines?: string[];
 }
 
 /** Body of `POST /frames/{id}/segment/resource`. */
@@ -750,8 +764,10 @@ export interface SegmentResourceRequest {
   mask_label: number;
   /** Semantic class name; trimmed by the server, must not be blank. */
   class_name: string;
-  /** Survey type for the new part; omitted/null ⟹ chosen by class. */
+  /** Survey type for the new part; omitted/null ⟹ chosen by class. Never a rejected type (422). */
   type_id?: number | null;
+  /** The run's `mask_revision`; a mask overwritten since is refused with 409. */
+  mask_revision?: string | null;
 }
 
 /** `201` response of `POST /frames/{id}/segment/resource`. */

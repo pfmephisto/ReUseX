@@ -1124,6 +1124,23 @@ paths:
                       from the request `prompts`; empty when the model default
                       list was used.
                     additionalProperties: { type: string }
+                  geometry_prompts_used:
+                    type: boolean
+                    description: |
+                      True when at least one prompt carried a box or point and
+                      that geometry reached SAM3's geometry encoder. False
+                      when no prompt had geometry, or when it could not reach
+                      the model (ONNX backend, text-only TensorRT engines, a
+                      geometry path that failed at run time) and the boxed
+                      prompts were clipped to their boxes instead — a client
+                      that sent geometry can say so.
+                  mask_revision:
+                    type: [string, "null"]
+                    description: |
+                      Fingerprint of the saved segmentation (16 hex digits);
+                      null when `saved` is false. Echo it in
+                      `POST /frames/{id}/segment/resource` to refuse a mask
+                      that was overwritten since this run.
         "400":
           description: |
             `model_path` omitted on a server with no managed SAM3 model,
@@ -1185,6 +1202,10 @@ paths:
           `type_id` when given, else the survey type `POST /survey/sync` uses
           for this class, else a type named `class_name` (created when
           absent). `POST /survey/sync` will not add a second part for it.
+          Rejected (`review_status: rejected`, Afvist) types never take a new
+          part: the automatic choice skips them and, when only a rejected
+          type matches, creates a new type instead of reviving it; an
+          explicit `type_id` naming a rejected type is a 422.
 
         A `pipeline_log` row with stage `segment_resource` records the run.
         On success the server broadcasts a `clouds.changed` WebSocket message
@@ -1216,7 +1237,14 @@ paths:
                   type: [integer, "null"]
                   description: |
                     Survey type for the new part. Omitted or null ⟹ chosen
-                    as described above.
+                    as described above. Must not be a rejected type.
+                mask_revision:
+                  type: [string, "null"]
+                  description: |
+                    The `mask_revision` of the segment run the mask came from.
+                    When given and the frame's saved segmentation has changed
+                    since (a label-queue run, another tab), the request is a
+                    409 and nothing is written. Omitted or null ⟹ no check.
       responses:
         "201":
           description: The instance and the survey part were created.
@@ -1253,14 +1281,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "409": { $ref: "#/components/responses/WriteConflict" }
+        "409":
+          description: |
+            Not applied: a pipeline job holds the write lock (retry once it
+            finishes), or `mask_revision` no longer matches the frame's saved
+            segmentation — message "Segmenteringen er ændret — kør igen." —
+            so the mask must be segmented again before it can be filed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "422":
           description: |
             The frame cannot be turned into a resource: it has no saved
             segmentation, `mask_label` has no pixels in it, the frame has no
             stored pose or no depth image, the project has no `cloud`, the
-            mask covers no visible point, or the label clouds are out of sync
-            with `cloud`. Nothing was written.
+            mask covers no visible point, the label clouds are out of sync
+            with `cloud`, or `type_id` names a rejected survey type. Nothing
+            was written.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1513,6 +1550,9 @@ paths:
         * `absent` — the ONNX bundle is not on disk and nothing has started.
         * `not_built` — the ONNX bundle is present but the device-specific
           TensorRT engines have not been built, and no build is running.
+          When `update_engines` is non-empty the engines are all there and
+          only those were built from an older engine recipe: a one-time
+          rebuild of those engines, with no download.
         * `downloading` / `building` — preparation is in progress.
         * `ready` — loadable; `model_path` is set.
         * `error` — the last preparation attempt failed (see `message`); the
@@ -1546,6 +1586,14 @@ paths:
                   model_path:
                     type: string
                     description: Directory the segmenter loads; only when `ready`.
+                  update_engines:
+                    type: array
+                    items: { type: string }
+                    description: |
+                      In `not_built`: the engines (e.g. `decoder`,
+                      `geometry-encoder`) the next preparation rebuilds for a
+                      newer engine recipe, when that is all it has to do.
+                      Empty for a first-time download or build.
         "500":
           description: The status probe itself failed.
           content:

@@ -21,6 +21,18 @@
 import type { Sam3ModelState, Sam3ModelStatus } from '../api/types';
 
 export const FIRST_RUN_COPY = 'Første kørsel henter og bygger modellen (kan tage flere minutter).';
+
+const COUNT_WORDS = ['', 'én', 'to', 'tre', 'fire'];
+
+/**
+ * An install whose engines predate the current engine recipe: the next run
+ * rebuilds just those engines once (no download), not the whole model.
+ */
+export function updateCopy(engines: number): string {
+  const n = COUNT_WORDS[engines] ?? String(engines);
+  const what = engines === 1 ? `${n} motor` : `${n} motorer`;
+  return `Engangsopdatering: næste kørsel bygger ${what} om, så bokse og punkter når modellen (ingen download, et par minutter).`;
+}
 export const CONFLICT_COPY =
   'Et pipeline-job kører og holder skrivelåsen. Vent til det er færdigt, og prøv igen.';
 export const BUSY_COPY = 'Projektdatabasen er optaget af en anden skrivning. Prøv igen om lidt.';
@@ -61,8 +73,13 @@ export function sam3View(status: Sam3ModelStatus | null | undefined): Sam3View {
   switch (status.state) {
     case 'ready':
       return { phase: 'ready', label, message: null, progress: null };
+    case 'not_built': {
+      const update = status.update_engines ?? [];
+      if (update.length > 0)
+        return { phase: 'first-run', label: 'Model skal opdateres', message: updateCopy(update.length), progress: null };
+      return { phase: 'first-run', label, message: FIRST_RUN_COPY, progress: null };
+    }
     case 'absent':
-    case 'not_built':
       return { phase: 'first-run', label, message: FIRST_RUN_COPY, progress: null };
     case 'downloading':
     case 'building': {

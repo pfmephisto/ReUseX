@@ -25,7 +25,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { ApiRequestError, api } from '../api/client';
-import type { FrameSegmentResult, SegmentResourceRequest, SegmentResourceResult, SurveyType } from '../api/types';
+import type {
+  FrameSegmentPrompt,
+  FrameSegmentResult,
+  SegmentResourceRequest,
+  SegmentResourceResult,
+  SurveyType,
+} from '../api/types';
 import { useJobs } from '../app/JobsContext';
 import { useLabelQueue } from '../app/LabelQueueContext';
 import { isField } from '../app/keyTargets';
@@ -54,6 +60,7 @@ import {
   pointBox,
   resourceBlockReason,
   geometryHint,
+  geometryNotice,
   resultClasses,
   seedToImage,
   segmentKeyAction,
@@ -73,6 +80,8 @@ interface RunOutcome {
   frameId: number;
   result: FrameSegmentResult;
   sent: SentPrompt[];
+  /** The prompts as sent, to tell whether boxes/points were among them. */
+  wire: FrameSegmentPrompt[];
 }
 
 async function fetchLabelImage(frameId: number, signal: AbortSignal): Promise<LabelImage> {
@@ -203,7 +212,7 @@ export function SegmenteringPage() {
         );
         if (result.saved) setSegmentedLocal((s) => [...s, id]);
         if (!stillHere()) return;
-        setOutcome({ frameId: id, result, sent });
+        setOutcome({ frameId: id, result, sent, wire });
         // One class: select it, so "Opret ressource" is one click away.
         const reported = new Set([...sent.map((_, i) => i), ...Object.keys(result.labels).map(Number)]);
         setSelected(reported.size === 1 ? [...reported][0] : null);
@@ -321,7 +330,10 @@ export function SegmenteringPage() {
   const promptCount = slots.size;
   const queueCount = frameId === null ? 0 : neighborFrameIds(ids, frameId, before, after).length;
   const resultIsCurrent = outcome !== null && outcome.frameId === frameId;
-  const drawnHint = geometryHint(classes, prompts);
+  // When the geometry never reached SAM3, "it found nothing there" would be
+  // the wrong explanation: say that instead.
+  const notice = outcome ? geometryNotice(outcome.result, outcome.wire) : null;
+  const drawnHint = notice ?? geometryHint(classes, prompts);
 
   return (
     <div className={styles.page}>
@@ -602,6 +614,7 @@ export function SegmenteringPage() {
           cls={dialogFor}
           types={types}
           labelNames={labelNames}
+          maskRevision={outcome?.result.mask_revision ?? null}
           busy={writeQueue.busy}
           error={dialogError}
           onCancel={() => setDialogFor(null)}

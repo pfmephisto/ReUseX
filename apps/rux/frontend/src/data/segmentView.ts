@@ -223,6 +223,19 @@ export function geometryHint(classes: readonly ResultClass[], prompts: readonly 
 }
 
 /**
+ * A quiet note when the run's boxes or points did not reach SAM3 (ONNX
+ * backend, text-only engines, a geometry path that failed): the detections
+ * were then only clipped to the boxes, so a click can come back empty for a
+ * reason the user cannot see otherwise. Null when no prompt carried geometry,
+ * when it reached the model, or when the server did not say (older server).
+ */
+export function geometryNotice(result: FrameSegmentResult, sent: readonly FrameSegmentPrompt[]): string | null {
+  const hadGeometry = sent.some((p) => (p.boxes?.length ?? 0) > 0 || (p.points?.length ?? 0) > 0);
+  if (!hadGeometry || result.geometry_prompts_used !== false) return null;
+  return 'Bokse og punkter nåede ikke modellen her, så fundene er kun beskåret til boksene. Skriv et klassenavn for et sikrere resultat.';
+}
+
+/**
  * The toast for a run that failed after the user moved to another frame: the
  * page no longer shows that frame's error line, so the failure is named here.
  */
@@ -286,8 +299,10 @@ export function selectableTypes(types: readonly SurveyType[]): SurveyType[] {
  * `'new'` when it would create one — mirroring `core::apply_mask_selection`:
  * an existing class (by exact name in the `labels` definitions, ids >= 1)
  * with a type of that `semantic_class`, else a type named exactly like the
- * class. The dialog preselects it and offers "Ny type" only when it is
- * `'new'`, so the option never promises a type the server would not create.
+ * class. Rejected (Afvist) types are skipped by both matches, as on the
+ * server: when only a rejected type matches, a new type is created. The
+ * dialog preselects it and offers "Ny type" only when it is `'new'`, so the
+ * option never promises a type the server would not create.
  */
 export function defaultTypeChoice(
   types: readonly SurveyType[],
@@ -296,13 +311,31 @@ export function defaultTypeChoice(
 ): TypeChoice {
   const name = className.trim();
   if (!name) return 'new';
+  const live = types.filter((t) => t.review_status !== 'rejected');
   for (const [id, label] of Object.entries(labelNames ?? {})) {
     if (Number(id) < 1 || label !== name) continue;
-    const bySemantic = types.find((t) => t.semantic_class === Number(id));
+    const bySemantic = live.find((t) => t.semantic_class === Number(id));
     if (bySemantic) return bySemantic.id;
   }
-  const byName = types.find((t) => t.name === name);
+  const byName = live.find((t) => t.name === name);
   return byName ? byName.id : 'new';
+}
+
+/**
+ * What the dialog's type `<select>` shows *and* submits: the user's pick
+ * while it is one of the rendered options, else the automatic choice — and
+ * never a value without an option (a browser would show the first option
+ * while the form sent the hidden value). "Ny type" is rendered only when
+ * `automatic` is `'new'`; `options` are the selectable types.
+ */
+export function effectiveTypeChoice(
+  picked: TypeChoice | null,
+  automatic: TypeChoice,
+  options: readonly SurveyType[],
+): TypeChoice {
+  const rendered = (c: TypeChoice) => (c === 'new' ? automatic === 'new' : options.some((t) => t.id === c));
+  if (picked !== null && rendered(picked)) return picked;
+  return rendered(automatic) ? automatic : 'new';
 }
 
 export function newTypeLabel(className: string): string {
@@ -310,9 +343,20 @@ export function newTypeLabel(className: string): string {
   return name ? `Ny type: ${name}` : 'Ny type (navngiv klassen)';
 }
 
-export function resourceRequest(maskLabel: number, className: string, choice: TypeChoice): SegmentResourceRequest {
+/**
+ * The resource request. `maskRevision` is the run's `mask_revision`: the
+ * server refuses (409) a mask that was overwritten since, e.g. by the label
+ * queue, instead of filing pixels the user never saw.
+ */
+export function resourceRequest(
+  maskLabel: number,
+  className: string,
+  choice: TypeChoice,
+  maskRevision?: string | null,
+): SegmentResourceRequest {
   const request: SegmentResourceRequest = { mask_label: maskLabel, class_name: className.trim() };
   if (choice !== 'new') request.type_id = choice;
+  if (maskRevision) request.mask_revision = maskRevision;
   return request;
 }
 

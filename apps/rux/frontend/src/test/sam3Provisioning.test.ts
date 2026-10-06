@@ -16,6 +16,7 @@ import {
   stopsQueue,
   runWithProvisioning,
   sam3View,
+  updateCopy,
 } from '../data/sam3Provisioning';
 
 const st = (state: Sam3ModelState, progress = 0, message = ''): Sam3ModelStatus => ({
@@ -40,6 +41,20 @@ describe('sam3View', () => {
     });
     expect(sam3View(st('building', 2, ''))).toMatchObject({ phase: 'preparing', progress: 1 });
     expect(sam3View(st('error', 0, 'disk full'))).toMatchObject({ phase: 'error', message: 'disk full' });
+  });
+
+  it('tells a one-time engine update from a first-time download and build', () => {
+    const update = { ...st('not_built'), update_engines: ['decoder', 'geometry-encoder'] };
+    const view = sam3View(update);
+    expect(view.phase).toBe('first-run'); // a run still waits it out
+    expect(view.label).toBe('Model skal opdateres');
+    expect(view.message).toBe(updateCopy(2));
+    expect(view.message).not.toBe(FIRST_RUN_COPY);
+    expect(updateCopy(2)).toMatch(/to motorer/);
+    expect(updateCopy(1)).toMatch(/én motor /);
+    expect(updateCopy(2)).toMatch(/ingen download/);
+    // Empty list: a first-time build.
+    expect(sam3View({ ...st('not_built'), update_engines: [] }).message).toBe(FIRST_RUN_COPY);
   });
 });
 

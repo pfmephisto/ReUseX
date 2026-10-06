@@ -4,15 +4,17 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { FrameInfo, SurveyType } from '../api/types';
+import type { FrameInfo, FrameSegmentPrompt, FrameSegmentResult, SurveyType } from '../api/types';
 import {
   buildRequestPrompts,
   clampNeighborCount,
   NEIGHBOR_MAX,
   cornersToBox,
   defaultTypeChoice,
+  effectiveTypeChoice,
   filmstripWindow,
   geometryHint,
+  geometryNotice,
   maskRgba,
   newTypeLabel,
   offscreenRunError,
@@ -160,9 +162,62 @@ describe('resource dialog', () => {
     expect(newTypeLabel(' radiator ')).toBe('Ny type: radiator');
   });
 
+  it('never preselects a rejected type: it creates a new one, as the server does', () => {
+    const labels = { '9': 'spam' };
+    // By semantic class (9) and by name ("Spam"), only the rejected type 3 matches.
+    expect(defaultTypeChoice(types, 'spam', labels)).toBe('new');
+    expect(defaultTypeChoice(types, 'Spam', null)).toBe('new');
+    // A rejected match by class falls through to a live type by name.
+    const both = [...types, type(4, 'spam', 2)];
+    expect(defaultTypeChoice(both, 'spam', labels)).toBe(4);
+  });
+
+  it('shows the type it submits: the choice is always a rendered option', () => {
+    const options = selectableTypes(types);
+    // Untouched: follows the automatic choice.
+    expect(effectiveTypeChoice(null, 2, options)).toBe(2);
+    expect(effectiveTypeChoice(null, 'new', options)).toBe('new');
+    // A pick wins while it is on offer.
+    expect(effectiveTypeChoice(1, 'new', options)).toBe(1);
+    expect(effectiveTypeChoice('new', 'new', options)).toBe('new');
+    // "Ny type" is only on offer when automatic; otherwise the automatic type.
+    expect(effectiveTypeChoice('new', 2, options)).toBe(2);
+    // A pick (or an automatic id) that is not rendered — rejected, deleted —
+    // never reaches the request.
+    expect(effectiveTypeChoice(3, 'new', options)).toBe('new');
+    expect(effectiveTypeChoice(3, 2, options)).toBe(2);
+    expect(effectiveTypeChoice(null, 3, options)).toBe('new');
+  });
+
   it('builds the request, omitting type_id for a new type', () => {
     expect(resourceRequest(1, ' door ', 'new')).toEqual({ mask_label: 1, class_name: 'door' });
     expect(resourceRequest(0, 'door', 2)).toEqual({ mask_label: 0, class_name: 'door', type_id: 2 });
+  });
+
+  it('echoes the run mask revision so a stale mask is refused', () => {
+    expect(resourceRequest(0, 'door', 'new', 'abc')).toEqual({ mask_label: 0, class_name: 'door', mask_revision: 'abc' });
+    expect(resourceRequest(0, 'door', 'new', null)).toEqual({ mask_label: 0, class_name: 'door' });
+  });
+});
+
+describe('geometryNotice', () => {
+  const result = (geometry: boolean) =>
+    ({ frame_id: 1, labeled_pixels: 0, saved: true, labels: {}, geometry_prompts_used: geometry, mask_revision: 'r' }) as FrameSegmentResult;
+  const box = { prompts: [{ text: '', boxes: [['pos', [0, 0, 4, 4]]] }] } as { prompts: FrameSegmentPrompt[] };
+  const point = { prompts: [{ text: 'dør', points: [[2, 2]] }] } as { prompts: FrameSegmentPrompt[] };
+  const text = { prompts: [{ text: 'dør' }] } as { prompts: FrameSegmentPrompt[] };
+
+  it('is quiet unless geometry was sent and did not reach the model', () => {
+    expect(geometryNotice(result(true), box.prompts)).toBeNull();
+    expect(geometryNotice(result(false), text.prompts)).toBeNull();
+    expect(geometryNotice(result(false), [])).toBeNull();
+    expect(geometryNotice(result(false), box.prompts)).toMatch(/nåede ikke modellen/);
+    expect(geometryNotice(result(false), point.prompts)).toMatch(/nåede ikke modellen/);
+  });
+
+  it('treats an older server without the field as "used" (no false alarm)', () => {
+    const old = { frame_id: 1, labeled_pixels: 0, saved: true, labels: {} } as FrameSegmentResult;
+    expect(geometryNotice(old, box.prompts)).toBeNull();
   });
 });
 

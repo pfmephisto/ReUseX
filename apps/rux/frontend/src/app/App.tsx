@@ -12,12 +12,10 @@ import {
   KORTLAEGNING_PATH,
   MILJOE_PATH,
   OVERBLIK_PATH,
-  PROJEKTDATA_PATH,
   RAPPORT_PATH,
   SKABELONER_PATH,
 } from './links';
 import { ALL_CASES_PATH, REDIRECTS } from './navigation';
-import { Dashboard } from '../routes/Dashboard';
 import { LabelsPage } from '../routes/DataPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
@@ -77,7 +75,6 @@ function RoutedContent() {
         <Routes>
           <Route path={ALL_CASES_PATH} element={<SagerPage />} />
           <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
-          <Route path={PROJEKTDATA_PATH} element={<Dashboard />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />

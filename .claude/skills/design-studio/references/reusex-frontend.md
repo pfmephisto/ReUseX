@@ -74,8 +74,8 @@ apps/rux/frontend/src/
 ├── sager/        Pure module for Sager: model.ts (case status, card stats and
 │                 text, the open-another command)
 ├── pipeline/     Pure stage-runner logic (stageModel, params, history)
-├── routes/       Page compositions: OverblikPage, Dashboard (now at
-│                 `/projektdata`), ViewportPage, PipelinePage,
+├── routes/       Page compositions: OverblikPage (its foot holds the
+│                 Projektdata inventory), ViewportPage, PipelinePage,
 │                 PipelineLogPage, GraphViewPage, FramesPage, DataPage,
 │                 GeometryPage, InstancesPage,
 │                 KortlaegningPage, MiljoePage, RapportPage, IndberetningPage,

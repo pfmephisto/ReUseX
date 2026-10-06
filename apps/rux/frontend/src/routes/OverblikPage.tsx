@@ -19,6 +19,7 @@ import { Spinner } from '../components/Spinner';
 import { Toast } from '../components/Toast';
 import { CaseHero } from '../components/overblik/CaseHero';
 import { KpiRow } from '../components/overblik/KpiRow';
+import { ProjectData } from '../components/overblik/ProjectData';
 import { ProjectMetaForm } from '../components/overblik/ProjectMetaForm';
 import { QuickLinks } from '../components/overblik/QuickLinks';
 import {
@@ -36,8 +37,9 @@ import styles from './OverblikPage.module.css';
 
 /**
  * Overblik — the case dashboard and the app's landing route: the case hero
- * with an in-place editor for its details, the KPI row, the circularity bar
- * and a link to each case screen with what waits there.
+ * with an in-place editor for its details, the KPI row, the circularity bar,
+ * a link to each case screen with what waits there, and — closed, at the
+ * foot — the technical Projektdata inventory (spec A2).
  *
  * Four reads at mount (project, survey summary, report versions, fractions —
  * the last only for Indberetning's blocking count, so its failure falls back
@@ -156,6 +158,7 @@ export function OverblikPage() {
           fractions.error ? null : fractions.data?.blocking_types,
         )}
       />
+      <ProjectData summary={summary} />
       <Toast message={toast.message} />
     </div>
   );

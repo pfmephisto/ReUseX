@@ -1024,6 +1024,16 @@ paths:
                     description: |
                       A prompt needs a non-empty `text`, at least one box, or
                       both.
+
+                      How boxes are honoured: with the TensorRT backend and a
+                      `geometry-encoder.engine` (the managed model builds
+                      one), boxes go to SAM3. The ONNX backend, and TensorRT
+                      without that engine, cannot feed boxes to the model;
+                      the server then clips each boxed prompt's pixels to the
+                      union of its `pos` boxes minus its `neg` boxes (pixels
+                      outside become background) and logs a warning once. A
+                      box-only prompt there is a `"visual"` concept search
+                      clipped to the box, so it can come back empty.
                     properties:
                       text:
                         type: string
@@ -1033,7 +1043,8 @@ paths:
                           box: SAM3 then segments what the box encloses, and
                           the prompt is sent to the model as the text
                           `"visual"` — the upstream SAM3 convention for a
-                          geometry-only prompt. Its entry in the response's
+                          geometry-only prompt (`rux create segment-frame`
+                          uses the same text). Its entry in the response's
                           `labels` reads `"visual"`. Without a box an empty
                           text is a 400.
                       boxes:

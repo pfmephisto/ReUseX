@@ -19,13 +19,80 @@
 #endif
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <exception>
 #include <memory>
 #include <span>
 #include <vector>
 
 namespace reusex::vision {
+
+namespace {
+
+bool has_boxes(const std::vector<Sam3Prompt> &prompts) {
+  return std::any_of(prompts.begin(), prompts.end(),
+                     [](const Sam3Prompt &p) { return !p.boxes.empty(); });
+}
+
+/// Clip boxed prompts when the backend ignored the boxes, warning once per
+/// process (every request would repeat the same news).
+void clip_ignored_boxes(cv::Mat &labels, const std::vector<Sam3Prompt> &prompts,
+                        const char *backend) {
+  if (labels.empty() || !has_boxes(prompts))
+    return;
+  static std::atomic<bool> warned{false};
+  if (!warned.exchange(true))
+    reusex::warn("segment_image: the {} backend has no SAM3 geometry encoder, "
+                 "so prompt boxes are not fed to the model; each boxed "
+                 "prompt's detections are clipped to its boxes instead",
+                 backend);
+  const auto cleared = clip_labels_to_prompt_boxes(labels, prompts);
+  reusex::debug("segment_image: clipped {} pixel(s) outside prompt boxes",
+                cleared);
+}
+
+} // namespace
+
+std::size_t
+clip_labels_to_prompt_boxes(cv::Mat &labels,
+                            const std::vector<Sam3Prompt> &prompts) {
+  if (labels.empty() || labels.type() != CV_32SC1)
+    return 0;
+  const cv::Rect image(0, 0, labels.cols, labels.rows);
+  auto to_rect = [&](const std::array<float, 4> &b) {
+    const int x1 = static_cast<int>(std::floor(std::min(b[0], b[2])));
+    const int y1 = static_cast<int>(std::floor(std::min(b[1], b[3])));
+    const int x2 = static_cast<int>(std::ceil(std::max(b[0], b[2])));
+    const int y2 = static_cast<int>(std::ceil(std::max(b[1], b[3])));
+    return cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2)) & image;
+  };
+  std::size_t cleared = 0;
+  for (std::size_t k = 0; k < prompts.size(); ++k) {
+    const auto &boxes = prompts[k].boxes;
+    if (boxes.empty())
+      continue;
+    cv::Mat keep(labels.size(), CV_8UC1, cv::Scalar(0));
+    bool any_pos = false;
+    for (const auto &[polarity, box] : boxes)
+      if (polarity == "pos") {
+        any_pos = true;
+        keep(to_rect(box)).setTo(255);
+      }
+    if (!any_pos)
+      keep.setTo(255);
+    for (const auto &[polarity, box] : boxes)
+      if (polarity == "neg")
+        keep(to_rect(box)).setTo(0);
+    const cv::Mat drop = (labels == static_cast<int>(k)) & (keep == 0);
+    cleared += static_cast<std::size_t>(cv::countNonZero(drop));
+    labels.setTo(-1, drop);
+  }
+  return cleared;
+}
 
 cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
                       const std::vector<Sam3Prompt> &prompts,
@@ -54,6 +121,9 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
     auto data = std::make_unique<TensorRTData>();
     data->image = image_bgr.clone();
     data->confidence_threshold = confidence;
+    // Label k = prompt k (what our callers map labels with), not the
+    // model's per-text cache id that `rux create annotate` relies on.
+    data->label_by_prompt_index = true;
 
     if (!prompts.empty()) {
       data->prompts.clear();
@@ -76,6 +146,9 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
         if (trt && !trt->image.empty()) {
           reusex::debug("segment_image: TRT produced {}x{} label map",
                         trt->image.cols, trt->image.rows);
+          if (!trt->geometry_prompts_used)
+            clip_ignored_boxes(trt->image, prompts,
+                               "TensorRT (no geometry-encoder.engine)");
           return trt->image;
         }
       }
@@ -126,6 +199,9 @@ cv::Mat segment_image(IModel &model, const cv::Mat &image_bgr,
       if (onnx_data && !onnx_data->image.empty()) {
         reusex::debug("segment_image: ONNX produced {}x{} label map",
                       onnx_data->image.cols, onnx_data->image.rows);
+        // The ONNX path runs text encoder + decoder only; boxes never reach
+        // the model.
+        clip_ignored_boxes(onnx_data->image, prompts, "ONNX Runtime");
         return onnx_data->image;
       }
     }

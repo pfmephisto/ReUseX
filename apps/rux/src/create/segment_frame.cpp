@@ -148,7 +148,10 @@ int run_subcommand_create_segment_frame(
 
     for (const auto &box_spec : opt.boxes) {
       if (prompts.empty())
-        prompts.emplace_back("object"); // implicit label when --text is absent
+        // Geometry-only prompt when --text is absent: the shared SAM3
+        // convention (same text the GUI sends).
+        prompts.emplace_back(
+            std::string(reusex::vision::kGeometryOnlyPromptText));
       try {
         prompts.back().boxes.push_back(parse_box(box_spec));
       } catch (const std::invalid_argument &e) {

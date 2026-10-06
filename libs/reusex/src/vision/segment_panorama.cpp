@@ -59,6 +59,9 @@ cv::Mat segment_panorama(IModel &model, const cv::Mat &equirect_bgr,
     data->image = tiles[i].image;
     data->prompts = prompts;
     data->confidence_threshold = opts.confidence;
+    // Label k = prompt k, the same numbering the ONNX backend and the GUI's
+    // `labels` map use (not the model's per-text cache id).
+    data->label_by_prompt_index = true;
     batch.emplace_back(std::move(data), i);
   }
 

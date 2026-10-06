@@ -366,13 +366,10 @@ struct SegmentFrameRequest {
   std::vector<reusex::vision::Sam3Prompt> prompts;
 };
 
-/// Text sent to SAM3 for a prompt that carries boxes but no class name — the
-/// upstream SAM3 convention for a geometry-only prompt (Meta's
-/// Sam3Processor encodes the text "visual" when only boxes are given, so the
-/// model relies on the geometry). Without it, an empty string would be
-/// tokenized as a real (empty) concept. The response's `labels` entry for
-/// such a prompt reads "visual".
-inline constexpr std::string_view kGeometryOnlyPromptText = "visual";
+/// Text a box-only prompt (empty `text`) is sent to SAM3 as — the shared
+/// geometry-only convention, see reusex::vision::kGeometryOnlyPromptText. The
+/// response's `labels` entry for such a prompt reads "visual".
+using reusex::vision::kGeometryOnlyPromptText;
 
 /// Parse and validate the body of POST /frames/<id>/segment.
 ///

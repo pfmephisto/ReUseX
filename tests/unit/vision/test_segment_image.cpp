@@ -195,6 +195,128 @@ TEST_CASE("SegmentImage_PromptsForwardedToData", "[segment_image][cpu]") {
 }
 
 // ---------------------------------------------------------------------------
+// Label numbering (TRT) and box clipping when the backend ignores boxes
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Sam3LabelValue_PromptIndexOnlyWhenRequested",
+          "[segment_image][cpu]") {
+  // Single-image callers: label = the prompt's position.
+  CHECK(sam3_label_value(true, 0, 5) == 0);
+  CHECK(sam3_label_value(true, 3, 0) == 3);
+  // Annotate dataset (flag off): the backend's per-text cache id, unchanged.
+  CHECK(sam3_label_value(false, 0, 5) == 5);
+  CHECK(sam3_label_value(false, 3, 0) == 0);
+  // No prompt list (index -1): always the cache id.
+  CHECK(sam3_label_value(true, -1, 7) == 7);
+}
+
+TEST_CASE("GeometryOnlyPromptText_IsUpstreamVisual", "[segment_image][cpu]") {
+  CHECK(kGeometryOnlyPromptText == "visual");
+}
+
+TEST_CASE("ClipLabelsToPromptBoxes_PosNegAndUnboxedPrompts",
+          "[segment_image][cpu]") {
+  // Prompt 0 boxed (pos [2,2,6,6] minus neg [4,4,6,6]), prompt 1 unboxed,
+  // prompt 2 neg-only ([0,0,2,2]). Every label covers the whole 8x8 image.
+  const std::vector<Sam3Prompt> prompts{
+      Sam3Prompt(
+          std::string(kGeometryOnlyPromptText),
+          {{"pos", {2.f, 2.f, 6.f, 6.f}}, {"neg", {4.f, 4.f, 6.f, 6.f}}}),
+      Sam3Prompt("wall"), Sam3Prompt("floor", {{"neg", {0.f, 0.f, 2.f, 2.f}}})};
+  for (int label = 0; label < 3; ++label) {
+    INFO("label " << label);
+    cv::Mat labels(8, 8, CV_32S, cv::Scalar(label));
+    const auto cleared = clip_labels_to_prompt_boxes(labels, prompts);
+    if (label == 0) {
+      CHECK(cleared == 64u - (16u - 4u));
+      CHECK(labels.at<int>(2, 2) == 0);  // inside pos
+      CHECK(labels.at<int>(5, 5) == -1); // inside neg
+      CHECK(labels.at<int>(0, 0) == -1); // outside pos
+      CHECK(labels.at<int>(7, 7) == -1);
+    } else if (label == 1) {
+      CHECK(cleared == 0u);
+    } else {
+      CHECK(cleared == 4u);
+      CHECK(labels.at<int>(1, 1) == -1);
+      CHECK(labels.at<int>(3, 3) == 2);
+    }
+  }
+}
+
+TEST_CASE("SegmentImage_TrtInput_AsksForPromptIndexLabels",
+          "[segment_image][cpu]") {
+  struct FlagCapture : IModel {
+    bool saw_trt = false, flag = false;
+    std::vector<IDataset::Pair>
+    forward(const std::span<IDataset::Pair> &input) override {
+      std::vector<IDataset::Pair> out;
+      for (const auto &[item, idx] : input) {
+        if (auto *trt = dynamic_cast<TensorRTData *>(item.get())) {
+          saw_trt = true;
+          flag = trt->label_by_prompt_index;
+          auto res = std::make_unique<TensorRTData>();
+          res->image = cv::Mat(4, 4, CV_32S, cv::Scalar(0));
+          out.emplace_back(std::move(res), idx);
+        } else if (dynamic_cast<ONNXSam3Data *>(item.get())) {
+          auto res = std::make_unique<ONNXSam3Data>();
+          res->image = cv::Mat(4, 4, CV_32S, cv::Scalar(0));
+          out.emplace_back(std::move(res), idx);
+        }
+      }
+      return out;
+    }
+  };
+  FlagCapture model;
+  segment_image(model, cv::Mat(4, 4, CV_8UC3, cv::Scalar(0)),
+                {Sam3Prompt("wall")}, 0.5f);
+  if (!model.saw_trt)
+    SKIP("TensorRT backend not compiled in");
+  CHECK(model.flag);
+  CHECK_FALSE(TensorRTData{}.label_by_prompt_index); // annotate default
+}
+
+TEST_CASE("SegmentImage_BackendWithoutGeometry_ClipsBoxedPrompts",
+          "[segment_image][cpu]") {
+  // The mock reports geometry_prompts_used = false (TRT default) and the ONNX
+  // path never uses boxes, so either way the boxed prompt is clipped.
+  UniversalMockModel model(cv::Mat(8, 8, CV_32S, cv::Scalar(0)));
+  const cv::Mat image(8, 8, CV_8UC3, cv::Scalar(0));
+  const cv::Mat result =
+      segment_image(model, image,
+                    {Sam3Prompt(std::string(kGeometryOnlyPromptText),
+                                {{"pos", {0.f, 0.f, 4.f, 4.f}}})},
+                    0.5f);
+  CHECK(cv::countNonZero(result == 0) == 16);
+  CHECK(result.at<int>(7, 7) == -1);
+}
+
+TEST_CASE("SegmentImage_TrtWithGeometry_DoesNotClip", "[segment_image][cpu]") {
+  struct GeomModel : IModel {
+    bool saw_trt = false;
+    std::vector<IDataset::Pair>
+    forward(const std::span<IDataset::Pair> &input) override {
+      std::vector<IDataset::Pair> out;
+      for (const auto &[item, idx] : input)
+        if (dynamic_cast<TensorRTData *>(item.get())) {
+          saw_trt = true;
+          auto res = std::make_unique<TensorRTData>();
+          res->image = cv::Mat(8, 8, CV_32S, cv::Scalar(0));
+          res->geometry_prompts_used = true;
+          out.emplace_back(std::move(res), idx);
+        }
+      return out;
+    }
+  };
+  GeomModel model;
+  const cv::Mat result = segment_image(
+      model, cv::Mat(8, 8, CV_8UC3, cv::Scalar(0)),
+      {Sam3Prompt("door", {{"pos", {0.f, 0.f, 4.f, 4.f}}})}, 0.5f);
+  if (!model.saw_trt)
+    SKIP("TensorRT backend not compiled in");
+  CHECK(cv::countNonZero(result == 0) == 64);
+}
+
+// ---------------------------------------------------------------------------
 // [gpu] placeholder: real-engine test (skipped without CUDA device / engines)
 // ---------------------------------------------------------------------------
 

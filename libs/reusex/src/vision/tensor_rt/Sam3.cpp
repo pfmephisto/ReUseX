@@ -8,6 +8,7 @@
 #include "vision/common/create_object.hpp"
 #include "vision/common/image.hpp"
 #include "vision/osd/osd.hpp"
+#include "vision/sam3_prompt.hpp"
 #include "vision/tensor_rt/Data.hpp"
 #include "vision/tensor_rt/common/affine.hpp"
 #include "vision/tensor_rt/common/device.hpp"
@@ -275,7 +276,9 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
             (meta.ptr && meta.ptr->confidence >= 0.0f)
                 ? meta.ptr->confidence
                 : tensor_inputs[global_idx]->confidence_threshold;
-        const int label_idx = std::get<2>(text_input_map_[label]);
+        const int label_idx = sam3_label_value(
+            tensor_inputs[global_idx]->label_by_prompt_index, meta.original_idx,
+            std::get<2>(text_input_map_[label]));
 
         // Write result to the corresponding global image index.
         postprocess(results[global_idx], k, meta.image_idx, label, label_idx,
@@ -292,6 +295,7 @@ TensorRTSam3::forward(const std::span<IDataset::Pair> &input) {
                              cv::Scalar(-1));
 
     reusex::vision::osd::make_labled_image(res_ptr->image, results[i]);
+    res_ptr->geometry_prompts_used = !geometry_encoder_path_.empty();
 
     results_img[i] = IDataset::Pair();
     results_img[i].first = std::move(res_ptr);

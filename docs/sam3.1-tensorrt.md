@@ -398,9 +398,21 @@ encoder cannot be **built** from an export because of a shape error
 (`EngineProfileError`: the profile contradicts a baked dim, or the builder's
 errors are about shapes), the C++ builder rebuilds that engine with the v1
 shape (`text_only_fallback`), warns, and lists it under `fallback_engines` in
-the engine dir's `engine-build.json` stamp; the next model preparation retries
-the v2 profile. Any other build failure (out of memory, disk) fails the build
-as before. If the engines build but a geometry batch fails to **run**,
+the engine dir's `engine-build.json` stamp, together with the sha256 of the
+ONNX it failed against (`fallback_onnx_sha256`). The fallback is permanent: a
+later preparation retries the v2 profile only when that ONNX changes (a
+re-export, e.g. via `$REUSEX_SAM3_ONNX_DIR`) or the recipe changes (the engine
+is then stale and rebuilt from scratch) — the failure is a deterministic
+property of the graph against the profile, so retrying it every session would
+only repeat a multi-minute build. sha256 rather than size+mtime, because a copy
+or re-extraction of the same bundle changes the mtime and would cause a
+pointless rebuild; hashing the two affected graphs (~130 MB) costs well under
+a second per preparation. To force a retry anyway, delete
+`<engine-dir>/decoder.engine` (or `geometry-encoder.engine`): it is then
+missing and rebuilt, falling back again if the profile still fails. The build
+warnings name that path. A stamp from before fingerprints existed is retried
+once and then fingerprinted. Any other build failure (out of memory, disk)
+fails the build as before. If the engines build but a geometry batch fails to **run**,
 `TensorRTSam3` re-runs that whole request text-only, and turns geometry off for
 the model only after three such requests in a row. Either way text
 segmentation keeps working.
@@ -824,7 +836,9 @@ stamps existed, the ONNX dir's own `engine-build.json` — with the selected
 recipe, engine by engine. A stale engine counts as missing, so the status
 reads `not_built` and the next segment request rebuilds just those engines in
 place (on a v1 install: `geometry-encoder` and `decoder`, ~2.5 min on an
-RTX 6000 Ada; the fp32 vision encoder is kept).
+RTX 6000 Ada; the fp32 vision encoder is kept). When stale engines are the only
+gap, the status names them in `update_engines`, and the GUI shows a one-time
+update rather than the first-run download-and-build copy.
 
 ### 9.2 Managed model location and cache-key scheme
 

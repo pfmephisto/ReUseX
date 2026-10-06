@@ -125,7 +125,10 @@ background provisioning task and returns HTTP 503 with a message like
 `state` ∈ `{absent, not_built, downloading, building, ready, error}`
 (`not_built`: ONNX present, engines not built, nothing running; `error` is
 retried by the next segment request after a short backoff). When `state` is
-`ready`, the response also includes `"model_path"`.
+`ready`, the response also includes `"model_path"`. `update_engines` lists the
+engines a `not_built` install only has to rebuild for a newer engine recipe
+(e.g. `["decoder", "geometry-encoder"]` on a recipe-v1 install) — a one-time
+update with no download; it is empty for a first-time build.
 
 ### SAM License and ONNX redistribution
 

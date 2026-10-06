@@ -299,7 +299,7 @@ in `pipeline_log` as `segment_resource` but is not a `Stage` and has no
 | Consumes | `cloud`, the frame's `segmentation_images` row, its stored pose, intrinsics and depth image |
 | Produces | `labels` and `instances` (created all-zero when absent, cloud-sized), one `instances` row, label definitions for both, one `survey_parts` row (and a `survey_types` row when needed) |
 | Options  | `MaskProjectionOptions`, `MaskSelectionOptions` (`libs/reusex/include/core/mask_selection.hpp`) |
-| Checks   | frame posed with depth; `labels`/`instances`, when present, index-aligned with `cloud` |
+| Checks   | frame posed with depth; `labels`/`instances`, when present, index-aligned with `cloud`; an explicit `type_id` is not a rejected survey type; an echoed `mask_revision` still matches the saved segmentation |
 
 Existing `instances` rows are updated in place (point counts), never deleted
 and re-inserted, so `instance_materials` links survive. A rewritten `labels`
@@ -307,6 +307,8 @@ or `instances` keeps its original `stage`/`parameters` (e.g. reconstruct's
 `storage_order`); the edit is recorded in `pipeline_log`. A later
 `rux create instances` re-clusters from `labels`; the hand-made instance keeps
 its GUID (and its part's link) only when reconciliation matches it by overlap.
+The part never lands in a rejected (Afvist) type: the automatic type choice
+skips rejected types and creates a new one when only a rejected type matches.
 
 ### `attributes` (`rux create attributes`)
 

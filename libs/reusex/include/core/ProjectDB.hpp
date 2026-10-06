@@ -345,6 +345,18 @@ class ProjectDB {
   /// All instance rows for a cloud, ordered by instance_id.
   std::vector<InstanceRecord> instances(const std::string &cloud_name) const;
 
+  /// Insert one instance row, leaving the cloud's other rows (and their
+  /// `instance_materials` links, which a save_instances() delete cascades
+  /// away) untouched. Nests inside a Transaction. Throws on an empty or
+  /// already-used guid, or an instance_id the cloud already has.
+  void add_instance(const std::string &cloud_name,
+                    const InstanceRecord &record);
+
+  /// Update one instance row's point_count in place (no delete/re-insert).
+  /// @throws std::out_of_range when the cloud has no such instance.
+  void set_instance_point_count(const std::string &cloud_name,
+                                uint32_t instance_id, int point_count);
+
   /// Stable GUID of a single instance.
   /// @throws std::runtime_error if the cloud or instance does not exist.
   std::string instance_guid(const std::string &cloud_name,

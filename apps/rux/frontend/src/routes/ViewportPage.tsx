@@ -6,7 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { api } from '../api/client';
-import type { CloudInfo, FrameVisibilityList, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
+import type { CloudInfo, FrameVisibilityList, VisibleFrame, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
+import { cloudRevision } from '../api/events';
+import { useJobs } from '../app/JobsContext';
+import { segmentHref } from '../app/links';
 import { useAsync } from '../app/useAsync';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { EmptyState } from '../components/EmptyState';
@@ -111,6 +114,17 @@ export function ViewportPage() {
     loading,
     reload,
   } = useAsync<CloudInfo[]>((signal) => api.clouds(signal), []);
+
+  // `clouds.changed` (e.g. a resource made in Segmentering): reload the list
+  // so new label definitions and new label clouds appear; each affected
+  // layer restarts its own stream through `revision` below.
+  const { cloudRevisions } = useJobs();
+  const seenRevisions = useRef(cloudRevisions);
+  useEffect(() => {
+    if (seenRevisions.current === cloudRevisions) return;
+    seenRevisions.current = cloudRevisions;
+    reload();
+  }, [cloudRevisions, reload]);
 
   // Mesh list — metadata only. Blobs stay in the project until switched on.
   const { data: meshes, error: meshError } = useAsync<MeshInfo[]>(
@@ -220,9 +234,11 @@ export function ViewportPage() {
   // Abort any in-flight visibility fetch on unmount (e.g. the user navigates away).
   useEffect(() => () => { visibilityAbortRef.current?.abort(); }, []);
 
+  // A source image opens in Segmentering with the picked point seeded as a
+  // point prompt at the pixel where it projects.
   const handleOpenFrame = useCallback(
-    (frameId: number) => {
-      navigate(`/frames?frame=${frameId}`);
+    (frame: VisibleFrame) => {
+      navigate(segmentHref(frame.frame_id, { u: frame.u, v: frame.v }));
     },
     [navigate],
   );
@@ -412,14 +428,18 @@ export function ViewportPage() {
     () =>
       renderable
         .filter((cloud) => visible[cloud.name] !== undefined)
-        .map((cloud) => ({
-          cloud: cloud.name,
-          visible: geometryHidden ? false : (visible[cloud.name] ?? false),
+        .map((cloud) => {
           // Only the layer the label cloud is length-compatible with gets it.
-          labelCloud:
-            activeLabelCloud && primary?.name === cloud.name ? activeLabelCloud : null,
-        })),
-    [renderable, visible, activeLabelCloud, primary, geometryHidden],
+          const labelCloud =
+            activeLabelCloud && primary?.name === cloud.name ? activeLabelCloud : null;
+          return {
+            cloud: cloud.name,
+            visible: geometryHidden ? false : (visible[cloud.name] ?? false),
+            labelCloud,
+            revision: cloudRevision(cloudRevisions, cloud.name, labelCloud),
+          };
+        }),
+    [renderable, visible, activeLabelCloud, primary, geometryHidden, cloudRevisions],
   );
 
   const handleProgress = useCallback((cloud: string, state: CloudStreamState) => {

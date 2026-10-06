@@ -69,6 +69,11 @@ export interface ViewportLayer {
    * index-aligned with this layer; see `ViewportPage`.
    */
   labelCloud: string | null;
+  /**
+   * Bumped when this layer's cloud or label cloud was rewritten on the
+   * server (`clouds.changed`): the layer is dropped and streamed again.
+   */
+  revision?: number;
 }
 
 export interface ViewportProps {
@@ -598,9 +603,11 @@ function CloudLayerLoader({
   onFirstContent: () => void;
   onProgress?: (cloud: string, state: CloudStreamState) => void;
 }) {
+  const revision = layer.revision ?? 0;
   const state = useCloudStream({
     cloud: layer.cloud,
     labelCloud: layer.labelCloud,
+    revision,
     getCameraState: () => scene.getCameraState(),
     onPage: (buffers, kind) => {
       // The overview goes into a layer of its own so it can be dropped whole
@@ -629,6 +636,17 @@ function CloudLayerLoader({
       scene.removeLayer(overviewLayerId(layer.cloud));
     };
   }, [scene, layer.cloud]);
+
+  // A new revision restarts the stream (above); drop the stale pages first so
+  // the fresh ones replace rather than duplicate them. Runs in the same
+  // commit as the restart, before any new page can have arrived.
+  const mountedRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === mountedRevision.current) return;
+    mountedRevision.current = revision;
+    scene.removeLayer(layer.cloud);
+    scene.removeLayer(overviewLayerId(layer.cloud));
+  }, [scene, layer.cloud, revision]);
 
   return null;
 }

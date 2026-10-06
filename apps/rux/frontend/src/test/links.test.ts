@@ -44,3 +44,22 @@ describe('retired On-site links', () => {
     }
   });
 });
+
+describe('Segmentering links', () => {
+  it('builds /segmentering hrefs with an optional frame and seed pixel', () => {
+    expect(links.SEGMENTERING_PATH).toBe('/segmentering');
+    expect(links.segmentHref()).toBe('/segmentering');
+    expect(links.segmentHref(12)).toBe('/segmentering?frame=12');
+    expect(links.segmentHref(12, { u: 101.6, v: 40.2 })).toBe('/segmentering?frame=12&u=102&v=40');
+  });
+
+  it('parses frame, u and v; u/v only as a non-negative pair', () => {
+    expect(links.parseSegmentQuery('?frame=12&u=102&v=40')).toEqual({ frameId: 12, seed: { u: 102, v: 40 } });
+    expect(links.parseSegmentQuery('?frame=12')).toEqual({ frameId: 12, seed: null });
+    expect(links.parseSegmentQuery('?frame=12&u=5')).toEqual({ frameId: 12, seed: null });
+    expect(links.parseSegmentQuery('?frame=12&u=-1&v=3')).toEqual({ frameId: 12, seed: null });
+    expect(links.parseSegmentQuery('?frame=0&u=1&v=1')).toEqual({ frameId: null, seed: null });
+    expect(links.parseSegmentQuery('?frame=x')).toEqual({ frameId: null, seed: null });
+    expect(links.parseSegmentQuery('?frame=3&u=1.5&v=2.25')).toEqual({ frameId: 3, seed: { u: 1.5, v: 2.25 } });
+  });
+});

@@ -29,7 +29,6 @@ export interface QueueItem {
   id: string;
   frameId: number;
   prompts: FrameSegmentPrompt[];
-  modelPath: string;
   confidence: number;
   status: QueueStatus;
   /** Server error message when status is 'failed'. */
@@ -75,20 +74,18 @@ export function removeLabel(labels: LabelEntry[], id: string): LabelEntry[] {
 
 /**
  * Create one pending queue item per frame ID, sharing the same prompt list and
- * model config. This is what propagating one annotation decision to a range of
+ * confidence. The model is always the server's managed SAM3 model. This is what propagating one annotation decision to a range of
  * frames looks like: N items, one per frame, all with the same prompts.
  */
 export function makeQueueItems(
   frameIds: number[],
   prompts: FrameSegmentPrompt[],
-  modelPath: string,
   confidence: number,
 ): QueueItem[] {
   return frameIds.map((frameId) => ({
     id: `qi-${++_nextItemId}`,
     frameId,
     prompts: [...prompts],
-    modelPath,
     confidence,
     status: 'pending',
   }));
@@ -154,21 +151,31 @@ interface StoredState {
 }
 
 /**
- * Load and repair persisted state.
+ * Parse and repair persisted state (pure; `loadStoredState` adds the storage).
  *
  * 'running' items that never finished (page closed mid-run) are reset to
- * 'pending' so they can be retried.
+ * 'pending' so they can be retried. Items stored before the model path was
+ * removed still carry `modelPath`; it is dropped, not an error.
  */
+export function parseStoredState(raw: string | null): { labels: LabelEntry[]; items: QueueItem[] } {
+  if (!raw) return { labels: [], items: [] };
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredState>;
+    const stored = Array.isArray(parsed.items) ? parsed.items : [];
+    const items = stored.map((entry) => {
+      const { modelPath: _dropped, ...item } = entry as QueueItem & { modelPath?: unknown };
+      return item.status === 'running' ? { ...item, status: 'pending' as QueueStatus } : item;
+    });
+    return { labels: Array.isArray(parsed.labels) ? parsed.labels : [], items };
+  } catch {
+    return { labels: [], items: [] };
+  }
+}
+
 export function loadStoredState(): { labels: LabelEntry[]; items: QueueItem[] } {
   try {
     const store = typeof localStorage !== 'undefined' ? localStorage : null;
-    const raw = store?.getItem(STORAGE_KEY) ?? null;
-    if (!raw) return { labels: [], items: [] };
-    const parsed = JSON.parse(raw) as Partial<StoredState>;
-    const items = ((parsed.items ?? []) as QueueItem[]).map((item) =>
-      item.status === 'running' ? { ...item, status: 'pending' as QueueStatus } : item,
-    );
-    return { labels: parsed.labels ?? [], items };
+    return parseStoredState(store?.getItem(STORAGE_KEY) ?? null);
   } catch {
     return { labels: [], items: [] };
   }

@@ -686,7 +686,11 @@ export type FrameSegmentBox = ['pos' | 'neg', [number, number, number, number]];
 
 /** One SAM3 text + optional box prompt. */
 export interface FrameSegmentPrompt {
-  /** Open-vocabulary class name, e.g. `"wall"`. Required by the contract. */
+  /**
+   * Open-vocabulary class name, e.g. `"wall"`. May be `""` when the prompt
+   * has a box: the server then sends SAM3 the geometry-only text `"visual"`,
+   * and the response's `labels` entry reads `"visual"`.
+   */
   text: string;
   /** Bounding-box hints, each tagged with a polarity. */
   boxes?: FrameSegmentBox[];
@@ -696,8 +700,8 @@ export interface FrameSegmentPrompt {
 
 /** Body of `POST /frames/{id}/segment`. */
 export interface FrameSegmentRequest {
-  /** Server-side filesystem path to a TRT engine directory or `.onnx` file. */
-  model_path: string;
+  // No `model_path`: the GUI always uses the server's managed SAM3 model
+  // (`GET /models/sam3/status`), so the field is deliberately not modelled.
   /** Empty / absent ⟹ use the model's built-in default class list. */
   prompts?: FrameSegmentPrompt[];
   /** Global detection threshold [0, 1]. Default 0.5. */
@@ -724,12 +728,50 @@ export interface FrameSegmentResult {
   labels: Record<string, string>;
 }
 
+/** Provisioning state of the managed SAM3 model. */
+export type Sam3ModelState = 'absent' | 'not_built' | 'downloading' | 'building' | 'ready' | 'error';
+
+/** Body of `GET /models/sam3/status` — a pure probe; it never starts preparation. */
+export interface Sam3ModelStatus {
+  state: Sam3ModelState;
+  /** Best-effort progress within the current phase, 0..1. */
+  progress: number;
+  message: string;
+  use_cuda: boolean;
+  /** Set when `state` is `ready`. */
+  model_path?: string;
+}
+
+/** Body of `POST /frames/{id}/segment/resource`. */
+export interface SegmentResourceRequest {
+  /** Prompt index in the frame's saved segmentation (API encoding, >= 0). */
+  mask_label: number;
+  /** Semantic class name; trimmed by the server, must not be blank. */
+  class_name: string;
+  /** Survey type for the new part; omitted/null ⟹ chosen by class. */
+  type_id?: number | null;
+}
+
+/** `201` response of `POST /frames/{id}/segment/resource`. */
+export interface SegmentResourceResult {
+  resource_code: string;
+  type_id: number;
+  type_created: boolean;
+  instance_id: number;
+  instance_guid: string;
+  point_count: number;
+  /** Class id in `labels` (a CloudL value, >= 1). */
+  label_id: number;
+  label_created: boolean;
+  /** Clouds the call rewrote (`labels`, `instances`). */
+  clouds: string[];
+}
+
 // ------------------------------------------------------- panorama segment ----
 
 /** Body of `POST /panoramas/{id}/segment`. */
 export interface PanoramaSegmentRequest {
-  /** Server-side filesystem path to a TRT engine directory or `.onnx` file. */
-  model_path: string;
+  // No `model_path` — the managed SAM3 model is used (see FrameSegmentRequest).
   /** Text-only prompts; empty / absent ⟹ model's built-in default class list. */
   prompts?: Array<{ text: string; confidence?: number }>;
   /** Global detection threshold [0, 1]. Default 0.5. */
@@ -1185,6 +1227,7 @@ export type EventType =
   | 'job.started'
   | 'job.progress'
   | 'job.finished'
+  | 'clouds.changed'
   | 'error';
 
 /** The `hello` handshake, sent once immediately on connect. */
@@ -1215,7 +1258,29 @@ export interface ErrorEvent {
   error: string;
 }
 
-export type ServerEvent = HelloEvent | JobEvent | ErrorEvent | { type: string };
+/**
+ * Clouds were rewritten outside a pipeline job (e.g. by
+ * `POST /frames/{id}/segment/resource`). Sent to every connection regardless
+ * of `subscribe`; carries no `seq` and no `job`.
+ */
+export interface CloudsChangedEvent {
+  type: 'clouds.changed';
+  timestamp: string;
+  project: string;
+  names: string[];
+}
+
+export type ServerEvent = HelloEvent | JobEvent | ErrorEvent | CloudsChangedEvent | { type: string };
+
+/** Narrowing helper for `clouds.changed`; a malformed `names` is rejected. */
+export function isCloudsChangedEvent(event: ServerEvent): event is CloudsChangedEvent {
+  const names = (event as CloudsChangedEvent).names;
+  return (
+    event.type === 'clouds.changed' &&
+    Array.isArray(names) &&
+    names.every((n) => typeof n === 'string')
+  );
+}
 
 /** Narrowing helper: does this envelope carry a `Job` and a `seq`? */
 export function isJobEvent(event: ServerEvent): event is JobEvent {

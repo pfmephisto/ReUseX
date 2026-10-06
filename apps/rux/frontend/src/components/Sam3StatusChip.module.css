@@ -1,0 +1,71 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chip {
+  composes: pill from './Pill.module.css';
+  align-self: flex-start;
+}
+
+.good {
+  composes: good from './Pill.module.css';
+}
+.warn {
+  composes: warn from './Pill.module.css';
+}
+.wait {
+  composes: wait from './Pill.module.css';
+}
+.crit {
+  composes: crit from './Pill.module.css';
+}
+.accent {
+  composes: accent from './Pill.module.css';
+}
+
+.dot {
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.accent .dot {
+  animation: pulse var(--duration-normal) var(--easing-standard) infinite alternate;
+}
+
+@keyframes pulse {
+  to {
+    opacity: 0.3;
+  }
+}
+
+.bar {
+  display: block;
+  block-size: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  block-size: 100%;
+  background: var(--color-accent);
+  transition: inline-size var(--duration-normal) var(--easing-standard);
+}
+
+.message {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}

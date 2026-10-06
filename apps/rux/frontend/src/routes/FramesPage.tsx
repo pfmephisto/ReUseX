@@ -183,7 +183,6 @@ export function FramesPage() {
         ) : selected !== null ? (
           <FrameDetail
             id={selected}
-            allFrameIds={ids}
             onClose={() => setParam('frame', null)}
           />
         ) : null}

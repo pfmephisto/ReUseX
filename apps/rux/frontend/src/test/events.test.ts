@@ -18,6 +18,8 @@ import { describe, expect, it } from 'vitest';
 import {
   activeJobs,
   applyEvent,
+  bumpCloudRevisions,
+  cloudRevision,
   emptyJobState,
   EventStream,
   jobsNewestFirst,
@@ -503,5 +505,34 @@ describe('EventStream', () => {
     expect(sockets).toHaveLength(0);
     expect(stream.currentState()).toBe(emptyJobState);
     expect(stream.currentStatus()).toBe('closed');
+  });
+});
+
+describe('clouds.changed', () => {
+  const changed = { type: 'clouds.changed', timestamp: 't', project: 'p', names: ['labels', 'instances'] };
+
+  it('notifies onCloudsChanged with the names and leaves the job state alone', () => {
+    const { stream, latest } = harness();
+    const seen: string[][] = [];
+    let jobNotifications = 0;
+    stream.onCloudsChanged((names) => seen.push(names));
+    stream.onState(() => {
+      jobNotifications += 1;
+    });
+    stream.start();
+    latest().deliver(JSON.stringify(changed));
+    latest().deliver(JSON.stringify({ ...changed, names: 'labels' })); // malformed: ignored
+    expect(seen).toEqual([['labels', 'instances']]);
+    expect(jobNotifications).toBe(0);
+  });
+
+  it('bumps only the named clouds; a layer key covers its geometry and labels', () => {
+    let revs = bumpCloudRevisions({}, ['labels']);
+    revs = bumpCloudRevisions(revs, ['labels', 'instances']);
+    expect(revs).toEqual({ labels: 2, instances: 1 });
+    expect(cloudRevision(revs, 'cloud', null)).toBe(0);
+    expect(cloudRevision(revs, 'cloud', 'labels')).toBe(2);
+    expect(cloudRevision(revs, 'instances', 'labels')).toBe(3);
+    expect(bumpCloudRevisions(revs, [])).toBe(revs);
   });
 });

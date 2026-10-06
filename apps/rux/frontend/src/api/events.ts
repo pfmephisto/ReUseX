@@ -23,7 +23,7 @@
  * tested without a server, a socket or a clock.
  */
 
-import { isHelloEvent, isJobEvent, type Job, type ServerEvent } from './types';
+import { isCloudsChangedEvent, isHelloEvent, isJobEvent, type Job, type ServerEvent } from './types';
 
 /** Everything the UI knows about jobs, derived purely from the event stream. */
 export interface JobState {
@@ -104,6 +104,24 @@ export function activeJobs(state: JobState): Job[] {
   );
 }
 
+/**
+ * Per-cloud revision counters, bumped by `clouds.changed`. A stream that
+ * depends on `cloudRevision(revs, cloud, labelCloud)` restarts exactly when
+ * one of its two clouds was rewritten.
+ */
+export type CloudRevisions = Readonly<Record<string, number>>;
+
+export function bumpCloudRevisions(revs: CloudRevisions, names: readonly string[]): CloudRevisions {
+  if (names.length === 0) return revs;
+  const next: Record<string, number> = { ...revs };
+  for (const name of names) next[name] = (next[name] ?? 0) + 1;
+  return next;
+}
+
+export function cloudRevision(revs: CloudRevisions, cloud: string, labelCloud: string | null): number {
+  return (revs[cloud] ?? 0) + (labelCloud ? (revs[labelCloud] ?? 0) : 0);
+}
+
 export type ConnectionStatus = 'connecting' | 'open' | 'closed';
 
 /** Minimal structural type for a WebSocket, so tests can supply a fake. */
@@ -150,6 +168,7 @@ export class EventStream {
 
   private stateListeners = new Set<(state: JobState) => void>();
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
+  private cloudsListeners = new Set<(names: string[]) => void>();
 
   private state: JobState = emptyJobState;
   private status: ConnectionStatus = 'closed';
@@ -178,6 +197,12 @@ export class EventStream {
   onState(listener: (state: JobState) => void): () => void {
     this.stateListeners.add(listener);
     return () => this.stateListeners.delete(listener);
+  }
+
+  /** `clouds.changed`: clouds rewritten outside a job (not part of the job state). */
+  onCloudsChanged(listener: (names: string[]) => void): () => void {
+    this.cloudsListeners.add(listener);
+    return () => this.cloudsListeners.delete(listener);
   }
 
   onStatus(listener: (status: ConnectionStatus) => void): () => void {
@@ -233,6 +258,10 @@ export class EventStream {
       event = JSON.parse(data) as ServerEvent;
     } catch {
       return; // a malformed frame is not worth tearing the connection down for
+    }
+    if (isCloudsChangedEvent(event)) {
+      for (const listener of this.cloudsListeners) listener([...event.names]);
+      return;
     }
     const next = applyEvent(this.state, event);
     if (next === this.state) return;

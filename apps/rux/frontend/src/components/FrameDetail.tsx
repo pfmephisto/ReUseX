@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { api } from '../api/client';
 import type { FrameImageKind, FrameInfo } from '../api/types';
+import { segmentHref } from '../app/links';
 import { useAsync } from '../app/useAsync';
 import { formatFixed, formatText } from '../data/format';
 import {
@@ -15,7 +17,6 @@ import {
   poseTranslation,
 } from '../data/framesModel';
 import { ErrorBanner } from './ErrorBanner';
-import { SegmentPanel } from './SegmentPanel';
 import { Spinner } from './Spinner';
 import styles from './FrameDetail.module.css';
 
@@ -38,16 +39,15 @@ import styles from './FrameDetail.module.css';
  */
 export interface FrameDetailProps {
   id: number;
-  /** All frame IDs in display order; used by SegmentPanel's frame-range enqueue. */
-  allFrameIds?: number[];
   onClose: () => void;
 }
 
-type DetailMode = 'info' | 'segment';
-
-export function FrameDetail({ id, allFrameIds, onClose }: FrameDetailProps) {
+/**
+ * Segmenting a frame happens in the Segmentering view (`/segmentering`),
+ * where the image gets the whole screen; this pane links there.
+ */
+export function FrameDetail({ id, onClose }: FrameDetailProps) {
   const frame = useAsync((signal) => api.frame(id, signal), [id]);
-  const [mode, setMode] = useState<DetailMode>('info');
 
   return (
     <aside className={styles.pane} aria-label={`Sensor frame ${id}`}>
@@ -56,24 +56,9 @@ export function FrameDetail({ id, allFrameIds, onClose }: FrameDetailProps) {
           Frame <span className="mono">{id}</span>
         </h2>
 
-        <div className={styles.tabs} role="group" aria-label="View mode">
-          <button
-            type="button"
-            className={`${styles.tab} ${mode === 'info' ? styles.tabActive : ''}`}
-            aria-pressed={mode === 'info'}
-            onClick={() => setMode('info')}
-          >
-            Info
-          </button>
-          <button
-            type="button"
-            className={`${styles.tab} ${mode === 'segment' ? styles.tabActive : ''}`}
-            aria-pressed={mode === 'segment'}
-            onClick={() => setMode('segment')}
-          >
-            Segment
-          </button>
-        </div>
+        <Link className={styles.segment} to={segmentHref(id)}>
+          Segmentér
+        </Link>
 
         <button type="button" className={styles.close} onClick={onClose}>
           Close
@@ -88,19 +73,8 @@ export function FrameDetail({ id, allFrameIds, onClose }: FrameDetailProps) {
         />
       ) : !frame.data ? (
         <Spinner label="Reading the frame…" />
-      ) : mode === 'info' ? (
-        <FrameBody frame={frame.data} />
       ) : (
-        // key=id remounts SegmentPanel on frame change, resetting all drawing
-        // state without needing an explicit reset effect.
-        <SegmentPanel
-          key={id}
-          frameId={id}
-          allFrameIds={allFrameIds}
-          imageWidth={frame.data.intrinsics?.width}
-          imageHeight={frame.data.intrinsics?.height}
-          onSegmented={frame.reload}
-        />
+        <FrameBody frame={frame.data} />
       )}
     </aside>
   );

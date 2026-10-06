@@ -24,6 +24,7 @@ describe('navigation model', () => {
       'Overblik',
       'Kortlægning',
       'Viewport',
+      'Segmentering',
       'Miljø & prøver',
       'Rapport',
       'Indberetning',

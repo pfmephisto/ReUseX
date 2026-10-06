@@ -49,7 +49,6 @@ export interface LabelQueueContextValue {
   enqueue: (
     frameIds: number[],
     prompts: FrameSegmentPrompt[],
-    modelPath: string,
     confidence: number,
   ) => void;
   dequeue: (id: string) => void;
@@ -90,8 +89,8 @@ export function LabelQueueProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const enqueue = useCallback(
-    (frameIds: number[], prompts: FrameSegmentPrompt[], modelPath: string, confidence: number) => {
-      setItems((prev) => [...prev, ...makeQueueItems(frameIds, prompts, modelPath, confidence)]);
+    (frameIds: number[], prompts: FrameSegmentPrompt[], confidence: number) => {
+      setItems((prev) => [...prev, ...makeQueueItems(frameIds, prompts, confidence)]);
     },
     [],
   );

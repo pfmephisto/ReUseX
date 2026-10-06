@@ -412,7 +412,9 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   materials into **resources** (one passport per survey part) and replaced
   `export_templates` with a `templates` table selecting resource keys by
   category or individually, read via `resource_templates()`
-  (`core/resource_templates.hpp`)
+  (`core/resource_templates.hpp`). Schema v26 adds the tombstone table
+  `survey_dismissed_instances`: a deleted scan-backed survey part's instance
+  guid, which `sync_survey` skips so the part is not re-created
 - Migrating schema; `LATEST_SCHEMA_VERSION` is defined in
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)

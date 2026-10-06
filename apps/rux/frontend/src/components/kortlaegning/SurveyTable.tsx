@@ -2,10 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
-import type { ResourceKey, SurveyType, Template } from '../../api/types';
+import { api } from '../../api/client';
+import type { PartPhotos, ResourceKey, SurveyType, Template } from '../../api/types';
+import { EVIDENCE_LAST_KEY } from '../../kortlaegning/keys';
 import {
   flattenRows,
   sameSelection,
@@ -23,6 +25,7 @@ import {
   type ResourceColumn,
   type ResourceIndex,
 } from '../../kortlaegning/resources';
+import { photoCountText, ROW_THUMB_MAX_SIZE, rowThumbFrame } from '../../kortlaegning/photo';
 import { confidencePercent, formatQuantity, formatTonnes } from '../../kortlaegning/vocab';
 import { ConfidenceBar } from '../ConfidenceBar';
 import { Kbd } from '../Kbd';
@@ -64,13 +67,25 @@ export interface SurveyTableProps {
   onInvalid: (label: string) => void;
   onAddResource: () => void;
   onAddColumn: () => void;
+  /**
+   * Photo count + best frame per part code (`GET /survey/photos`); `null`
+   * until it resolves — the rows render first and fill their thumbnails in.
+   */
+  photos: Readonly<Record<string, PartPhotos>> | null;
 }
 
-const TABS: { id: Tab; label: string }[] = [
+export const TABS: { id: Tab; label: string }[] = [
   { id: 'queue', label: 'Til gennemsyn' },
   { id: 'approved', label: 'Godkendt' },
   { id: 'all', label: 'Alle' },
+  { id: 'rejected', label: 'Afvist' },
 ];
+
+/** The table's empty row: an empty Afvist tab is not a filter miss. */
+export function emptyRowText(tab: Tab, inTab: number): string {
+  if (tab === 'rejected' && inTab === 0) return 'Ingen afviste typer.';
+  return 'Ingen rækker matcher filtrene.';
+}
 
 /**
  * How long a click on the already-selected type row waits before it folds the
@@ -87,6 +102,25 @@ export const TOGGLE_DELAY_MS = 250;
 export function typeRowClick(selected: boolean, detail: number): 'select' | 'toggle' | 'ignore' {
   if (detail > 1) return 'ignore';
   return selected ? 'toggle' : 'select';
+}
+
+/**
+ * A row's small best-frame thumbnail. Without a frame (none found, or the
+ * photo batch not in yet) it is a quiet placeholder of the same size, so the
+ * row never shifts when the batch resolves.
+ */
+function RowThumb({ frameId }: { frameId: number | null }) {
+  const [failed, setFailed] = useState<number | null>(null);
+  if (frameId === null || failed === frameId) return <span className={styles.thumb} aria-hidden="true" />;
+  return (
+    <img
+      className={styles.thumb}
+      src={api.frameImageUrl(frameId, 'color', { maxSize: ROW_THUMB_MAX_SIZE })}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(frameId)}
+    />
+  );
 }
 
 /**
@@ -168,6 +202,7 @@ export function SurveyTable(props: SurveyTableProps) {
     onInvalid,
     onAddResource,
     onAddColumn,
+    photos,
   } = props;
 
   const rows = flattenRows(types, open);
@@ -290,7 +325,7 @@ export function SurveyTable(props: SurveyTableProps) {
         <Kbd>↑</Kbd>
         <Kbd>↓</Kbd> naviger · <Kbd>→</Kbd>
         <Kbd>←</Kbd> fold ud/ind · <Kbd>Enter</Kbd> åbn redigering · <Kbd>G</Kbd> godkend ·{' '}
-        <Kbd>A</Kbd> afvis · <Kbd>V</Kbd> vigtig · <Kbd>1</Kbd>–<Kbd>4</Kbd> evidens ·{' '}
+        <Kbd>A</Kbd> afvis · <Kbd>V</Kbd> vigtig · <Kbd>1</Kbd>–<Kbd>{EVIDENCE_LAST_KEY}</Kbd> evidens ·{' '}
         <Kbd>Esc</Kbd> tilbage
       </div>
 
@@ -319,7 +354,7 @@ export function SurveyTable(props: SurveyTableProps) {
             {rows.length === 0 ? (
               <tr>
                 <td className={styles.emptyRow} colSpan={columns.length + 2}>
-                  Ingen rækker matcher filtrene.
+                  {emptyRowText(tab, counts[tab])}
                 </td>
               </tr>
             ) : (
@@ -370,6 +405,7 @@ export function SurveyTable(props: SurveyTableProps) {
                           >
                             ▸
                           </button>
+                          <RowThumb frameId={rowThumbFrame(type.parts, photos)} />
                           {type.starred && (
                             <span className={styles.star} role="img" aria-label="Vigtig" title="Vigtig">
                               ★
@@ -394,6 +430,8 @@ export function SurveyTable(props: SurveyTableProps) {
                       <td className={styles.stickyEnd}>
                         {type.review_status === 'approved' ? (
                           <Pill tone="good">Godkendt ✓</Pill>
+                        ) : type.review_status === 'rejected' ? (
+                          <Pill tone="wait">Afvist</Pill>
                         ) : (
                           <ConfidenceBar percent={confidencePercent(type.confidence)} />
                         )}
@@ -419,6 +457,7 @@ export function SurveyTable(props: SurveyTableProps) {
                   >
                     <td className={`${styles.stickyStart} ${styles.partTd}`}>
                       <div className={styles.partCell}>
+                        <RowThumb frameId={rowThumbFrame([part], photos)} />
                         {part.starred && (
                           <span className={styles.star} role="img" aria-label="Vigtig" title="Vigtig">
                             ★
@@ -460,7 +499,7 @@ export function SurveyTable(props: SurveyTableProps) {
                       onInvalid={onInvalid}
                       home={tableRef}
                     />
-                    <td className={`${styles.stickyEnd} ${styles.faint}`}>—</td>
+                    <td className={`${styles.stickyEnd} ${styles.faint}`}>{photoCountText(photos?.[part.code])}</td>
                   </tr>
                 );
               })

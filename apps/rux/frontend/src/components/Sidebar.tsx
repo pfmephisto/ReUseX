@@ -2,14 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { MouseEvent, RefObject } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 
 import {
   ALL_CASES_PATH,
   badgeText,
   drawerClickCloses,
   entriesIn,
+  isToolsPath,
+  readToolsChoice,
+  toolsGroupOpen,
+  writeToolsChoice,
   type NavBadge,
   type NavEntry,
 } from '../app/navigation';
@@ -74,6 +78,30 @@ function tagsUpTo(e: MouseEvent<HTMLElement>): string[] {
   return tags;
 }
 
+const TOOLS_NAV_ID = 'sidebar-tools';
+
+/**
+ * Værktøjer's open state (A1): closed by default, the viewer's choice kept in
+ * localStorage, and open on a tools route so the active link is never hidden
+ * — unless the user closes it there, which lasts until the route changes.
+ */
+function useToolsGroup(): [boolean, () => void] {
+  const { pathname } = useLocation();
+  const onToolsRoute = isToolsPath(pathname);
+  const [choice, setChoice] = useState<boolean | null>(() => readToolsChoice());
+  const [closedOn, setClosedOn] = useState<string | null>(null);
+  useEffect(() => setClosedOn(null), [pathname]);
+
+  const open = toolsGroupOpen({ choice, onToolsRoute, closedOnRoute: closedOn === pathname });
+  const toggle = () => {
+    const next = !open;
+    setChoice(next);
+    writeToolsChoice(next);
+    setClosedOn(onToolsRoute && !next ? pathname : null);
+  };
+  return [open, toggle];
+}
+
 /**
  * The navy case sidebar: which project, the case workflow, the technical tools,
  * and the way back to the case list. Below 900px it is a drawer the title
@@ -90,6 +118,7 @@ export function Sidebar({
   themePreference,
   onThemeChange,
 }: SidebarProps) {
+  const [toolsOpen, toggleTools] = useToolsGroup();
   return (
     <aside
       id={id}
@@ -111,8 +140,20 @@ export function Sidebar({
           <Entry key={e.to} entry={e} count={e.badge ? badges[e.badge] : undefined} />
         ))}
       </nav>
-      <div className={styles.groupLabel}>Værktøjer</div>
-      <nav className={styles.nav} aria-label="Værktøjer">
+      {/* A button, not a link: drawerClickCloses leaves the drawer open. */}
+      <button
+        type="button"
+        className={styles.groupToggle}
+        aria-expanded={toolsOpen}
+        aria-controls={TOOLS_NAV_ID}
+        onClick={toggleTools}
+      >
+        <span className={styles.chevron} data-open={toolsOpen || undefined} aria-hidden="true">
+          ▸
+        </span>
+        Værktøjer
+      </button>
+      <nav id={TOOLS_NAV_ID} className={styles.nav} aria-label="Værktøjer" hidden={!toolsOpen}>
         {entriesIn('tools').map((e) => (
           <Entry key={e.to} entry={e} />
         ))}

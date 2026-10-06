@@ -13,6 +13,7 @@ import type {
   ResourceKey,
   Sample,
   SurveyPart,
+  SurveyPhotos,
   SurveySummary,
   SurveySyncReport,
   SurveyType,
@@ -45,6 +46,7 @@ import {
   type ColumnDraft,
 } from '../kortlaegning/columnDraft';
 import { dialogAction, tableAction, type EvidenceTab, type KortAction } from '../kortlaegning/keys';
+import { photoBatchKey } from '../kortlaegning/photo';
 import {
   NO_FILTERS,
   flattenRows,
@@ -52,6 +54,9 @@ import {
   moveSelection,
   nextInQueue,
   partOf,
+  removePart,
+  removeType,
+  reopenedView,
   replacePart,
   replaceType,
   roomOptions,
@@ -145,7 +150,20 @@ export function syncMessage(report: SurveySyncReport): string {
   if (report.instances_seen === 0) {
     return 'Ingen instanser at kortlægge — opret instanser først';
   }
+  const dismissed = report.parts_dismissed ?? 0;
+  if (dismissed > 0) {
+    return `Ingen nye bygningsdele — ${formatNumber(report.instances_seen - dismissed)} instanser er kortlagt, ${formatNumber(dismissed)} slettede genoprettes ikke`;
+  }
   return `Ingen nye bygningsdele — alle ${formatNumber(report.instances_seen)} instanser er allerede kortlagt`;
+}
+
+/** Toast after Afvis: the type is kept, in the Afvist tab (spec A3). */
+export const REJECTED_MESSAGE = 'Afvist som fejldetektion — flyttet til Afvist';
+
+/** Toast after a type is deleted, naming how many resources went with it. */
+export function typeDeletedMessage(name: string, parts: number): string {
+  if (parts === 0) return `»${name}« slettet`;
+  return `»${name}« slettet med ${formatNumber(parts)} ${parts === 1 ? 'ressource' : 'ressourcer'}`;
 }
 
 /**
@@ -218,6 +236,23 @@ export function KortlaegningPage() {
   const projectRef = useRef<ProjectIdentity>({ id: null, name: '' });
   // A write succeeded but the re-read after it failed: the view may be stale.
   const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
+
+  // Photo count + best frame per part, in one request (spec A4). Separate from
+  // the main load so the table renders first and fills its thumbnails in when
+  // this resolves; a failure only leaves the quiet placeholders.
+  const photoKey = photoBatchKey(types);
+  const { data: photoBatch } = useAsync<SurveyPhotos | null>(
+    async (signal) => {
+      if (!photoKey) return null;
+      try {
+        return await api.surveyPhotos(signal);
+      } catch (cause) {
+        if (signal.aborted) throw cause;
+        return null;
+      }
+    },
+    [photoKey],
+  );
 
   const [tab, setTab] = useState<Tab>('queue');
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -345,17 +380,21 @@ export function KortlaegningPage() {
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, { review_status: 'rejected' });
       const next = setTypes((prev) => replaceType(prev, body));
-      toast.show('Afvist som fejldetektion — fjernet fra listen');
+      toast.show(REJECTED_MESSAGE);
       select(nextInQueue(next, t.id, shownIn(next)));
     });
   }
 
   function reopen() {
     const t = selType;
+    const p = selPart;
     if (!t) return;
     void mutate(async () => {
       const body = await api.patchSurveyType(t.id, { review_status: 'queue' });
       setTypes((prev) => replaceType(prev, body));
+      const view = reopenedView(t.id, p?.code ?? null);
+      setTab(view.tab);
+      select(view.selection);
     });
   }
 
@@ -494,18 +533,32 @@ export function KortlaegningPage() {
     );
   }
 
-  /** "Slet ressource": only a manual part (an instance-backed one is a server 409). */
-  function deleteResource() {
+  /**
+   * "Slet" (spec A3), after the panel's armed confirm: the selected part —
+   * manual or from the scan, which the server tombstones so a sync does not
+   * re-create it — or, with no part selected, the type and all its parts.
+   * Separate from Afvis, which keeps the type in the Afvist tab.
+   */
+  function deleteSelected() {
     const p = selPart;
-    if (!p || !isManual(p)) return;
+    const t = selType;
+    if (busy || !t) return;
     void mutate(async () => {
-      await api.deleteResource(p.code);
-      toast.show(`${p.code} slettet`);
+      if (p) {
+        await api.deleteResource(p.code);
+        setTypes((prev) => removePart(prev, p.code));
+        toast.show(`${p.code} slettet`);
+      } else {
+        const r = await api.deleteSurveyType(t.id);
+        const next = setTypes((prev) => removeType(prev, t.id));
+        toast.show(typeDeletedMessage(t.name, r.parts_deleted));
+        select(nextInQueue(next, t.id, shownIn(next)));
+      }
       await reread(async () => {
         const [s, list] = await Promise.all([api.survey(), api.resources()]);
         setTypes(() => s.types);
         setResources(() => list);
-        select({ typeId: p.type_id, partCode: null });
+        if (p) select({ typeId: p.type_id, partCode: null });
       });
     });
   }
@@ -753,6 +806,7 @@ export function KortlaegningPage() {
               setColumnError(null);
               setAddColumnOpen(true);
             }}
+            photos={photoBatch?.parts ?? null}
           />
           <aside className={styles.aside}>
             <EvidencePanel
@@ -776,7 +830,7 @@ export function KortlaegningPage() {
               onReopen={reopen}
               onDone={() => tableRef.current?.focus({ preventScroll: true })}
               manual={selPart !== null && isManual(selPart)}
-              onDeleteResource={deleteResource}
+              onDelete={deleteSelected}
               resource={selPart ? (index.get(selPart.code) ?? null) : null}
               catalogue={keys}
               onCellCommit={commitCell}

@@ -14,6 +14,12 @@ import {
   drawerKeyAction,
   displayProjectName,
   entriesIn,
+  isToolsPath,
+  readToolsChoice,
+  TOOLS_OPEN_KEY,
+  toolsGroupOpen,
+  writeToolsChoice,
+  type StorageLike,
 } from '../app/navigation';
 import * as navigation from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
@@ -31,9 +37,8 @@ describe('navigation model', () => {
     ]);
   });
 
-  it('lists the tools in the spec §3 order', () => {
+  it('lists the tools in the spec §3 order, Projektdata retired into Overblik', () => {
     expect(entriesIn('tools').map((e) => e.label)).toEqual([
-      'Projektdata',
       'Posegraf',
       'Pipeline',
       'Kørselslog',
@@ -51,7 +56,7 @@ describe('navigation model', () => {
 
   it('drops the pages the redesign retires from the nav', () => {
     const paths = NAV_ENTRIES.map((e) => e.to);
-    for (const gone of ['/on-site', '/onsite', '/materials', '/export']) {
+    for (const gone of ['/on-site', '/onsite', '/materials', '/export', '/projektdata']) {
       expect(paths, gone).not.toContain(gone);
     }
   });
@@ -75,7 +80,6 @@ describe('navigation model', () => {
   it('keeps every remaining technical route reachable under Værktøjer', () => {
     const tools = entriesIn('tools').map((e) => e.to);
     for (const path of [
-      '/projektdata',
       '/graph-view',
       '/pipeline',
       '/pipeline/log',
@@ -163,6 +167,10 @@ describe('redirects for retired paths (spec §3)', () => {
     expect(REDIRECTS).toContainEqual({ from: '/export', to: '/rapport' });
   });
 
+  it('sends the retired Projektdata path to Overblik (A2)', () => {
+    expect(REDIRECTS).toContainEqual({ from: '/projektdata', to: '/' });
+  });
+
   it('never redirects from a path the nav still lists', () => {
     const navPaths = new Set(NAV_ENTRIES.map((e) => e.to));
     for (const r of REDIRECTS) expect(navPaths.has(r.from), r.from).toBe(false);
@@ -225,9 +233,80 @@ describe('the sidebar drawer below 900px (R5)', () => {
     expect(drawerClickCloses(['a'])).toBe(true);
   });
 
+  it('stays open for a click on the Værktøjer toggle (a button, A1)', () => {
+    expect(drawerClickCloses(['SPAN', 'BUTTON', 'ASIDE'])).toBe(false);
+    expect(drawerClickCloses(['BUTTON', 'ASIDE'])).toBe(false);
+  });
+
   it('stays open for a click on a pending entry or the drawer itself', () => {
     expect(drawerClickCloses(['SPAN', 'SPAN', 'NAV', 'ASIDE'])).toBe(false);
     expect(drawerClickCloses(['DIV', 'ASIDE'])).toBe(false);
     expect(drawerClickCloses([])).toBe(false);
+  });
+});
+
+describe('the Værktøjer group (A1)', () => {
+  it('knows every tools entry, and a path nested under one, as a tools route', () => {
+    for (const e of entriesIn('tools')) expect(isToolsPath(e.to), e.to).toBe(true);
+    expect(isToolsPath('/pipeline/log')).toBe(true);
+    expect(isToolsPath('/frames/12')).toBe(true);
+  });
+
+  it('does not count case routes, prefixes of a tool, or the retired path', () => {
+    for (const p of ['/', '/kortlaegning', '/viewport', '/sager', '/projektdata', '/framesx', '/pipelines']) {
+      expect(isToolsPath(p), p).toBe(false);
+    }
+  });
+
+  it('is closed by default and follows the stored choice off a tools route', () => {
+    expect(toolsGroupOpen({ choice: null, onToolsRoute: false, closedOnRoute: false })).toBe(false);
+    expect(toolsGroupOpen({ choice: false, onToolsRoute: false, closedOnRoute: false })).toBe(false);
+    expect(toolsGroupOpen({ choice: true, onToolsRoute: false, closedOnRoute: false })).toBe(true);
+  });
+
+  it('opens on a tools route whatever the stored choice, so the active link shows', () => {
+    expect(toolsGroupOpen({ choice: null, onToolsRoute: true, closedOnRoute: false })).toBe(true);
+    expect(toolsGroupOpen({ choice: false, onToolsRoute: true, closedOnRoute: false })).toBe(true);
+  });
+
+  it('still lets the user close it on a tools route', () => {
+    expect(toolsGroupOpen({ choice: false, onToolsRoute: true, closedOnRoute: true })).toBe(false);
+  });
+
+  function memory(init: Record<string, string> = {}): StorageLike & { data: Record<string, string> } {
+    const data = { ...init };
+    return {
+      data,
+      getItem: (k) => (k in data ? data[k] : null),
+      setItem: (k, v) => {
+        data[k] = v;
+      },
+    };
+  }
+
+  const throwing: StorageLike = {
+    getItem: () => {
+      throw new Error('blocked');
+    },
+    setItem: () => {
+      throw new Error('blocked');
+    },
+  };
+
+  it('round-trips the choice through storage', () => {
+    const s = memory();
+    expect(readToolsChoice(s)).toBeNull();
+    writeToolsChoice(true, s);
+    expect(s.data[TOOLS_OPEN_KEY]).toBe('1');
+    expect(readToolsChoice(s)).toBe(true);
+    writeToolsChoice(false, s);
+    expect(readToolsChoice(s)).toBe(false);
+  });
+
+  it('treats a junk value, missing or throwing storage as no choice', () => {
+    expect(readToolsChoice(memory({ [TOOLS_OPEN_KEY]: 'yes' }))).toBeNull();
+    expect(readToolsChoice(undefined)).toBeNull();
+    expect(readToolsChoice(throwing)).toBeNull();
+    expect(() => writeToolsChoice(true, throwing)).not.toThrow();
   });
 });

@@ -18,6 +18,7 @@
 #include "FrameSegmenter.hpp"
 #include "ViewRenderer.hpp"
 
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/pipeline/JobRunner.hpp>
 #include <reusex/pipeline/stages.hpp>
 #include <reusex/vision/sam3_prompt.hpp>
@@ -104,8 +105,7 @@ class HttpError : public std::runtime_error {
 /// Translate the exception in flight into the documented HTTP status — the
 /// ONE mapping every resources/templates handler shares:
 /// core::KeyValueError and std::invalid_argument -> 400, std::out_of_range
-/// -> 404, core::NameConflictError and core::ResourceConflictError (an
-/// instance-backed resource) -> 409. HttpError and anything else are
+/// -> 404, core::NameConflictError -> 409. HttpError and anything else are
 /// rethrown unchanged. Call only from inside a catch block.
 [[noreturn]] void rethrow_as_http_error();
 
@@ -515,9 +515,13 @@ void delete_material_column(reusex::ProjectDB &db, const std::string &id);
 nlohmann::json instances_json(const reusex::ProjectDB &db,
                               const std::string &cloud, const Params &params);
 
-/// Sensor frames that see one instance's centroid, ranked most-central-first
-/// (#453). The centroid is taken over the base `cloud` positions index-aligned
-/// with the instance-label @p cloud. Same body shape as
+/// Sensor frames that see one instance, ranked most-central-first by its
+/// centroid (#453). The centroid is taken over the base `cloud` positions
+/// index-aligned with the instance-label @p cloud. Occlusion-aware: a frame
+/// counts only when its depth image confirms the centroid or one of the
+/// instance's surface samples (core::visible_frames_occluded with the
+/// core::PhotoQuery defaults — the same rule as GET /survey/photos). Same body
+/// shape as
 /// frames_visibility_json(), plus `cloud`, `instance_id` and
 /// `instance_point_count`.
 ///
@@ -525,9 +529,31 @@ nlohmann::json instances_json(const reusex::ProjectDB &db,
 /// @throws HttpError(404) when the cloud or instance id is unknown,
 ///         HttpError(409) when the base positions cloud is missing or not
 ///         index-aligned with the instance labels.
+/// A cached ranking for one instance, or nullopt to compute it (the server
+/// passes its PhotoEvidenceCache::peek).
+using CachedInstanceEvidence =
+    std::function<std::optional<reusex::core::InstanceEvidence>(
+        const reusex::ProjectDB &db, const std::string &cloud,
+        std::uint32_t instance_id)>;
+
+/// @param cached consulted first when the request has no `max_depth`; a hit
+///        skips the depth decoding (~0.7 s on a large scan).
 nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
                                     const std::string &cloud, int instance_id,
-                                    const Params &params);
+                                    const Params &params,
+                                    const CachedInstanceEvidence &cached = {});
+
+/// Placeable 360 panoramas near one instance's centroid, nearest first, each
+/// with the equirect `u,v` (0..1) the centroid lands on (spec A5). Body:
+/// `{point, cloud, instance_id, max_distance, panoramas: [{panorama_id,
+/// node_id, distance, u, v, heading}], total}`.
+///
+/// @param params optional `max_distance` (metres, default 15, 0 = no limit).
+/// @throws HttpError(400) for a bad `max_distance`, plus the errors of
+///         instance_frames_json().
+nlohmann::json instance_panoramas_json(const reusex::ProjectDB &db,
+                                       const std::string &cloud,
+                                       int instance_id, const Params &params);
 
 /// Link or replace a material passport on an instance (upsert on
 /// (cloud, instance_id)).  Returns the updated InstanceInfo JSON for that

@@ -13,6 +13,7 @@
 #include <reusex/core/component_record.hpp>
 #include <reusex/core/frame_visibility.hpp>
 #include <reusex/core/guid.hpp>
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/core/materialepas_json_export.hpp>
 #include <reusex/core/report_version_json.hpp>
 #include <reusex/core/resource_keys.hpp>
@@ -616,8 +617,6 @@ void rethrow_as_http_error() {
     throw HttpError(400, e.what());
   } catch (const reusex::core::NameConflictError &e) {
     throw HttpError(409, e.what());
-  } catch (const reusex::core::ResourceConflictError &e) {
-    throw HttpError(409, e.what());
   } catch (const std::out_of_range &e) {
     throw HttpError(404, e.what());
   } catch (const std::invalid_argument &e) {
@@ -729,6 +728,9 @@ const std::vector<Endpoint> &endpoint_table() {
        "Instance rows of an instance-label cloud, with material links"},
       {"GET", "/api/v1/instances/<string>/<int>/frames",
        "Sensor frames that see an instance's centroid, ranked by centrality"},
+      {"GET", "/api/v1/instances/<string>/<int>/panoramas",
+       "Placeable 360 panoramas near an instance, nearest first, with the "
+       "equirect u,v of its centroid"},
       {"PUT", "/api/v1/instances/<string>/<int>/material",
        "Link a material passport to an instance (upsert)"},
       {"GET", "/api/v1/stages",
@@ -762,6 +764,8 @@ const std::vector<Endpoint> &endpoint_table() {
        "Survey KPIs: counts, circularity, reuse share, coverage"},
       {"GET", "/api/v1/survey/fractions",
        "Approved tonnes per EAK code for waste reporting"},
+      {"GET", "/api/v1/survey/photos",
+       "Photo count and best sensor frame per instance-backed survey part"},
       {"GET", "/api/v1/samples",
        "Environmental samples with their linked survey types"},
       {"POST", "/api/v1/survey/sync",
@@ -1457,8 +1461,13 @@ json frames_visibility_json(const reusex::ProjectDB &db, const Params &params) {
   return visibility_json({x, y, z}, frames, params);
 }
 
-json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
-                          int instance_id, const Params &params) {
+namespace {
+
+/// One instance's probe (centroid + surface samples) over the base `cloud`
+/// positions, with the HTTP errors both instance evidence endpoints share.
+reusex::core::InstanceProbe instance_probe_of(const reusex::ProjectDB &db,
+                                              const std::string &cloud,
+                                              int instance_id) {
   if (!db.has_point_cloud(cloud))
     not_found("cloud", cloud);
 
@@ -1473,47 +1482,101 @@ json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
                              "' point cloud for positions, which this project "
                              "does not have");
 
-  const auto positions = db.point_cloud_xyzrgb(kPositions);
-  const auto labels = db.point_cloud_label(cloud);
-  if (!positions || !labels)
-    throw HttpError(500, "could not load positions or instance labels");
-  if (positions->size() != labels->size())
-    throw HttpError(409, "instance-label cloud '" + cloud + "' has " +
-                             std::to_string(labels->size()) +
-                             " points but base cloud '" +
-                             std::string(kPositions) + "' has " +
-                             std::to_string(positions->size()) +
-                             " — they are not index-aligned");
-
-  // Centroid of the points carrying this instance id. Non-finite points are
-  // skipped so one NaN cannot poison the average.
-  double sx = 0.0, sy = 0.0, sz = 0.0;
-  std::size_t n = 0;
-  for (std::size_t i = 0; i < labels->size(); ++i) {
-    if (labels->points[i].label != static_cast<uint32_t>(instance_id))
-      continue;
-    const auto &p = positions->points[i];
-    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
-      continue;
-    sx += p.x;
-    sy += p.y;
-    sz += p.z;
-    ++n;
+  std::map<std::uint32_t, reusex::core::InstanceProbe> probes;
+  try {
+    probes = reusex::core::instance_probes(db, cloud, kPositions);
+  } catch (const reusex::core::CloudMisalignedError &e) {
+    // A conflict with the project's state; a cloud that fails to load is a
+    // plain 500 (with_db's default).
+    throw HttpError(409, e.what());
   }
-  if (n == 0)
+  const auto it = instance_id > 0
+                      ? probes.find(static_cast<std::uint32_t>(instance_id))
+                      : probes.end();
+  if (it == probes.end())
     not_found("instance", cloud + "/" + std::to_string(instance_id));
+  return it->second;
+}
 
-  const double cx = sx / static_cast<double>(n);
-  const double cy = sy / static_cast<double>(n);
-  const double cz = sz / static_cast<double>(n);
-  const auto frames = reusex::core::visible_frames(
-      db, Eigen::Vector3d(cx, cy, cz), visibility_query_of(params));
+} // namespace
 
-  json out = visibility_json({cx, cy, cz}, frames, params);
+json instance_frames_json(const reusex::ProjectDB &db, const std::string &cloud,
+                          int instance_id, const Params &params,
+                          const CachedInstanceEvidence &cached) {
+  const auto visibility = visibility_query_of(params);
+  // The cache holds the default query's ranking, so it answers only a
+  // request without its own range limit.
+  if (cached && instance_id > 0 && !(visibility.max_depth > 0.0)) {
+    if (const auto hit =
+            cached(db, cloud, static_cast<std::uint32_t>(instance_id))) {
+      const auto &c = hit->centroid;
+      json out =
+          visibility_json({c.centroid.x(), c.centroid.y(), c.centroid.z()},
+                          hit->frames, params);
+      out["cloud"] = cloud;
+      out["instance_id"] = instance_id;
+      out["instance_point_count"] = c.point_count;
+      return out;
+    }
+  }
+
+  const auto probe = instance_probe_of(db, cloud, instance_id);
+  const auto &c = probe.centroid;
+  // Occlusion-aware, with the same options as GET /survey/photos, so the
+  // dialog's photo strip and the table's "n fotos" agree.
+  reusex::core::OcclusionQuery query = reusex::core::PhotoQuery{}.occlusion;
+  query.visibility = visibility;
+  const auto frames =
+      reusex::core::visible_frames_occluded(db, {probe.probe()}, query).at(0);
+
+  json out = visibility_json({c.centroid.x(), c.centroid.y(), c.centroid.z()},
+                             frames, params);
   out["cloud"] = cloud;
   out["instance_id"] = instance_id;
-  out["instance_point_count"] = n;
+  out["instance_point_count"] = c.point_count;
   return out;
+}
+
+json instance_panoramas_json(const reusex::ProjectDB &db,
+                             const std::string &cloud, int instance_id,
+                             const Params &params) {
+  reusex::core::PanoramaQuery query;
+  if (const auto value = params.find("max_distance");
+      value && !value->empty()) {
+    try {
+      std::size_t pos = 0;
+      const double parsed = std::stod(*value, &pos);
+      if (pos != value->size() || !std::isfinite(parsed) || parsed < 0.0)
+        throw std::invalid_argument("");
+      query.max_distance = parsed;
+    } catch (const std::exception &) {
+      throw HttpError(400, "query parameter 'max_distance' must be a "
+                           "non-negative number, got '" +
+                               *value + "'");
+    }
+  }
+
+  const auto c = instance_probe_of(db, cloud, instance_id).centroid;
+  const auto hits = reusex::core::panoramas_for_point(db, c.centroid, query);
+
+  json arr = json::array();
+  for (const auto &h : hits)
+    arr.push_back(
+        json{{"panorama_id", h.panorama_id},
+             {"node_id", h.node_id},
+             {"distance", h.distance},
+             {"u", h.u},
+             {"v", h.v},
+             {"heading", h.heading == reusex::core::PanoramaHeading::resected
+                             ? "resected"
+                             : "levelled"}});
+
+  return json{{"point", {c.centroid.x(), c.centroid.y(), c.centroid.z()}},
+              {"cloud", cloud},
+              {"instance_id", instance_id},
+              {"max_distance", query.max_distance},
+              {"panoramas", std::move(arr)},
+              {"total", hits.size()}};
 }
 
 json frame_json(const reusex::ProjectDB &db, int id) {

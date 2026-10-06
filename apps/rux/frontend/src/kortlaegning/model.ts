@@ -10,7 +10,8 @@
 
 import type { EnvironmentStatus, SurveyPart, SurveyType } from '../api/types';
 
-export type Tab = 'queue' | 'approved' | 'all';
+/** `all` is queue + approved; rejected types live only in `rejected` (Afvist). */
+export type Tab = 'queue' | 'approved' | 'all' | 'rejected';
 export type EnvFilter = 'ren' | 'afventer' | 'forurenet';
 export interface Filters {
   search: string;
@@ -35,10 +36,12 @@ export function envFilterOf(s: EnvironmentStatus): EnvFilter {
 export function tabCounts(types: SurveyType[]): Record<Tab, number> {
   const queue = types.filter((t) => t.review_status === 'queue').length;
   const approved = types.filter((t) => t.review_status === 'approved').length;
-  return { queue, approved, all: queue + approved };
+  const rejected = types.filter((t) => t.review_status === 'rejected').length;
+  return { queue, approved, all: queue + approved, rejected };
 }
 
-function inTab(t: SurveyType, tab: Tab): boolean {
+export function inTab(t: SurveyType, tab: Tab): boolean {
+  if (tab === 'rejected') return t.review_status === 'rejected';
   if (t.review_status === 'rejected') return false;
   if (tab === 'queue') return t.review_status === 'queue';
   if (tab === 'approved') return t.review_status === 'approved';
@@ -128,6 +131,23 @@ export function nextInQueue(
   return pick ? { typeId: pick.id, partCode: null } : null;
 }
 
+export interface ReopenedView {
+  tab: Tab;
+  selection: Selection;
+}
+
+/**
+ * What "Genåbn" (Afvist or Godkendt → queue) switches to: the queue tab,
+ * with the type — and its selected part, if any — still selected. Genåbn
+ * always sets `review_status` to `'queue'`, so the Afvist/Godkendt tab it
+ * was reviewed in no longer shows the type; switching to the tab it moved
+ * into keeps the selection visible instead of leaving it pointing at a row
+ * the current tab has dropped.
+ */
+export function reopenedView(typeId: number, partCode: string | null): ReopenedView {
+  return { tab: 'queue', selection: { typeId, partCode } };
+}
+
 export function typeOf(types: SurveyType[], sel: Selection): SurveyType | null {
   return sel ? (types.find((t) => t.id === sel.typeId) ?? null) : null;
 }
@@ -152,13 +172,33 @@ export function replacePart(types: SurveyType[], updated: SurveyPart): SurveyTyp
   });
 }
 
+/** A deleted type leaves the list (its parts go with it). */
+export function removeType(types: SurveyType[], typeId: number): SurveyType[] {
+  return types.filter((t) => t.id !== typeId);
+}
+
+/** A deleted part leaves its type, whose quantity is re-summed. */
+export function removePart(types: SurveyType[], code: string): SurveyType[] {
+  return types.map((t) => {
+    if (!t.parts.some((p) => p.code === code)) return t;
+    const parts = t.parts.filter((p) => p.code !== code);
+    return { ...t, parts, quantity: parts.reduce((s, p) => s + p.quantity, 0) };
+  });
+}
+
+const TAB_OF: Record<SurveyType['review_status'], Tab> = {
+  queue: 'queue',
+  approved: 'approved',
+  rejected: 'rejected',
+};
+
 /**
  * Where a deep link to a type (`/kortlaegning?type=<id>`) lands: the tab the
- * type lives in, with it selected. Rejected types are hidden from every tab,
- * and an unknown id has nowhere to go — both give null (plain screen).
+ * type lives in (Afvist for a rejected one), with it selected. An unknown id
+ * has nowhere to go — null (plain screen).
  */
 export function initialViewFor(types: SurveyType[], typeId: number): { tab: Tab; selection: Selection } | null {
   const t = types.find((x) => x.id === typeId);
-  if (!t || t.review_status === 'rejected') return null;
-  return { tab: t.review_status === 'approved' ? 'approved' : 'queue', selection: { typeId, partCode: null } };
+  if (!t) return null;
+  return { tab: TAB_OF[t.review_status], selection: { typeId, partCode: null } };
 }

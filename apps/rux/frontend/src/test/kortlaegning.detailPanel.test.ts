@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { Sample, SurveyPart, SurveyType } from '../api/types';
 import {
   approveBlocked,
+  deleteLabel,
   fieldKeyAction,
   gateNoteText,
   linkedSamples,
@@ -287,5 +288,23 @@ describe('fieldKeyAction (Esc convention, Phase 5 R10)', () => {
     expect(fieldKeyAction('Enter', true)).toBe('commit');
     expect(fieldKeyAction('Enter', false)).toBeNull();
     expect(fieldKeyAction('a', true)).toBeNull();
+  });
+});
+
+describe('deleteLabel (spec A3: any part, or a whole type)', () => {
+  it('names a part, and asks to confirm it when armed', () => {
+    const p = part({ code: 'RX-008' });
+    expect(deleteLabel(type(), p, false)).toBe('Slet ressource');
+    expect(deleteLabel(type(), p, true)).toBe('Bekræft: slet RX-008');
+  });
+
+  it('counts the parts a type takes with it when armed', () => {
+    const t = type();
+    expect(deleteLabel(t, null, false)).toBe('Slet type');
+    expect(deleteLabel({ ...t, parts: [] }, null, true)).toBe('Bekræft: slet typen');
+    expect(deleteLabel({ ...t, parts: [part()] }, null, true)).toBe('Bekræft: slet typen og 1 ressource');
+    expect(deleteLabel({ ...t, parts: [part(), part({ code: 'RX-009' })] }, null, true)).toBe(
+      'Bekræft: slet typen og 2 ressourcer',
+    );
   });
 });

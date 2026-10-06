@@ -326,9 +326,11 @@ class ProjectDB::Impl {
   /// configure(): a read-write open has migrated, a read-only open of an
   /// older project has not, and neither changes for this connection.
   bool hasPassportColumn = false;
+  /// survey_dismissed_instances exists (schema v26); same lifetime rule.
+  bool hasDismissedTable = false;
 
   // cppcheck-suppress unusedStructMember
-  static constexpr int LATEST_SCHEMA_VERSION = 25;
+  static constexpr int LATEST_SCHEMA_VERSION = 26;
 
   // How long one statement waits for a lock another connection holds before
   // failing with SQLITE_BUSY. sqlite's default is not to wait at all.
@@ -435,6 +437,7 @@ class ProjectDB::Impl {
       }
     }
     hasPassportColumn = columnExists("survey_parts", "passport_guid");
+    hasDismissedTable = tableExists("survey_dismissed_instances");
   }
 
   /// `save_instances` (every `rux create instances` re-run) deletes the
@@ -698,6 +701,10 @@ class ProjectDB::Impl {
 
     if (current < 25) {
       migrateToV25();
+    }
+
+    if (current < 26) {
+      migrateToV26();
     }
 
     reusex::trace("Schema version: {}", getCurrentSchemaVersion());
@@ -2301,6 +2308,26 @@ class ProjectDB::Impl {
         reusex::warn("migrateToV25: ROLLBACK failed: {}", sqlite3_errmsg(db));
       throw;
     }
+  }
+
+  void migrateToV26() {
+    reusex::info("Migrating database to schema version 26");
+    // Reject != delete (Kortlægning fixes spec A3): deleting an
+    // instance-backed survey part records its instance guid here so
+    // sync_survey does not re-create the part. Plain TEXT, not a foreign key:
+    // the tombstone must outlive a `rux create instances` re-run that drops
+    // and re-inserts the instances rows. Keeping the rows also makes a later
+    // "restore deleted scan resources" possible.
+    execOrThrow(R"(
+      CREATE TABLE IF NOT EXISTS survey_dismissed_instances (
+        instance_guid TEXT PRIMARY KEY,
+        dismissed_at  TEXT NOT NULL
+          DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+    )");
+    insertSchemaVersion(26, "Survey tombstones: deleted scan-backed parts "
+                            "stay deleted (survey_dismissed_instances)");
+    reusex::info("Migration to schema version 26 complete");
   }
 
   /// 1-based position of a report version in generation order.
@@ -8832,6 +8859,78 @@ void ProjectDB::delete_survey_part(std::string_view code) {
                              std::string(sqlite3_errmsg(impl_->db)));
   if (sqlite3_changes(impl_->db) == 0)
     throw std::out_of_range("no survey part '" + std::string(code) + "'");
+}
+
+void ProjectDB::delete_survey_type(int64_t id) {
+  impl_->checkWritable();
+  sqlite3_stmt *s =
+      prepare_or_throw(impl_->db, "DELETE FROM survey_types WHERE id = ?;",
+                       "delete_survey_type");
+  StmtGuard guard(s);
+  sqlite3_bind_int64(s, 1, id);
+  if (sqlite3_step(s) != SQLITE_DONE)
+    throw std::runtime_error("delete_survey_type: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  if (sqlite3_changes(impl_->db) == 0)
+    throw std::out_of_range("no survey type " + std::to_string(id));
+}
+
+void ProjectDB::dismiss_instance(std::string_view instance_guid) {
+  impl_->checkWritable();
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      "INSERT OR IGNORE INTO survey_dismissed_instances (instance_guid) "
+      "VALUES (?);",
+      "dismiss_instance");
+  StmtGuard guard(s);
+  bind_text(s, 1, instance_guid);
+  if (sqlite3_step(s) != SQLITE_DONE)
+    throw std::runtime_error("dismiss_instance: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+}
+
+bool ProjectDB::is_instance_dismissed(std::string_view instance_guid) const {
+  if (!impl_->hasDismissedTable)
+    return false;
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      "SELECT 1 FROM survey_dismissed_instances WHERE instance_guid = ?;",
+      "is_instance_dismissed");
+  StmtGuard guard(s);
+  bind_text(s, 1, instance_guid);
+  return sqlite3_step(s) == SQLITE_ROW;
+}
+
+std::vector<std::string> ProjectDB::dismissed_instances() const {
+  std::vector<std::string> out;
+  if (!impl_->hasDismissedTable)
+    return out;
+  sqlite3_stmt *s = prepare_or_throw(impl_->db,
+                                     "SELECT instance_guid FROM "
+                                     "survey_dismissed_instances ORDER BY "
+                                     "instance_guid;",
+                                     "dismissed_instances");
+  StmtGuard guard(s);
+  while (sqlite3_step(s) == SQLITE_ROW)
+    out.push_back(column_text(s, 0));
+  return out;
+}
+
+bool ProjectDB::unlink_instance_material(std::string_view cloud_name,
+                                         int instance_id) {
+  impl_->checkWritable();
+  sqlite3_stmt *s = prepare_or_throw(
+      impl_->db,
+      "DELETE FROM instance_materials WHERE instance_id = ?2 AND cloud_id = "
+      "(SELECT id FROM point_clouds WHERE name = ?1);",
+      "unlink_instance_material");
+  StmtGuard guard(s);
+  bind_text(s, 1, cloud_name);
+  sqlite3_bind_int(s, 2, instance_id);
+  if (sqlite3_step(s) != SQLITE_DONE)
+    throw std::runtime_error("unlink_instance_material: " +
+                             std::string(sqlite3_errmsg(impl_->db)));
+  return sqlite3_changes(impl_->db) > 0;
 }
 
 bool ProjectDB::has_passport_field_values(std::string_view name) const {

@@ -12,7 +12,9 @@ import {
   blockedMessage,
   cappedList,
   coverageParts,
+  REJECTED_MESSAGE,
   syncMessage,
+  typeDeletedMessage,
 } from '../routes/KortlaegningPage';
 
 function type(overrides: Partial<SurveyType> = {}): SurveyType {
@@ -210,5 +212,34 @@ describe('syncMessage', () => {
     expect(syncMessage(report({ parts_orphaned: 2, parts_created: 3, instances_seen: 3 }))).toBe(
       '2 del(e) peger på instanser der ikke findes længere',
     );
+  });
+});
+
+describe('reject and delete toasts (spec A3)', () => {
+  it('says a rejected type moved to Afvist, not that it is gone', () => {
+    expect(REJECTED_MESSAGE).toBe('Afvist som fejldetektion — flyttet til Afvist');
+  });
+
+  it('names the deleted type and how many resources went with it', () => {
+    expect(typeDeletedMessage('Fejldetektion', 0)).toBe('»Fejldetektion« slettet');
+    expect(typeDeletedMessage('Døre', 1)).toBe('»Døre« slettet med 1 ressource');
+    expect(typeDeletedMessage('Døre', 12)).toBe('»Døre« slettet med 12 ressourcer');
+  });
+});
+
+describe('syncMessage with deleted parts', () => {
+  it('says deleted scan resources were skipped, not re-created', () => {
+    const r: SurveySyncReport = {
+      types_created: 0,
+      parts_created: 0,
+      parts_existing: 150,
+      parts_dismissed: 5,
+      instances_seen: 155,
+      instances_backfilled: 0,
+      rooms_assigned: true,
+      parts_orphaned: 0,
+      orphaned_codes: [],
+    };
+    expect(syncMessage(r)).toBe('Ingen nye bygningsdele — 150 instanser er kortlagt, 5 slettede genoprettes ikke');
   });
 });

@@ -19,7 +19,7 @@
  * Keyboard: the page owns the key map (`onKeyDown`, see `dialogAction` in
  * `kortlaegning/keys.ts`) and restoring focus on close. The dialog itself
  * traps Tab and focuses its own root on open and after every move, so the
- * advertised single-key shortcuts (1–4, G, A, V) work straight away; Tab from
+ * advertised single-key shortcuts (1–5, G, A, V) work straight away; Tab from
  * the root goes to the quantity field. Before handing a navigating key
  * (PgUp/PgDn, ⌘/Ctrl+Enter, Esc) to the page it blurs the focused field, so
  * the pending draft commits first instead of being dropped by the selection
@@ -29,13 +29,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
-import { api } from '../../api/client';
-import type { Sample, SurveyPart, SurveyType, Treatment, VisibleFrame } from '../../api/types';
+import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
 import { trapTab } from '../../app/focusTrap';
-import { useAsync } from '../../app/useAsync';
 import type { EvidenceTab } from '../../kortlaegning/keys';
-import { dialogAction } from '../../kortlaegning/keys';
+import { dialogAction, EVIDENCE_LAST_KEY } from '../../kortlaegning/keys';
 import { partLabel } from '../../kortlaegning/model';
 import {
   confidencePercent,
@@ -52,8 +50,8 @@ import { Kbd } from '../Kbd';
 import { Pill } from '../Pill';
 import { approveBlocked, gateNoteText } from './DetailPanel';
 import styles from './EditDialog.module.css';
-import type { FrameLookup } from './EvidencePanel';
-import { EvidencePanel, hasInstanceLink, instanceKey, resolveHighlightPart } from './EvidencePanel';
+import { EvidencePanel } from './EvidencePanel';
+import { PhotoStrip } from './PhotoStrip';
 import { SampleLine } from './SampleLine';
 import { useQuantityNoteDrafts } from './useQuantityNoteDrafts';
 
@@ -82,8 +80,9 @@ export interface EditDialogProps {
   onKeyDown: (e: KeyboardEvent) => void;
 }
 
-/** Thumbnails shown in the Fotos row before collapsing the rest into `+n`. */
-export const PHOTO_STRIP_MAX = 5;
+// The Fotos strip's pure pieces live in `kortlaegning/photo` (PhotoStrip
+// and DetailPanel share them); re-exported so existing imports keep working.
+export { PHOTO_STRIP_MAX, photoStrip } from '../../kortlaegning/photo';
 
 /** The head title's `RX-### · ` prefix when a part is selected, else ''. */
 export function titlePrefix(part: SurveyPart | null): string {
@@ -126,41 +125,12 @@ export function primaryDisabled(type: SurveyType, busy: boolean): boolean {
   return busy || (approveBlocked(type) && type.review_status !== 'approved');
 }
 
-/** Splits a frame list into the thumbnails shown and the `+n` overflow count. */
-export function photoStrip(
-  frames: readonly VisibleFrame[],
-  max: number = PHOTO_STRIP_MAX,
-): { visible: VisibleFrame[]; overflow: number } {
-  return { visible: frames.slice(0, max), overflow: Math.max(0, frames.length - max) };
-}
-
 // The Tab trap lives in `app/focusTrap` (FormDialog shares it); re-exported
 // so existing callers keep importing it here.
 export { isTabbable, wrapFocusIndex, type TabbableProbe } from '../../app/focusTrap';
 
 function isField(el: Element | null): el is HTMLElement {
   return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
-}
-
-/** One Fotos thumbnail; a sunken placeholder when the image fails to load. */
-function PhotoThumb({ frameId }: { frameId: number }) {
-  const [errored, setErrored] = useState(false);
-  if (errored) {
-    return (
-      <span className={styles.photoFallback} title={`Ramme ${frameId} kunne ikke hentes`}>
-        Intet billede
-      </span>
-    );
-  }
-  return (
-    <img
-      className={styles.photo}
-      src={api.frameImageUrl(frameId, 'color', { maxSize: 160 })}
-      alt={`Ramme ${frameId}`}
-      loading="lazy"
-      onError={() => setErrored(true)}
-    />
-  );
 }
 
 export function EditDialog(props: EditDialogProps) {
@@ -203,28 +173,6 @@ export function EditDialog(props: EditDialogProps) {
     if (lost || onDisabled) root.focus();
   }, [busy]);
 
-  // Fotos row: the selected part's frames, or the type's first linked part's.
-  const highlight = resolveHighlightPart(type, part);
-  const linked = hasInstanceLink(highlight);
-  const currentKey = linked ? instanceKey(highlight.cloud, highlight.instance_id) : null;
-  const frames = useAsync<FrameLookup>(
-    async (signal) => {
-      if (!linked) return { key: '', frames: [], failed: false };
-      const key = instanceKey(highlight.cloud, highlight.instance_id);
-      try {
-        const result = await api.instanceFrames(highlight.cloud, highlight.instance_id, signal);
-        return { key, frames: result, failed: false };
-      } catch (cause) {
-        if (signal.aborted) throw cause;
-        return { key, frames: [], failed: true };
-      }
-    },
-    [highlight?.cloud, highlight?.instance_id],
-  );
-  // `useAsync` keeps the previous highlight's result around until the new
-  // request settles; only a key match counts (see EvidencePanel's FrameLookup).
-  const lookup = frames.data && frames.data.key === currentKey ? frames.data : undefined;
-
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const root = rootRef.current;
     trapTab(e, root, quantityInputRef.current);
@@ -248,14 +196,6 @@ export function EditDialog(props: EditDialogProps) {
   const queued = type.review_status === 'queue';
   const gateNote = queued ? gateNoteText(type, samples) : null;
   const tonnes = part ? '' : formatTonnes(type.mass_t);
-  const strip = lookup && !lookup.failed ? photoStrip(lookup.frames) : null;
-  const photoCount = lookup && !lookup.failed ? lookup.frames.length : null;
-
-  let photoMessage: string | null = null;
-  if (!linked) photoMessage = 'Ingen fotos — bygningsdelen er ikke koblet til en instans.';
-  else if (!lookup) photoMessage = 'Indlæser fotos…';
-  else if (lookup.failed) photoMessage = 'Fotos kunne ikke hentes.';
-  else if (lookup.frames.length === 0) photoMessage = 'Ingen fotos fundet for denne instans.';
 
   return (
     <div className={styles.scrim}>
@@ -402,19 +342,7 @@ export function EditDialog(props: EditDialogProps) {
               />
             </div>
 
-            <div className={styles.field}>
-              <span className={styles.label}>Fotos{photoCount !== null && ` (${photoCount})`}</span>
-              {strip && strip.visible.length > 0 ? (
-                <div className={styles.photos}>
-                  {strip.visible.map((f) => (
-                    <PhotoThumb key={f.frame_id} frameId={f.frame_id} />
-                  ))}
-                  {strip.overflow > 0 && <span className={styles.photoMore}>+{strip.overflow}</span>}
-                </div>
-              ) : (
-                <span className={styles.photoEmpty}>{photoMessage}</span>
-              )}
-            </div>
+            <PhotoStrip type={type} part={part} fieldClassName={styles.field} labelClassName={styles.label} />
 
             <div>
               <button type="button" className={styles.ghost} onClick={props.onStar} disabled={busy}>
@@ -431,7 +359,7 @@ export function EditDialog(props: EditDialogProps) {
         <footer className={styles.foot}>
           <span className={styles.hints}>
             <Kbd>⌘/Ctrl</Kbd>+<Kbd>Enter</Kbd> godkend &amp; næste · <Kbd>PgUp</Kbd>
-            <Kbd>PgDn</Kbd> skift række/del · <Kbd>1</Kbd>–<Kbd>4</Kbd> skift visning · <Kbd>Tab</Kbd> rediger mængde · <Kbd>Esc</Kbd> luk
+            <Kbd>PgDn</Kbd> skift række/del · <Kbd>1</Kbd>–<Kbd>{EVIDENCE_LAST_KEY}</Kbd> skift visning · <Kbd>Tab</Kbd> rediger mængde · <Kbd>Esc</Kbd> luk
           </span>
           <div className={styles.spacer} />
           {gateNote && <span className={styles.gateNote}>{gateNote}</span>}

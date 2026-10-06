@@ -13,7 +13,9 @@
 
 #include <gui/api.hpp>
 #include <gui/assets.hpp>
+#include <gui/photo_cache.hpp>
 #include <gui/point_lod.hpp>
+#include <gui/survey.hpp>
 
 #include "../../support/pose_fixture.hpp"
 #include "../../support/temp_path.hpp"
@@ -23,13 +25,18 @@
 #include <core/SensorIntrinsics.hpp>
 #include <pipeline/JobRunner.hpp>
 
+#include <opencv2/imgcodecs.hpp>
+#include <pcl/point_types.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -166,6 +173,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "POST /api/v1/templates/<int>/duplicate",
       "GET /api/v1/instances/<string>",
       "GET /api/v1/instances/<string>/<int>/frames",
+      "GET /api/v1/instances/<string>/<int>/panoramas",
       "PUT /api/v1/instances/<string>/<int>/material",
       "GET /api/v1/stages",
       "GET /api/v1/stages/<string>/validation",
@@ -186,6 +194,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "GET /api/v1/survey",
       "GET /api/v1/survey/summary",
       "GET /api/v1/survey/fractions",
+      "GET /api/v1/survey/photos",
       "GET /api/v1/samples",
       "POST /api/v1/survey/sync",
       "POST /api/v1/survey/types",
@@ -1648,6 +1657,183 @@ TEST_CASE("InstanceFrames_UnknownCloud_Is404", "[gui][routes]") {
   CHECK_THROWS_AS(instance_frames_json(db, "nope", 1, Params{}), HttpError);
 }
 
+namespace {
+
+/// Base cloud + instance cloud: instance 1 is two points around (0,0,2),
+/// instance 2 one point far behind the frames at (0,0,-10).
+void save_evidence_instances(reusex::ProjectDB &db) {
+  reusex::Cloud positions;
+  reusex::CloudL labels;
+  auto add = [&](float x, float y, float z, std::uint32_t label) {
+    pcl::PointXYZRGB p;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    positions.push_back(p);
+    pcl::Label l;
+    l.label = label;
+    labels.push_back(l);
+  };
+  add(-0.1F, 0.0F, 2.0F, 1);
+  add(0.1F, 0.0F, 2.0F, 1);
+  add(0.0F, 0.0F, -10.0F, 2);
+  db.save_point_cloud("cloud", positions, "test", "{}");
+  db.save_point_cloud("instances", labels, "test", "{}");
+  db.save_instances("instances",
+                    {{1, "guid-inst-1", 3, 2}, {2, "guid-inst-2", 3, 1}});
+}
+
+} // namespace
+
+TEST_CASE("InstancePanoramas_RankedWithEquirectUv", "[gui][routes]") {
+  const TempPath project("gui_instance_panoramas");
+  reusex::ProjectDB db(project.path);
+  save_evidence_instances(db);
+  cv::Mat img(8, 16, CV_8UC3, cv::Scalar(10, 20, 30));
+  std::vector<std::uint8_t> jpeg;
+  REQUIRE(cv::imencode(".jpg", img, jpeg));
+  db.save_panoramic_image("a.jpg", jpeg, 1.0, -1);
+  db.save_panoramic_image("b.jpg", jpeg, 2.0, -1);
+  db.save_panoramic_image("c.jpg", jpeg, 3.0, -1); // never placed
+  db.save_panorama_pose(1, {1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 2, 0, 0, 0, 1}, 9,
+                        0.4);
+  db.save_panorama_pose(2, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, 9,
+                        0.4);
+
+  SECTION("nearest first, centroid straight ahead is the image centre") {
+    const auto body = instance_panoramas_json(db, "instances", 1, Params{});
+    CHECK(body.at("point") == json::array({0.0, 0.0, 2.0}));
+    REQUIRE(body.at("total") == 2);
+    const auto &first = body.at("panoramas").at(0);
+    // Both are 2 m away; the id breaks the tie.
+    CHECK(first.at("panorama_id") == 1);
+    CHECK(first.at("heading") == "resected");
+    CHECK(first.at("distance").get<double>() == Catch::Approx(2.0));
+    // Panorama 1 sits at (2,0,2) looking +z: the centroid is due left
+    // (-x), a quarter of the way across the equirect, on the horizon.
+    CHECK(first.at("u").get<double>() == Catch::Approx(0.25));
+    CHECK(first.at("v").get<double>() == Catch::Approx(0.5));
+    const auto &second = body.at("panoramas").at(1);
+    CHECK(second.at("panorama_id") == 2);
+    CHECK(second.at("u").get<double>() == Catch::Approx(0.5));
+    CHECK(second.at("v").get<double>() == Catch::Approx(0.5));
+  }
+
+  SECTION("max_distance bounds the list") {
+    const auto body = instance_panoramas_json(
+        db, "instances", 1, params_of({{"max_distance", "1"}}));
+    CHECK(body.at("total") == 0);
+    CHECK(body.at("panoramas").empty());
+  }
+
+  SECTION("a bad max_distance is a 400") {
+    CHECK_THROWS_AS(
+        instance_panoramas_json(db, "instances", 1,
+                                params_of({{"max_distance", "-2"}})),
+        HttpError);
+  }
+
+  SECTION("an unknown cloud or instance is a 404") {
+    try {
+      instance_panoramas_json(db, "nope", 1, Params{});
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 404);
+    }
+    try {
+      instance_panoramas_json(db, "instances", 7, Params{});
+      FAIL("expected HttpError");
+    } catch (const HttpError &e) {
+      CHECK(e.status() == 404);
+    }
+  }
+}
+
+TEST_CASE("InstanceFrames_ServedFromCacheWhenGiven", "[gui][routes]") {
+  const TempPath project("gui_instance_frames_cached");
+  reusex::ProjectDB db(project.path);
+  save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+  save_evidence_instances(db);
+
+  reusex::core::InstanceEvidence fake;
+  fake.centroid.centroid = Eigen::Vector3d(9, 9, 9);
+  fake.centroid.point_count = 7;
+  fake.frames.push_back({42, 1.0, 2.0, 3.0, 0.1});
+  int calls = 0;
+  const CachedInstanceEvidence cached =
+      [&](const reusex::ProjectDB &, const std::string &,
+          std::uint32_t id) -> std::optional<reusex::core::InstanceEvidence> {
+    ++calls;
+    if (id == 1)
+      return fake;
+    return std::nullopt;
+  };
+
+  const auto hit = instance_frames_json(db, "instances", 1, Params{}, cached);
+  CHECK(hit.at("frames").at(0).at("frame_id") == 42);
+  CHECK(hit.at("instance_point_count") == 7);
+
+  // A miss computes: instance 2 is behind the only camera.
+  const auto miss = instance_frames_json(db, "instances", 2, Params{}, cached);
+  CHECK(miss.at("total") == 0);
+
+  // A request with its own range limit never uses the cache.
+  const auto ranged = instance_frames_json(
+      db, "instances", 1, params_of({{"max_depth", "10"}}), cached);
+  CHECK(ranged.at("frames").at(0).at("frame_id") == 1);
+  CHECK(calls == 2);
+}
+
+TEST_CASE("InstanceFrames_MisalignedClouds_Is409", "[gui][routes]") {
+  const TempPath project("gui_instance_frames_misaligned");
+  reusex::ProjectDB db(project.path);
+  save_evidence_instances(db);
+  reusex::CloudL longer;
+  for (int i = 0; i < 5; ++i) {
+    pcl::Label l;
+    l.label = 1;
+    longer.push_back(l);
+  }
+  db.save_point_cloud("instances", longer, "test", "{}");
+  try {
+    instance_frames_json(db, "instances", 1, Params{});
+    FAIL("expected HttpError");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 409);
+  }
+}
+
+TEST_CASE("SurveyPhotos_CountsPerInstanceBackedPart", "[gui][survey]") {
+  const TempPath project("gui_survey_photos");
+  reusex::ProjectDB db(project.path);
+  save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+  save_visibility_frame(db, 2, 0.3, 0.0, 0.0);
+  save_evidence_instances(db);
+  reusex::ProjectDB::SurveyTypeRecord type;
+  type.name = "Vinduer";
+  const auto type_id = db.add_survey_type(type).id;
+  for (const auto &[code, instance] :
+       std::vector<std::pair<std::string, std::optional<std::uint32_t>>>{
+           {"RX-001", 1u}, {"RX-002", 2u}, {"RX-003", std::nullopt}}) {
+    reusex::ProjectDB::SurveyPartRecord part;
+    part.code = code;
+    part.type_id = type_id;
+    if (instance) {
+      part.cloud_name = "instances";
+      part.instance_id = *instance;
+    }
+    db.add_survey_part(part);
+  }
+
+  const auto body = survey_photos_json(db);
+  const auto &parts = body.at("parts");
+  CHECK(parts.at("RX-001").at("count") == 2);
+  CHECK(parts.at("RX-001").at("best_frame_id") == 1);
+  CHECK(parts.at("RX-002").at("count") == 0);
+  CHECK(parts.at("RX-002").at("best_frame_id").is_null());
+  CHECK_FALSE(parts.contains("RX-003"));
+}
+
 // ===========================================================================
 // Pose-graph editor endpoints (#407)
 // ===========================================================================
@@ -2001,4 +2187,92 @@ TEST_CASE("SegmentPanoramaResultJson_NoClassNames_EmptyLabelsObject",
   CHECK(body.at("labeled_pixels") == 0);
   CHECK(body.at("labels").is_object());
   CHECK(body.at("labels").empty());
+}
+
+// ===========================================================================
+// Photo evidence cache (GET /survey/photos)
+// ===========================================================================
+
+TEST_CASE("PhotoEvidenceCache_HitsUntilRevisionOrInstancesChange",
+          "[gui][survey]") {
+  const TempPath project("gui_photo_cache");
+  {
+    reusex::ProjectDB db(project.path);
+    save_visibility_frame(db, 1, 0.0, 0.0, 0.0);
+    save_evidence_instances(db);
+  }
+  reusex::ProjectDB db(project.path);
+  PhotoEvidenceCache cache;
+
+  const auto first = cache.get(db, "instances", {1});
+  CHECK(cache.computations() == 1);
+  CHECK(first.at(1).count == 1);
+  CHECK(first.at(1).best_frame_id == 1);
+
+  SECTION("a second request is served from memory") {
+    CHECK(cache.get(db, "instances", {1, 2}).at(1).count == 1);
+    CHECK(cache.computations() == 1);
+  }
+
+  SECTION("an instance the cache has never seen forces a recompute") {
+    cache.get(db, "instances", {1, 99});
+    CHECK(cache.computations() == 2);
+    // 99 has no points: remembered as absent, so the same request hits.
+    const auto again = cache.get(db, "instances", {1, 99});
+    CHECK(cache.computations() == 2);
+    CHECK(again.count(99) == 0);
+  }
+
+  SECTION("peek serves one instance's ranked frames only while warm") {
+    const auto hit = cache.peek(db, "instances", 1);
+    REQUIRE(hit.has_value());
+    REQUIRE(hit->frames.size() == 1);
+    CHECK(hit->frames[0].frame_id == 1);
+    CHECK(hit->centroid.point_count == 2);
+    CHECK_FALSE(cache.peek(db, "instances", 99).has_value());
+    cache.invalidate();
+    CHECK_FALSE(cache.peek(db, "instances", 1).has_value());
+    CHECK(cache.computations() == 1); // peek never computes
+  }
+
+  SECTION("a raised cancel flag aborts the computation and stores nothing") {
+    cache.invalidate();
+    std::atomic<bool> cancel{true};
+    CHECK_THROWS_AS(cache.get(db, "instances", {1}, &cancel),
+                    reusex::core::OperationCancelled);
+    CHECK(cache.computations() == 1);
+    CHECK_FALSE(cache.peek(db, "instances", 1).has_value());
+    cache.get(db, "instances", {1});
+    CHECK(cache.computations() == 2);
+  }
+
+  SECTION("invalidate() and a new frame both change the revision") {
+    cache.invalidate();
+    cache.get(db, "instances", {1});
+    CHECK(cache.computations() == 2);
+    const auto before = photo_revision(db, "instances", 0);
+    save_visibility_frame(db, 2, 0.3, 0.0, 0.0);
+    CHECK(photo_revision(db, "instances", 0) != before);
+    CHECK(cache.get(db, "instances", {1}).at(1).count == 2);
+    CHECK(cache.computations() == 3);
+  }
+
+  SECTION("survey_photos_json maps parts onto the source's results") {
+    reusex::ProjectDB::SurveyTypeRecord type;
+    type.name = "Vinduer";
+    const auto type_id = db.add_survey_type(type).id;
+    reusex::ProjectDB::SurveyPartRecord part;
+    part.code = "RX-001";
+    part.type_id = type_id;
+    part.cloud_name = "instances";
+    part.instance_id = 1u;
+    db.add_survey_part(part);
+    const auto body = survey_photos_json(
+        db, [&](const reusex::ProjectDB &conn, const std::string &cloud,
+                const std::set<std::uint32_t> &wanted) {
+          return cache.get(conn, cloud, wanted);
+        });
+    CHECK(body.at("parts").at("RX-001").at("count") == 1);
+    CHECK(cache.computations() == 1);
+  }
 }

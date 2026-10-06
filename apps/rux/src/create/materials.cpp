@@ -14,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include <regex>
+#include <set>
 #include <string>
 
 using nlohmann::json;
@@ -123,8 +124,20 @@ int run_subcommand_create_materials(SubcommandCreateMaterialsOptions const &opt,
       // Semantic cloud may not carry label definitions; that's fine.
     }
 
-    size_t created = 0, skipped = 0;
+    // Instances whose survey part the user deleted (schema v26 tombstones):
+    // minting a passport for one would bring the deleted part's material
+    // back, so they are skipped, --clear included.
+    std::set<int> dismissed;
+    for (const auto &rec : db.instances(opt.instances_cloud_name))
+      if (db.is_instance_dismissed(rec.guid))
+        dismissed.insert(static_cast<int>(rec.instance_id));
+
+    size_t created = 0, skipped = 0, skipped_dismissed = 0;
     for (const auto &[instance_id, def] : instance_defs) {
+      if (dismissed.count(instance_id) != 0) {
+        ++skipped_dismissed;
+        continue;
+      }
       if (auto existing = db.instance_material_guid(opt.instances_cloud_name,
                                                     instance_id)) {
         if (!opt.clear) {
@@ -161,9 +174,9 @@ int run_subcommand_create_materials(SubcommandCreateMaterialsOptions const &opt,
       ++created;
     }
 
-    spdlog::info(
-        "Created {} passport(s), skipped {} already-linked instance(s)",
-        created, skipped);
+    spdlog::info("Created {} passport(s), skipped {} already-linked and {} "
+                 "dismissed instance(s)",
+                 created, skipped, skipped_dismissed);
     return RuxError::SUCCESS;
   } catch (const std::exception &e) {
     spdlog::error("create materials failed: {}", e.what());

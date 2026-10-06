@@ -94,7 +94,6 @@ The token system stays the mechanism: the prototype's values go into
 |---|---|---|
 | `/sager` | Sager | — (new) |
 | `/` | Overblik | Dashboard (Overview) |
-| `/projektdata` | Projektdata | the old Dashboard/inventory content, moved here (Phase 5) |
 | `/kortlaegning` | Kortlægning | Materials as the primary materials view |
 | `/viewport` | Viewport | moved from the Værktøjer group (2026-10-02) |
 | `/miljoe` | Miljø & prøver | — (new) |
@@ -111,6 +110,16 @@ The token system stays the mechanism: the prototype's values go into
 > no longer exists as a distinct tool now that resources carry the passport
 > fields. `Viewport` moved out of Værktøjer into the Sag group, alongside the
 > new `/skabeloner` — both rows are above.
+
+> **2026-10-06 (Kortlægning fixes, A1–A2):** `/projektdata` is retired too —
+> its content (the technical inventory: point clouds, meshes, components,
+> schema version, project path, **Seneste aktivitet**, and the Punktskyer /
+> Meshes / Komponenter pr. type tables) moved into a closed-by-default
+> **"Projektdata"** disclosure at the foot of Overblik (`ProjectData.tsx`).
+> `Dashboard.tsx` is deleted; `/projektdata` now redirects to `/`
+> (`navigation.ts` `REDIRECTS`). Separately, the **Værktøjer** nav group is
+> now collapsible (closed by default, auto-opens on a tools route, choice
+> remembered per viewer in localStorage) rather than a flat always-open list.
 
 **Sager and one project per server.** `rux gui` serves one `.rux`. The Sager
 screen lists the open project as its card and says how to open another
@@ -181,7 +190,11 @@ Derived, never stored (pure library functions, unit-tested):
   survey has nothing to report).
 
 Rejecting a type ("Afvis — fejldetektion") sets status *rejected*; it is hidden
-from Til gennemsyn / Godkendt / Alle but not deleted, so it can be restored.
+from Til gennemsyn / Godkendt / Alle, kept visible in its own **Afvist** tab
+(2026-10-06, spec A3), and not deleted, so it can be restored ("Genåbn", back
+to the queue) or, separately, deleted outright ("Slet" — a destructive,
+two-click-armed action distinct from reject, available in every tab for a
+whole type or a single part).
 
 **Populating the survey.** A new idempotent library entry point
 `sync_survey(ProjectDB&)` creates a `survey_parts` row for every instance that
@@ -207,41 +220,57 @@ answers 503.
   label cloud and rooms without scan coverage, from `GET /survey/summary`.
 - **Workbench** — table panel left, 21.5rem right column (evidence + detail);
   stacks below 1080px.
-- **Tabs** — Til gennemsyn (n) · Godkendt (n) · Alle (n).
+- **Tabs** — Til gennemsyn (n) · Godkendt (n) · Alle (n) · **Afvist (n)**
+  (2026-10-06, spec A3; rejected types are excluded from the other three tabs
+  as before, but are no longer hidden outright — they live here, with
+  "Genåbn" back to the queue and, separately, "Slet").
 - **Tools** — search (Søg bygningsdel…), room filter (Alle rum), miljø filter
   (Al miljøstatus / Ren / Afventer prøve / Forurenet).
 - **Keyboard bar** — ↑↓ naviger · →← fold ud/ind · Enter åbn redigering ·
-  G godkend · A afvis · V vigtig · 1–4 evidens · Esc tilbage.
+  G godkend · A afvis · V vigtig · 1–5 evidens · Esc tilbage (2026-10-06: a
+  fifth evidence key, see below).
 - **Table** — columns Betegnelse · Mængde · EAK · BIM7AA · Behandling · Miljø ·
   Status. Group rows: chevron, ★, name, "n dele", quantity + unit + tonnes.
   Child rows: `RX-### · Rum`, quantity, EAK, photo count. Treatment as a
   circularity-coloured pill, miljø as a tone pill, status as a confidence bar
   or "Godkendt ✓". Sticky header, keyboard-focusable, selected row with an
   accent inset bar.
-- **Evidence panel** — tabs Plan · Foto · Punktsky · Rum-model:
+- **Evidence panel** — tabs **Plan · 360° · Foto · Punktsky · Rum** (keys 1–5,
+  2026-10-06, spec A5 — a real 360° tab replaces the earlier Foto substitute):
   - *Plan*: server-rendered floor plan (`render_view`, `plan` preset) with the
     selected instance highlighted.
-  - *Foto*: no nearest-panorama endpoint exists yet, so this tab substitutes a
-    regular sensor-frame photo ("Bedste foto") of the selected part's instance
-    — or of the first linked part's instance, for a type row — not a true 360°
-    view. Swap in a real 360° tab once the endpoint lands (see follow-ups).
-  - *Punktsky*: server-rendered orbit view of the cloud, instance highlighted,
-    plus "Åbn i viewport".
-  - *Rum-model*: server-rendered view of the `rooms` layer.
+  - *360°*: the nearest placeable panorama (`GET /instances/<cloud>/<id>/panoramas`),
+    preferring a **resected** one (heading measured by `rux align 360`) within
+    range over a merely levelled one (position borrowed from a matched frame,
+    heading unknown); shown as a pannable equirect strip centred on the
+    part's `u`, with a marker at `(u,v)` only for a resected panorama — a
+    levelled one is captioned "<rum> · 360° · retning ukendt" with no marker
+    — and a link "Åbn i viewport". Empty state: "Ingen 360°-optagelse nær
+    denne ressource".
+  - *Foto*: a regular sensor-frame photo ("Bedste foto") of the selected
+    part's instance — or of the first linked part's instance, for a type row.
+  - *Punktsky*: server-rendered orbit view of the cloud, instance highlighted
+    (the "Åbn i viewport" link is only wired for 360° so far — see
+    follow-ups).
+  - *Rum*: server-rendered view of the `rooms` layer.
 - **Detail panel** — title, BIM7AA pill, miljø pill, ★ pill; Mængde (editable;
   on a type it is redistributed proportionally over the parts), EAK, Behandling
   (select), Sikkerhed (AI); sample line, each sample a link to its card in
   Miljø & prøver (or `Registrér prøve` when none is linked); Proces /
   håndtering note;
   ☆ Markér vigtig, Afvis, Godkend mængde ✓ (disabled with a gate note while a
-  sample is pending), Genåbn.
+  sample is pending), Genåbn, and (2026-10-06) **Slet** — a separate,
+  destructive, two-click-armed action ("Slet type" / "Slet ressource", then
+  "Bekræft: …") available in every tab, for a whole type (and all its parts)
+  or for any single part.
 - **Edit dialog** (Enter / double-click) — navy header with prev/next/close;
   left form (part chips, quantity, EAK, behandling, sikkerhed, sample line,
-  note, photos = the instance's best frames, ☆); right evidence with four
-  numbered thumbnails and a large stage; footer shortcuts, gate note, Afvis,
-  Godkend & næste ✓. ⌘/Ctrl+Enter approve-and-next, PgUp/PgDn move, 1–4
-  switch view, Esc close.
-- **Toast** after approve/reject: "✓ <type> godkendt · n tilbage i køen".
+  note, photos = the instance's best frames, ☆); right evidence with five
+  numbered thumbnails (2026-10-06: was four, now includes 360°) and a large
+  stage; footer shortcuts, gate note, Afvis, Godkend & næste ✓. ⌘/Ctrl+Enter
+  approve-and-next, PgUp/PgDn move, 1–5 switch view, Esc close.
+- **Toast** after approve: "✓ <type> godkendt · n tilbage i køen". After
+  reject (2026-10-06): "Afvist som fejldetektion — flyttet til Afvist".
 
 ## Miljø & prøver screen (the prototype, component by component)
 
@@ -300,7 +329,11 @@ live sub-line. v1 changes from the prototype:
   shown only once a BFE number can be stored);
 - the hero's in-place editor is new: the prototype's hero is static;
 - the old Dashboard/inventory screen moved from `/` to `/projektdata`, a
-  `Værktøjer` entry, so Overblik could take the landing route.
+  `Værktøjer` entry, so Overblik could take the landing route — and (2026-10-06,
+  spec A2) `/projektdata` was retired in turn: its content is now the
+  **"Projektdata"** disclosure at the foot of Overblik itself (see the
+  information-architecture note above), so the content that started at `/`
+  has, after two moves, landed back on it.
 
 **Rapport** — Ressourcekortlægning report versions, newest first: each one
 numbered `v<n>` with its generation date, file size and a `Komplet`/`Udkast`
@@ -430,15 +463,19 @@ Each phase is a separate PR that leaves the app working.
 - Lab integration (e.g. Milva) for automatic sample results.
 - Pushing the new token values to the Claude Design project ("ReUseX GUI") with
   `/design-sync` after Phase 1 merges — a maintainer-initiated step.
-- A nearest-panorama endpoint, so the evidence panel's Foto tab can become a
-  true 360° tab instead of substituting a sensor-frame photo.
+- ~~A nearest-panorama endpoint, so the evidence panel's Foto tab can become a
+  true 360° tab instead of substituting a sensor-frame photo~~ — done
+  2026-10-06 (spec A5): `GET /instances/<cloud>/<id>/panoramas` and the
+  evidence panel's 360° tab.
 - ~~Linking the detail panel's sample line to the Miljø & prøver screen~~ —
   done in Phase 4: the sample line is now a link to each linked sample's card
   (or `Registrér prøve` when none is linked).
 - A survey-specific export — "Eksport (XLS)" currently downloads the existing
   material-passport CSV (`/exports/csv`), not a Kortlægning-shaped spreadsheet.
-- Two pieces of the structure above that v1 does not draw yet: the child
-  rows' photo count and the Punktsky tab's "Åbn i viewport" link.
+- Two pieces of the structure above that v1 did not draw yet: ~~the child
+  rows' photo count~~ — done 2026-10-06 (spec A4: "n fotos" per part row,
+  `photoCountText`) — and the Punktsky tab's "Åbn i viewport" link (still
+  missing; only the 360° tab has it so far).
 - A `--border-width` token: the tab underline offset in `SurveyTable.module.css`
   and `EvidencePanel.module.css` currently computes it as `calc(-1 * 1px)`
   because no border-width token exists yet.

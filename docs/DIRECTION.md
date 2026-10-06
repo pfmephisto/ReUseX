@@ -190,6 +190,37 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-06** — **GUI: Kortlægning and navigation fixes**
+  ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md),
+  Stream A). Several independent fixes to the 2026-09-30 GUI redesign, landed
+  together:
+  - **Reject ≠ delete** (§A3). Afvis keeps a type, now listed in its own
+    **Afvist** tab; **Slet** is a separate, confirmed action for any part or a
+    whole type. Deleting a scan-backed part records its instance guid in a
+    tombstone table, `survey_dismissed_instances` (schema v26), which
+    `sync_survey` respects, so a deleted resource stays deleted across "Opret
+    kortlægning" re-runs. Because the tombstones are kept, a later **"Gendan
+    slettede scan-ressourcer"** (restore deleted scan resources) is possible:
+    drop the rows and re-sync. Not built yet.
+  - **Projektdata retires as a screen** (§A2): its tables (point clouds,
+    meshes, components, schema/path) and the pipeline log move into a
+    collapsed-by-default disclosure at the foot of Overblik, next to the
+    existing KPIs. `Dashboard.tsx` is deleted and `/projektdata` redirects to
+    `/` — the nav entry is gone.
+  - **Værktøjer is collapsible** (§A1): the sidebar's technical-tools group is
+    closed by default, auto-opens while the active route is one of its own,
+    and remembers the viewer's explicit choice (localStorage, degrades to
+    closed).
+  - **Photo and 360° evidence** (§A4/§A5): Kortlægning's table rows and detail
+    panel now show a thumbnail and photo count per part (`GET
+    /survey/photos`, occlusion-aware against each frame's depth image, not
+    just frustum membership), and the evidence panel gained a real **360°**
+    tab (`GET /instances/{cloud}/{id}/panoramas`) alongside Plan · Foto ·
+    Punktsky · Rum — five evidence tabs in all, keys 1–5. 360° prefers a
+    resected panorama (measured heading) over a nearer levelled one (position
+    only), and shows "retning ukendt" with no marker when it falls back to
+    the latter.
+
 - **2026-10-02** — **GUI: resources, templates and navigation cleanup**
   ([spec](superpowers/specs/2026-10-02-resources-templates-ia-design.md)).
   Materials are now *resources* in the GUI: one per survey part, carrying any

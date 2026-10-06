@@ -16,11 +16,15 @@
 #include "gui/api.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/instance_evidence.hpp>
 #include <reusex/core/survey.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -60,6 +64,22 @@ nlohmann::json survey_summary_json(const reusex::ProjectDB &db);
 /// waste report.
 nlohmann::json survey_fractions_json(const reusex::ProjectDB &db);
 
+/// Per-instance photo evidence of one instance cloud; @p wanted are the ids
+/// the caller will look up. The server passes its PhotoEvidenceCache.
+using InstancePhotoSource =
+    std::function<std::map<std::uint32_t, reusex::core::PartPhotos>(
+        const reusex::ProjectDB &db, const std::string &cloud,
+        const std::set<std::uint32_t> &wanted)>;
+
+/// `GET /survey/photos`: `{parts: {<code>: {count, best_frame_id|null}}}` for
+/// every instance-backed part — occlusion-aware (core::instance_photos), so
+/// it agrees with `GET /instances/{cloud}/{id}/frames`. Parts without an
+/// instance link, or whose instance has no points, are absent; a cloud whose
+/// evidence cannot be computed is skipped with a warning. @p source defaults
+/// to computing directly (core::instance_photos).
+nlohmann::json survey_photos_json(const reusex::ProjectDB &db,
+                                  const InstancePhotoSource &source = {});
+
 /// `GET /samples`: every environmental sample with its linked survey types.
 nlohmann::json samples_json(const reusex::ProjectDB &db);
 
@@ -95,6 +115,11 @@ nlohmann::json create_survey_type_json(reusex::ProjectDB &db,
 ///         `quantity` is given for a type with no parts.
 nlohmann::json patch_survey_type_json(reusex::ProjectDB &db, int64_t id,
                                       const std::string &body);
+
+/// `DELETE /survey/types/<int>`: delete a type and all its parts
+/// (core::delete_survey_type) → `{parts_deleted, instances_dismissed}`.
+/// @throws HttpError(404) when @p id is not a survey type.
+nlohmann::json delete_survey_type_json(reusex::ProjectDB &db, int64_t id);
 
 /// `PATCH /survey/parts/<string>`: sparse-update or re-file a survey part.
 /// Body: any of `type_id` (int), `quantity` (number >= 0), `starred` (bool),

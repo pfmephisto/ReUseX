@@ -29,6 +29,46 @@
   margin-bottom: var(--space-1);
 }
 
+.groupToggle {
+  composes: groupLabel;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-2xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.groupToggle:hover {
+  color: var(--color-on-chrome);
+}
+
+.groupToggle:focus-visible {
+  outline-color: var(--color-on-chrome);
+  outline-offset: -2px;
+}
+
+.chevron {
+  display: inline-flex;
+  justify-content: center;
+  width: var(--space-3);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.nav[hidden] {
+  display: none;
+}
+
 .project {
   padding: var(--space-1) var(--space-4) var(--space-3);
   font-family: var(--font-display);
@@ -188,6 +228,7 @@
   }
 
   .item,
+  .groupToggle,
   .back a {
     min-height: var(--layout-titlebar-height); /* 44px: the bar's height is the tap-target size */
   }
@@ -204,7 +245,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
-  .sidebar[data-open] {
+  .sidebar[data-open],
+  .chevron {
     transition: none;
   }
 }

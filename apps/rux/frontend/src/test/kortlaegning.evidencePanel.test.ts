@@ -8,9 +8,17 @@ import type { SurveyPart, SurveyType, VisibleFrame } from '../api/types';
 import {
   evidenceSources,
   resolvePhotoState,
+  type EvidenceSource,
   type FrameLookup,
 } from '../components/kortlaegning/EvidencePanel';
-import { EVIDENCE_TABS } from '../kortlaegning/keys';
+import { EVIDENCE_TABS, type EvidenceTab } from '../kortlaegning/keys';
+import { PANO_TEXT } from '../kortlaegning/pano';
+
+function tabOf(sources: EvidenceSource[], tab: EvidenceTab): EvidenceSource {
+  const found = sources.find((s) => s.tab === tab);
+  if (!found) throw new Error(`no ${tab} source`);
+  return found;
+}
 
 function frame(overrides: Partial<VisibleFrame> = {}): VisibleFrame {
   return { frame_id: 1, centrality: 0, score: 1, depth: 1, u: 0, v: 0, ...overrides };
@@ -60,21 +68,22 @@ function type(overrides: Partial<SurveyType> = {}, parts: SurveyPart[] = [part()
 }
 
 describe('kortlægning evidenceSources', () => {
-  it('returns the four sources in EVIDENCE_TABS order', () => {
+  it('returns the five sources in EVIDENCE_TABS order', () => {
     const sources = evidenceSources(null, null);
     expect(sources.map((s) => s.tab)).toEqual(EVIDENCE_TABS);
-    expect(sources.map((s) => s.label)).toEqual(['Plan', 'Foto', 'Punktsky', 'Rum-model']);
+    expect(sources.map((s) => s.label)).toEqual(['Plan', '360°', 'Foto', 'Punktsky', 'Rum']);
   });
 
-  it('carries fixed captions for Plan, Punktsky and Rum-model', () => {
-    const [plan, , punktsky, rum] = evidenceSources(type(), part());
+  it('carries fixed captions for Plan, Punktsky and Rum', () => {
+    const sources = evidenceSources(type(), part());
+    const [plan, punktsky, rum] = [tabOf(sources, 'plan'), tabOf(sources, 'punktsky'), tabOf(sources, 'rum')];
     expect(plan.caption).toBe('Stueplan · snit i 1,2 m');
     expect(punktsky.caption).toBe('Punktsky · bygningsdel markeret');
     expect(rum.caption).toBe('Rumvis model · segmenterede rum');
   });
 
-  it('builds the Rum-model render with no highlight — it is never part-specific', () => {
-    const [, , , rum] = evidenceSources(type(), part());
+  it('builds the Rum render with no highlight — it is never part-specific', () => {
+    const rum = tabOf(evidenceSources(type(), part()), 'rum');
     expect(rum.url).not.toBeNull();
     expect(rum.url).not.toContain('highlight_instance');
     expect(rum.url).toContain('view=orbit');
@@ -83,7 +92,8 @@ describe('kortlægning evidenceSources', () => {
 
   it('highlights the selected part on Plan and Punktsky', () => {
     const p = part({ cloud: 'instances', instance_id: 7 });
-    const [plan, , punktsky] = evidenceSources(type({}, [p]), p);
+    const sources = evidenceSources(type({}, [p]), p);
+    const [plan, punktsky] = [tabOf(sources, 'plan'), tabOf(sources, 'punktsky')];
     expect(plan.url).toContain('highlight_instance=7');
     expect(plan.url).toContain('highlight_cloud=instances');
     expect(punktsky.url).toContain('highlight_instance=7');
@@ -108,7 +118,7 @@ describe('kortlægning evidenceSources', () => {
   describe('Foto', () => {
     it('reports "not linked" when the part has no instance', () => {
       const p = part({ cloud: null, instance_id: null });
-      const [, foto] = evidenceSources(type({}, [p]), p);
+      const foto = tabOf(evidenceSources(type({}, [p]), p), 'foto');
       expect(foto.url).toBeNull();
       expect(foto.caption).toBe('Bedste foto');
       expect(foto.empty).toBe('Intet foto — bygningsdelen er ikke koblet til en instans.');
@@ -116,21 +126,21 @@ describe('kortlægning evidenceSources', () => {
 
     it('reports loading while the frame lookup is in flight (photoFrameId undefined)', () => {
       const p = part();
-      const [, foto] = evidenceSources(type({}, [p]), p, undefined);
+      const foto = tabOf(evidenceSources(type({}, [p]), p, undefined), 'foto');
       expect(foto.url).toBeNull();
       expect(foto.empty).toBe('Indlæser foto…');
     });
 
     it('reports no frame found once resolved to null', () => {
       const p = part();
-      const [, foto] = evidenceSources(type({}, [p]), p, null);
+      const foto = tabOf(evidenceSources(type({}, [p]), p, null), 'foto');
       expect(foto.url).toBeNull();
       expect(foto.empty).toBe('Intet foto — der blev ikke fundet en ramme for denne instans.');
     });
 
     it('builds the frame image URL and caption once resolved', () => {
       const p = part();
-      const [, foto] = evidenceSources(type({}, [p]), p, 42);
+      const foto = tabOf(evidenceSources(type({}, [p]), p, 42), 'foto');
       expect(foto.url).toContain('/frames/42/image');
       expect(foto.url).toContain('kind=color');
       expect(foto.url).toContain('max_size=960');
@@ -139,16 +149,41 @@ describe('kortlægning evidenceSources', () => {
 
     it('treats instance_id 0 as unlinked — labels start at 1 (STANDARDS §3)', () => {
       const p = part({ instance_id: 0 });
-      const [, foto] = evidenceSources(type({}, [p]), p, 1);
+      const foto = tabOf(evidenceSources(type({}, [p]), p, 1), 'foto');
       expect(foto.url).toBeNull();
       expect(foto.empty).toBe('Intet foto — bygningsdelen er ikke koblet til en instans.');
     });
 
     it('reports a distinct message when the lookup itself failed', () => {
       const p = part();
-      const [, foto] = evidenceSources(type({}, [p]), p, undefined, true);
+      const foto = tabOf(evidenceSources(type({}, [p]), p, undefined, true), 'foto');
       expect(foto.url).toBeNull();
       expect(foto.empty).toBe('Foto kunne ikke hentes.');
+    });
+  });
+
+  describe('360°', () => {
+    const pano = { panorama_id: 5, node_id: 12, distance: 2.5, u: 0.3, v: 0.55, heading: 'resected' as const };
+
+    it('shows the lookup state while there is no panorama', () => {
+      const p = part();
+      const loading = tabOf(evidenceSources(type({}, [p]), p), 'pano');
+      expect(loading.url).toBeNull();
+      expect(loading.empty).toBe(PANO_TEXT.loading);
+      const none = tabOf(evidenceSources(type({}, [p]), p, null, false, { pano: null, empty: PANO_TEXT.none }), 'pano');
+      expect(none.empty).toBe('Ingen 360°-optagelse nær denne ressource');
+      expect(none.href).toBeUndefined();
+    });
+
+    it('points at the nearest equirect, centred on the part, with a viewport link', () => {
+      const p = part({ room_name: 'Mødelokale' });
+      const src = tabOf(evidenceSources(type({}, [p]), p, null, false, { pano, empty: '' }), 'pano');
+      expect(src.label).toBe('360°');
+      expect(src.url).toContain('/panoramas/5/image');
+      expect(src.url).toContain('max_size=2048');
+      expect(src.pano).toEqual({ id: 5, u: 0.3, v: 0.55, marker: true });
+      expect(src.caption).toBe('Mødelokale · 360°');
+      expect(src.href).toBe('/viewport?pano=5');
     });
   });
 

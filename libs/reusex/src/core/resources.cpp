@@ -274,25 +274,60 @@ Resource create_resource(ProjectDB &db, int64_t type_id,
   return resource(db, rec.code);
 }
 
+namespace {
+/// delete_resource's body without the transaction, so delete_survey_type can
+/// run it for every part inside its own.
+void delete_part_in_tx(ProjectDB &db, const ProjectDB::SurveyPartRecord &part) {
+  if (part.instance_guid)
+    db.dismiss_instance(*part.instance_guid);
+  // The part's own instance link goes with it; a link to another passport
+  // is not the part's to drop.
+  if (part.cloud_name && part.instance_id && part.material_guid &&
+      db.instance_material_guid(*part.cloud_name,
+                                static_cast<int>(*part.instance_id)) ==
+          part.material_guid)
+    db.unlink_instance_material(*part.cloud_name,
+                                static_cast<int>(*part.instance_id));
+  db.delete_survey_part(part.code);
+  if (part.material_guid) {
+    if (!db.is_passport_linked(*part.material_guid))
+      db.delete_material_passport(*part.material_guid);
+    else
+      reusex::warn("delete_resource: kept passport '{}' of deleted part '{}' "
+                   "— another part or an instance still links it",
+                   *part.material_guid, part.code);
+  }
+}
+} // namespace
+
 void delete_resource(ProjectDB &db, std::string_view code) {
   const auto part = db.survey_part(code);
   if (!part)
     throw std::out_of_range("no resource '" + std::string(code) + "'");
-  if (part->instance_guid)
-    throw ResourceConflictError(
-        "resource '" + std::string(code) + "' comes from the scan (instance " +
-        *part->instance_guid + ") and cannot be deleted");
   ProjectDB::Transaction tx(db);
-  db.delete_survey_part(code);
-  if (part->material_guid) {
-    if (!db.is_passport_linked(*part->material_guid))
-      db.delete_material_passport(*part->material_guid);
-    else
-      reusex::warn("delete_resource: kept passport '{}' of deleted part '{}' "
-                   "— another part or an instance still links it",
-                   *part->material_guid, code);
-  }
+  delete_part_in_tx(db, *part);
   tx.commit();
+}
+
+SurveyTypeDeletion delete_survey_type(ProjectDB &db, int64_t type_id) {
+  if (!db.survey_type(type_id))
+    throw std::out_of_range("no survey type " + std::to_string(type_id));
+  SurveyTypeDeletion out;
+  ProjectDB::Transaction tx(db);
+  for (const auto &p : db.survey_parts()) {
+    if (p.type_id != type_id)
+      continue;
+    delete_part_in_tx(db, p);
+    ++out.parts_deleted;
+    if (p.instance_guid)
+      ++out.instances_dismissed;
+  }
+  db.delete_survey_type(type_id);
+  tx.commit();
+  reusex::info("delete_survey_type: deleted type {} with {} part(s), {} of "
+               "them scan-backed (tombstoned)",
+               type_id, out.parts_deleted, out.instances_dismissed);
+  return out;
 }
 
 ProjectDB::PropertyDefinition create_column(ProjectDB &db,

@@ -81,7 +81,6 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
   { to: SKABELONER_PATH, label: 'Skabeloner', group: 'sag' },
 
-  { to: PROJEKTDATA_PATH, label: 'Projektdata', group: 'tools' },
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
   { to: '/pipeline', label: 'Pipeline', group: 'tools', end: true },
   { to: '/pipeline/log', label: 'Kørselslog', group: 'tools' },
@@ -109,10 +108,65 @@ export const REDIRECTS: readonly Redirect[] = [
   { from: '/onsite', to: KORTLAEGNING_PATH },
   { from: '/materials', to: KORTLAEGNING_PATH },
   { from: '/export', to: RAPPORT_PATH },
+  // Projektdata's inventory now closes Overblik (Kortlægning fixes spec A2).
+  { from: PROJEKTDATA_PATH, to: OVERBLIK_PATH },
 ];
 
 export function entriesIn(group: NavGroup): NavEntry[] {
   return NAV_ENTRIES.filter((e) => e.group === group);
+}
+
+/**
+ * Whether `pathname` is a Værktøjer destination, or a path nested under one,
+ * so the collapsed group can open itself and never hide the active link (A1).
+ */
+export function isToolsPath(pathname: string): boolean {
+  return entriesIn('tools').some((e) => pathname === e.to || pathname.startsWith(`${e.to}/`));
+}
+
+/** localStorage key for the viewer's explicit open/close choice of Værktøjer. */
+export const TOOLS_OPEN_KEY = 'rux.sidebar.toolsOpen';
+
+export interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+function defaultStorage(): StorageLike | undefined {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The stored choice, or null for none; missing or throwing storage is none. */
+export function readToolsChoice(storage = defaultStorage()): boolean | null {
+  try {
+    const raw = storage?.getItem(TOOLS_OPEN_KEY);
+    return raw === '1' ? true : raw === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers the choice; a storage failure only loses the memory. */
+export function writeToolsChoice(open: boolean, storage = defaultStorage()): void {
+  try {
+    storage?.setItem(TOOLS_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    // Private mode or blocked site data: the group just forgets.
+  }
+}
+
+/**
+ * Whether Værktøjer is open. Closed by default; off a tools route it follows
+ * the stored choice. On a tools route it is open, so the active link shows —
+ * unless the user closed it on this very route (`closedOnRoute`, reset when
+ * the route changes).
+ */
+export function toolsGroupOpen(s: { choice: boolean | null; onToolsRoute: boolean; closedOnRoute: boolean }): boolean {
+  return s.onToolsRoute ? !s.closedOnRoute : s.choice === true;
 }
 
 /** The badge label for a count, or null when there is nothing to flag. */

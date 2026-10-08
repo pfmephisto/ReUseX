@@ -47,6 +47,10 @@ namespace ruxd::api {
 /// and take a new prefix when you do.
 inline constexpr std::string_view kApiVersion = "1.0.0";
 inline constexpr std::string_view kApiPrefix = "/api/v1";
+/// Every per-case route lives under this (Crow pattern syntax): the case id
+/// is the first route parameter. Server-level routes (`/health`,
+/// `/endpoints`, `/cases`, `/uploads`, `/models/sam3/status`) do not.
+inline constexpr std::string_view kCasePrefix = "/api/v1/cases/<string>";
 /// Identifies which implementation of the contract is answering. "rux-gui"
 /// until the API moved into ruxd (2026-10-08); the contract's enum keeps it
 /// so an older server still validates.
@@ -219,6 +223,11 @@ nlohmann::json health_json(const reusex::ProjectDB *db,
                            const std::filesystem::path &project);
 
 nlohmann::json endpoints_json();
+
+/// `GET /api/v1/health` (server level): status, versions, implementation and
+/// how many cases are served. The per-case `GET /cases/{cid}/health` is
+/// health_json().
+nlohmann::json server_health_json(std::size_t case_count);
 
 // --- project --------------------------------------------------------------
 

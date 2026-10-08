@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// ruxd's command line (src/cli.cpp): the local-mode port default and the
-// rule that local-mode options need --local.
+// ruxd's command line (src/cli.cpp): the local-mode port default, the case
+// options, and the rule that local-mode options need --local.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +11,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include <chrono>
 #include <cstdlib>
 #include <string>
 
@@ -76,8 +77,38 @@ TEST_CASE("RuxdCli_LocalOptionWithoutLocal_IsAnError", "[ruxd][cli]") {
   clear_port_env();
   for (const char *args :
        {"--bind 0.0.0.0", "--allow-origin http://x", "--open-browser",
-        "--sam3-model /m", "--models-dir /m", "--no-segment-cuda"}) {
+        "--sam3-model /m", "--models-dir /m", "--no-segment-cuda",
+        "--data-dir /d", "--job-workers 2", "--max-open-cases 3",
+        "--case-idle-minutes 5", "--max-upload-mb 10"}) {
     INFO(args);
     CHECK_THROWS_AS(parse(args), CLI::RequiresError);
+  }
+}
+
+TEST_CASE("RuxdCli_CaseOptions_ReachTheServer", "[ruxd][cli]") {
+  clear_port_env();
+  SECTION("defaults mirror ServerOptions") {
+    const auto inv = parse("--local sager");
+    const ruxd::api::ServerOptions defaults;
+    CHECK(inv.local.server.job_workers == defaults.job_workers);
+    CHECK(inv.local.server.job_workers == 1u);
+    CHECK(inv.local.server.max_open_cases == defaults.max_open_cases);
+    CHECK(inv.local.server.case_idle_timeout == defaults.case_idle_timeout);
+    CHECK(inv.local.server.upload_limits.max_bytes ==
+          defaults.upload_limits.max_bytes);
+    CHECK(inv.local.server.data_dir.empty());
+  }
+  SECTION("explicit values") {
+    const auto inv =
+        parse("--local sager --data-dir /srv/sager --job-workers 2 "
+              "--max-open-cases 4 --case-idle-minutes 3 --max-upload-mb 100");
+    CHECK(inv.local.server.data_dir == "/srv/sager");
+    CHECK(inv.local.server.job_workers == 2u);
+    CHECK(inv.local.server.max_open_cases == 4u);
+    CHECK(inv.local.server.case_idle_timeout == std::chrono::minutes(3));
+    CHECK(inv.local.server.upload_limits.max_bytes == 100ull << 20);
+  }
+  SECTION("job workers must be at least one") {
+    CHECK_THROWS(parse("--local sager --job-workers 0"));
   }
 }

@@ -2,14 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// `ruxd --local` rules: which binds count as loopback, which project a path
-// names, and how a request presents the access token.
+// `ruxd --local` rules: which binds count as loopback and how a request
+// presents the access token. (Which projects a path serves: test_api_cases.)
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <api/local_mode.hpp>
-
-#include "../../support/temp_path.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -18,11 +16,6 @@
 
 namespace fs = std::filesystem;
 using namespace ruxd::api;
-using reusex::test_support::TempDir;
-
-namespace {
-void touch(const fs::path &p) { std::ofstream(p) << ""; }
-} // namespace
 
 TEST_CASE("IsLoopbackBind_LoopbackAndRoutableHosts_Classified",
           "[ruxd_api][local]") {
@@ -36,43 +29,6 @@ TEST_CASE("IsLoopbackBind_LoopbackAndRoutableHosts_Classified",
         "127.0.0", "127.0.0.256", "127.0.0.1.5", "example.org", ""}) {
     INFO(host);
     CHECK_FALSE(is_loopback_bind(host));
-  }
-}
-
-TEST_CASE("ResolveLocalProject_FileOrSingleProjectDir_ReturnsThatFile",
-          "[ruxd_api][local]") {
-  TempDir dir("test_api_local_mode");
-
-  SECTION("a .rux path is served as is, even before it exists") {
-    const auto p = dir.path / "new.rux";
-    CHECK(resolve_local_project(p) == p);
-  }
-  SECTION("a directory with exactly one .rux resolves to it") {
-    touch(dir.path / "scan.rux");
-    touch(dir.path / "notes.txt");
-    CHECK(resolve_local_project(dir.path) == dir.path / "scan.rux");
-  }
-}
-
-TEST_CASE("ResolveLocalProject_AmbiguousOrWrongTarget_Throws",
-          "[ruxd_api][local]") {
-  TempDir dir("test_api_local_mode");
-
-  SECTION("empty directory") {
-    CHECK_THROWS_AS(resolve_local_project(dir.path), std::runtime_error);
-  }
-  SECTION("several projects are refused, not guessed between") {
-    touch(dir.path / "a.rux");
-    touch(dir.path / "b.rux");
-    CHECK_THROWS_AS(resolve_local_project(dir.path), std::runtime_error);
-  }
-  SECTION("a non-.rux file") {
-    touch(dir.path / "x.db");
-    CHECK_THROWS_AS(resolve_local_project(dir.path / "x.db"),
-                    std::runtime_error);
-  }
-  SECTION("empty path") {
-    CHECK_THROWS_AS(resolve_local_project({}), std::runtime_error);
   }
 }
 

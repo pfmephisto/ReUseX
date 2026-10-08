@@ -7,17 +7,23 @@
 // The web GUI's HTTP + WebSocket server (#265; `ruxd --local` until it moved
 // into ruxd, where `ruxd --local` runs it).
 //
-// Implements docs/gui/openapi.yaml over one `.rux` project, serves the frontend
-// bundle as static files, and streams pipeline job progress over
-// /api/v1/events.
+// Implements docs/gui/openapi.yaml over a set of *cases* — `.rux` projects
+// served under /api/v1/cases/{cid}/... (spec 2026-10-08, phase S2) — serves
+// the frontend bundle as static files, and streams each case's pipeline job
+// progress over /api/v1/cases/{cid}/events. Cases open lazily and close when
+// idle (ProjectRegistry); jobs from every case share one bounded worker pool
+// (reusex::pipeline::JobScheduler).
 //
 // Crow is an implementation detail: this header is pimpl'd so crow.h never
 // reaches the rest of the app or the tests. The handler logic itself lives in
 // gui/api.hpp, which is framework-free.
 
 #include <api/api.hpp>
+#include <api/cases.hpp>
 #include <reusex/pipeline/stages.hpp>
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -37,8 +43,33 @@ namespace ruxd::api {
 
 /// Everything `ruxd --local` needs to stand a server up.
 struct ServerOptions {
-  /// The single project this server is bound to for its lifetime.
-  std::filesystem::path project;
+  /// What `ruxd --local` serves: one `.rux` file, or a directory whose `.rux`
+  /// files (and `<id>/project.rux` case directories) are the cases. See
+  /// LocalCaseStore. Ignored when `case_store` is set.
+  std::filesystem::path target;
+
+  /// Where created and uploaded cases are stored, one directory per case.
+  /// Empty: the `target` directory itself, or — for a lone `target` file —
+  /// none, which makes the catalogue read-only.
+  std::filesystem::path data_dir;
+
+  /// The case catalogue, injected (tests; the Postgres-backed catalogue of
+  /// phase S3). nullptr = a LocalCaseStore over `target` and `data_dir`.
+  std::shared_ptr<ICaseStore> case_store;
+
+  /// Pipeline worker threads shared by every case (`--job-workers`). At most
+  /// one job per case runs at a time whatever this is. Default 1: the GPU is
+  /// shared, and the stages are parallel internally.
+  std::size_t job_workers = 1;
+
+  /// Most cases open at once (`--max-open-cases`).
+  std::size_t max_open_cases = 16;
+
+  /// How long an unused case stays open (`--case-idle-minutes`).
+  std::chrono::seconds case_idle_timeout{std::chrono::minutes(10)};
+
+  /// Limits on `.rux` uploads (`POST /api/v1/uploads`).
+  UploadLimits upload_limits;
 
   /// Interface to bind. Defaults to loopback: without `auth_token` this
   /// server has **no authentication** and executes pipeline stages, so a bind
@@ -105,10 +136,10 @@ struct ServerOptions {
 /// Crow-backed implementation of the GUI API contract.
 class Server {
     public:
-  /// Opens the project read-write once (creating/migrating it if needed), then
-  /// constructs the job runner and registers every route.
-  /// @throws std::runtime_error if the project cannot be opened or the options
-  ///         are invalid.
+  /// Builds the case catalogue, the job scheduler and the case registry, and
+  /// registers every route. No case is opened until a request names it.
+  /// @throws std::runtime_error if the options are invalid or the catalogue
+  ///         cannot be built.
   explicit Server(ServerOptions options);
   ~Server();
 
@@ -124,6 +155,9 @@ class Server {
   /// True when a frontend bundle was found; false when the placeholder page is
   /// being served instead.
   bool has_assets() const noexcept;
+
+  /// The cases being served right now.
+  std::vector<CaseInfo> cases() const;
 
   /// Serve until SIGINT/SIGTERM or stop(). Returns a process exit code.
   int run();

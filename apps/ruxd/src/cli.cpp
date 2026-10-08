@@ -7,13 +7,14 @@
 // Two modes:
 //
 //  * `ruxd --local <file.rux | dir>` serves the web GUI — the bundled
-//    frontend plus the REST + WebSocket API in docs/gui/openapi.yaml — for one
-//    project, with no Postgres, Redis or S3 (src/local.cpp, ruxd_api_lib).
-//    This is what `rux gui` used to be.
+//    frontend plus the REST + WebSocket API in docs/gui/openapi.yaml — for
+//    every `.rux` it names, each one a case under /api/v1/cases/{cid}, with no
+//    Postgres, Redis or S3 (src/local.cpp, ruxd_api_lib). This is what
+//    `rux gui` used to be.
 //  * Without --local, the multi-user service: for now the health / readyz /
 //    meta routes and backend-client probes in src/handlers/, registered here
-//    via the register_* functions declared in handlers.hpp. Serving cases from
-//    it is phase S2 of docs/superpowers/specs/
+//    via the register_* functions declared in handlers.hpp. Users, sessions
+//    and Postgres-backed cases are phase S3 of docs/superpowers/specs/
 //    2026-10-08-ruxd-multiuser-and-qt-client-design.md.
 
 #include <cli.hpp>
@@ -31,6 +32,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -149,9 +151,40 @@ void configure_cli(CLI::App &app, Invocation &inv) {
   CLI::Option *local_opt =
       app.add_option(
              "--local", local.target,
-             "Serve the web GUI for one .rux file (or a directory holding "
-             "exactly one) with no Postgres, Redis or S3")
+             "Serve the web GUI for a .rux file, or for every .rux in a "
+             "directory (each one a case), with no Postgres, Redis or S3")
           ->group(local_group);
+  app.add_option("--data-dir", local.server.data_dir,
+                 "Where created and uploaded cases are stored, one directory "
+                 "per case (default: the --local directory; none for a lone "
+                 "file, which makes the case list read-only)")
+      ->group(local_group)
+      ->needs(local_opt);
+  app.add_option("--job-workers", local.server.job_workers,
+                 "Pipeline jobs that may run at once across all cases (at "
+                 "most one per case)")
+      ->capture_default_str()
+      ->check(CLI::Range(1, 64))
+      ->group(local_group)
+      ->needs(local_opt);
+  app.add_option("--max-open-cases", local.server.max_open_cases,
+                 "Most cases kept open at once; idle ones close first")
+      ->capture_default_str()
+      ->check(CLI::Range(1, 1024))
+      ->group(local_group)
+      ->needs(local_opt);
+  app.add_option("--case-idle-minutes", local.case_idle_minutes,
+                 "Close a case nobody has used for this many minutes")
+      ->capture_default_str()
+      ->check(CLI::Range(1, 24 * 60))
+      ->group(local_group)
+      ->needs(local_opt);
+  app.add_option("--max-upload-mb", local.max_upload_mb,
+                 "Largest .rux file accepted as an upload, in MiB")
+      ->capture_default_str()
+      ->check(CLI::Range(1, 1 << 24))
+      ->group(local_group)
+      ->needs(local_opt);
   app.add_option("--bind", local.server.bind_address,
                  "Interface to bind in local mode. Anything beyond loopback "
                  "requires --auth-token")
@@ -195,11 +228,13 @@ void configure_cli(CLI::App &app, Invocation &inv) {
       ->needs(local_opt);
 
   app.footer(R"footer(
-Local mode (the web GUI for one project, formerly `rux gui`):
-  ruxd --local scan.rux
-  ruxd --local scan.rux --port 9000 --open-browser
+Local mode (the web GUI, formerly `rux gui`):
+  ruxd --local scan.rux                 one case
+  ruxd --local ~/sager                  every .rux in the directory is a case;
+                                        new and uploaded cases go there too
+  ruxd --local ~/sager --job-workers 2  two cases may run a stage at once
   ruxd --local scan.rux --bind 0.0.0.0 --auth-token <token>
-Then open http://127.0.0.1:8420 (or http://<host>:<port>/?token=<token>,
+Then open http://127.0.0.1:8420/sager (or http://<host>:<port>/?token=<token>,
 which sets a cookie and drops the token from the URL).
 On loopback, local mode has no authentication: anything on this machine can
 read and change the project and run pipeline stages. A --bind beyond loopback
@@ -234,6 +269,10 @@ void finish_invocation(const CLI::App &app, Invocation &inv) {
                               : kLocalDefaultPort;
   inv.local.server.threads = inv.config.threads;
   inv.local.server.auth_token = inv.config.auth_token;
+  inv.local.server.case_idle_timeout =
+      std::chrono::minutes(inv.local.case_idle_minutes);
+  inv.local.server.upload_limits.max_bytes =
+      static_cast<std::uint64_t>(inv.local.max_upload_mb) << 20;
 }
 
 int run(int argc, char **argv) {

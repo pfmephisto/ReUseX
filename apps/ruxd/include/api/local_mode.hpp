@@ -7,10 +7,9 @@
 // Pure helpers behind `ruxd --local` and the API server's token check.
 //
 // Framework-free on purpose (no Crow, no sockets) so the rules — which bind
-// addresses count as loopback, which project a path names, how a request
-// presents the token — are unit-tested in the light binary
-// (tests/unit/ruxd_api/test_api_local_mode.cpp) rather than only through a
-// listening server.
+// addresses count as loopback, how a request presents the token — are
+// unit-tested in the light binary (tests/unit/ruxd_api/test_api_local_mode.cpp)
+// rather than only through a listening server.
 
 #include <cstdint>
 #include <filesystem>
@@ -25,17 +24,6 @@ namespace ruxd::api {
 /// `0.0.0.0`, `::`, a LAN address, a hostname — is reachable from elsewhere
 /// and therefore needs an access token.
 bool is_loopback_bind(std::string_view host);
-
-/// The project file `ruxd --local <target>` serves.
-///
-/// @p target is either a `.rux` file (returned as is; it is created on open
-/// if it does not exist, like every project-writing command) or a directory
-/// holding exactly one `.rux` file. Routes are single-project until cases
-/// arrive (spec phase S2), so a directory with several `.rux` files is an
-/// error that names them, not a silent pick.
-/// @throws std::runtime_error with a user-facing message.
-std::filesystem::path
-resolve_local_project(const std::filesystem::path &target);
 
 /// Name of the cookie that carries the access token once a browser has
 /// presented it with `?token=`: `ruxd_token_<port>`. Cookies are scoped to the

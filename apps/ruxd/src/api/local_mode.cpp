@@ -69,43 +69,6 @@ bool is_loopback_bind(std::string_view host) {
   return is_ipv4_loopback(host);
 }
 
-fs::path resolve_local_project(const fs::path &target) {
-  if (target.empty())
-    throw std::runtime_error("--local needs a .rux file or a directory");
-
-  std::error_code ec;
-  if (fs::is_directory(target, ec)) {
-    std::vector<fs::path> found;
-    for (const auto &entry : fs::directory_iterator(target, ec))
-      if (entry.is_regular_file() && entry.path().extension() == ".rux")
-        found.push_back(entry.path());
-    if (ec)
-      throw std::runtime_error("cannot list '" + target.string() +
-                               "': " + ec.message());
-    std::sort(found.begin(), found.end());
-    if (found.size() == 1)
-      return found.front();
-    if (found.empty())
-      throw std::runtime_error("no .rux project in directory '" +
-                               target.string() + "'");
-    std::string names;
-    for (const auto &p : found)
-      names += (names.empty() ? "" : ", ") + p.filename().string();
-    throw std::runtime_error(
-        "directory '" + target.string() + "' holds " +
-        std::to_string(found.size()) + " .rux projects (" + names +
-        "); serving several at once is not supported yet — pass one file");
-  }
-
-  if (fs::exists(target, ec) && !fs::is_regular_file(target, ec))
-    throw std::runtime_error("'" + target.string() +
-                             "' is neither a .rux file nor a directory");
-  if (target.extension() != ".rux")
-    throw std::runtime_error("'" + target.string() +
-                             "' is not a .rux project file");
-  return target;
-}
-
 std::string token_cookie_name(std::uint16_t port) {
   return "ruxd_token_" + std::to_string(port);
 }

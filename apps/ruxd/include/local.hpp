@@ -7,21 +7,23 @@
 // `ruxd --local <file.rux | dir>`: the single-user web GUI.
 //
 // Serves the bundled frontend and the REST + WebSocket API
-// (docs/gui/openapi.yaml) for one project, with no Postgres, Redis or S3.
+// (docs/gui/openapi.yaml) for every case the target names, with no Postgres,
+// Redis or S3.
 // Formerly `rux gui`.
 
 #include <api/Server.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
 namespace ruxd {
 
 struct LocalOptions {
-  /// The file or directory given to --local (see api::resolve_local_project).
+  /// The file or directory given to --local (see api::LocalCaseStore).
   std::filesystem::path target;
 
-  /// Server settings. `project` is filled from `target`; the CLI binds the
+  /// Server settings. `target` is filled from `target`; the CLI binds the
   /// rest of the fields directly so its defaults are the library's
   /// (STANDARDS §4). `open_browser` defaults to false for a daemon.
   api::ServerOptions server;
@@ -33,6 +35,11 @@ struct LocalOptions {
   std::string models_dir;
   /// Release manifest URL for the portable ONNX bundle (else built-in).
   std::string sam3_manifest_url;
+
+  /// `--case-idle-minutes`; copied into server.case_idle_timeout.
+  int case_idle_minutes = 10;
+  /// `--max-upload-mb`; copied into server.upload_limits.max_bytes.
+  std::uint64_t max_upload_mb = 32 * 1024;
 };
 
 /// Resolve the project, wire the injected pieces (SAM3 segmenters, managed

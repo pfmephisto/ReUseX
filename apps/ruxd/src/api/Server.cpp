@@ -6,9 +6,12 @@
 
 #include "api/FrameSegmenter.hpp"
 #include "api/ModelProvider.hpp"
+#include "api/ProjectContext.hpp"
+#include "api/ProjectRegistry.hpp"
 #include "api/ViewRenderer.hpp"
 #include "api/api.hpp"
 #include "api/assets.hpp"
+#include "api/cases.hpp"
 #include "api/edits.hpp"
 #include "api/gsplat.hpp"
 #include "api/local_mode.hpp"
@@ -17,7 +20,7 @@
 #include "api/survey.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/pipeline/JobRunner.hpp>
+#include <reusex/pipeline/JobScheduler.hpp>
 
 #include <crow.h>
 #include <spdlog/spdlog.h>
@@ -424,42 +427,31 @@ class Server::Impl {
           "--port 0 is not supported: Crow cannot report back which ephemeral "
           "port it bound, so nothing could tell you where to connect");
 
-    // Before the project is touched: a refused bind must not create or migrate
-    // anything.
+    // Before any project is touched: a refused bind must not create or
+    // migrate anything.
     if (options_.auth_token.empty() && !is_loopback_bind(options_.bind_address))
       throw std::runtime_error(
           "--bind '" + options_.bind_address +
           "' reaches beyond this machine, and the API can read and change the "
           "project and run pipeline stages: set --auth-token as well");
 
-    // Open read-write once, on the way up. This creates and migrates the
-    // database if needed, so every later per-request connection can be
-    // read-only, and a broken project fails at startup instead of on the first
-    // fetch (STANDARDS §5).
-    //
-    // The connection is then kept for the server's lifetime as the WAL anchor.
-    // Every request opens and closes its own connection (ProjectDB is not
-    // thread-safe), and without an anchor the last of them to close tries a
-    // checkpoint under the file's exclusive lock and drops the WAL index,
-    // which the next request then has to rebuild. Readers landing in those
-    // windows saw SQLITE_BUSY. The anchor holds no transaction and is never
-    // queried after this, so it blocks no writer and no checkpoint.
-    //
-    // It is read-write on purpose: it closes last (see ~Impl), and the last
-    // connection to close checkpoints the WAL into the main file and deletes
-    // it. A read-only connection cannot, which would leave every GUI edit
-    // only in project.rux-wal after shutdown.
-    wal_anchor_ = std::make_unique<reusex::ProjectDB>(options_.project,
-                                                      /*readOnly=*/false);
-    spdlog::info("Project '{}' opened (schema v{})",
-                 options_.project.filename().string(),
-                 wal_anchor_->schema_version());
-
-    options_.asset_dir = resolve_asset_dir(options_.asset_dir);
-
     if (!is_plausible_host(options_.bind_address))
       throw std::runtime_error("--bind '" + options_.bind_address +
                                "' is not a valid host or IP literal");
+
+    // The case catalogue. Cases open lazily (ProjectRegistry), so a broken
+    // project fails on its first request — with a 500 naming it — rather
+    // than taking every other case down at startup.
+    cases_ = options_.case_store ? options_.case_store
+                                 : std::make_shared<LocalCaseStore>(
+                                       options_.target, options_.data_dir);
+    const auto listed = cases_->list();
+    spdlog::info("Serving {} case(s){}", listed.size(),
+                 cases_->writable() ? "" : " (read-only catalogue)");
+    for (const auto &info : listed)
+      spdlog::info("  case '{}': {}", info.id, info.path.filename().string());
+
+    options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
     app_.get_middleware<SecurityMiddleware>().configure(
         options_.allowed_origins, options_.auth_token, options_.bind_address,
@@ -471,67 +463,37 @@ class Server::Impl {
     for (const auto &origin : options_.allowed_origins)
       spdlog::info("Additional allowed origin: {}", origin);
 
-    runner_ = std::make_unique<pipeline::JobRunner>(
-        options_.project, options_.stage_executor
-                              ? options_.stage_executor
-                              : pipeline::default_stage_executor());
-    listener_ = runner_->add_listener([this](const pipeline::JobEvent &event) {
-      // A finished stage may have rewritten instances, poses or depth.
-      if (event.type == pipeline::JobEvent::Type::finished)
-        photo_cache_.invalidate();
-      broadcast(event);
-    });
+    executor_ = options_.stage_executor ? options_.stage_executor
+                                        : pipeline::default_stage_executor();
+    scheduler_ = std::make_unique<pipeline::JobScheduler>(
+        pipeline::JobSchedulerOptions{options_.job_workers});
+    spdlog::info("Job workers: {}", scheduler_->workers());
+
+    RegistryOptions registry_options;
+    registry_options.max_open = options_.max_open_cases;
+    registry_options.idle_timeout = options_.case_idle_timeout;
+    registry_ = std::make_unique<ProjectRegistry>(
+        cases_,
+        [this](const CaseInfo &info) {
+          auto ctx = std::make_shared<ProjectContext>(info.id, info.path,
+                                                      *scheduler_, executor_);
+          ctx->start_photo_warmup();
+          return ctx;
+        },
+        registry_options);
+    uploads_ = std::make_unique<UploadManager>(cases_->staging_dir(),
+                                               options_.upload_limits);
 
     register_routes();
-    start_photo_warmup();
-  }
-
-  /// Compute the photo evidence of every instance cloud the survey uses on a
-  /// background thread at startup, so the first visit to Kortlægning does not
-  /// pay for it (seconds on a real scan). Best-effort: a failure is logged
-  /// and the first request computes instead.
-  void start_photo_warmup() {
-    warmup_ = std::thread([this] {
-      try {
-        reusex::ProjectDB db(options_.project, /*readOnly=*/true);
-        std::map<std::string, std::set<std::uint32_t>> clouds;
-        for (const auto &part : db.survey_parts())
-          if (part.cloud_name && part.instance_id && *part.instance_id != 0)
-            clouds[*part.cloud_name].insert(*part.instance_id);
-        for (const auto &[cloud, wanted] : clouds) {
-          if (stopping_)
-            return;
-          photo_cache_.get(db, cloud, wanted, &stopping_);
-        }
-      } catch (const reusex::core::OperationCancelled &) {
-        spdlog::debug("Photo evidence warm-up cancelled by shutdown");
-      } catch (const std::exception &e) {
-        spdlog::warn("Photo evidence warm-up skipped: {}", e.what());
-      }
-    });
   }
 
   ~Impl() {
-    // Stop the producers before the things they touch go away. app_.stop()
-    // closes the WebSocket connections (running their close handlers, which
-    // take clients_mutex_), and resetting the runner joins its worker thread,
-    // which may be mid-broadcast. Doing this here — rather than relying on
-    // member destruction order alone — keeps the shutdown sequence explicit.
+    // Stop the producers before the things they touch go away: app_.stop()
+    // closes the WebSocket connections, the registry closes every case (each
+    // waits for its running job), and the scheduler joins its workers last.
     app_.stop();
-    stopping_ = true;
-    if (warmup_.joinable())
-      warmup_.join();
-    if (runner_) {
-      runner_->remove_listener(listener_);
-      runner_.reset();
-    }
-    {
-      std::lock_guard<std::mutex> lock(clients_mutex_);
-      clients_.clear();
-    }
-    // Last, once the worker and the request threads have released their
-    // connections: as the last connection it checkpoints and removes the WAL.
-    wal_anchor_.reset();
+    registry_.reset();
+    scheduler_.reset();
   }
 
   const ServerOptions &options() const noexcept { return options_; }
@@ -545,6 +507,8 @@ class Server::Impl {
   }
 
   bool has_assets() const noexcept { return !options_.asset_dir.empty(); }
+
+  std::vector<CaseInfo> cases() const { return cases_->list(); }
 
   int run() {
     app_.validate();
@@ -592,6 +556,11 @@ class Server::Impl {
   }
 
     private:
+  /// A per-case route path: `/api/v1/cases/<string>` + @p rest.
+  static std::string C(std::string_view rest) {
+    return std::string(kCasePrefix) + std::string(rest);
+  }
+
   /// Resolve the model path a segment request should load. An explicit
   /// (non-empty) path is used verbatim (back-compat). An omitted path is
   /// resolved to the managed SAM3 model, kicking off lazy background
@@ -619,23 +588,46 @@ class Server::Impl {
                              " — poll GET /api/v1/models/sam3/status");
   }
 
+  // --- cases ---------------------------------------------------------------
+
+  /// Run @p handler against case @p cid, opening it if needed. The context
+  /// is leased for the duration of the call, which keeps it from being closed
+  /// as idle underneath the request.
+  template <typename Handler>
+  crow::response in_case(const std::string &cid, Handler &&handler) {
+    std::shared_ptr<ProjectContext> ctx;
+    try {
+      ctx = registry_->acquire(cid);
+    } catch (const HttpError &e) {
+      return error_response(e.status(), e.what());
+    } catch (const std::exception &e) {
+      spdlog::error("Could not open case '{}': {}", cid, e.what());
+      return error_response(500,
+                            "could not open case '" + cid + "': " + e.what());
+    }
+    if (!ctx)
+      return error_response(404, "no such case '" + cid + "'");
+    return handler(*ctx);
+  }
+
   // --- ProjectDB access ----------------------------------------------------
 
-  /// Run @p handler against a fresh read-only ProjectDB.
+  /// Run @p handler against a fresh read-only ProjectDB of @p ctx's project.
   ///
   /// ProjectDB is not thread-safe and Crow is multi-threaded, so each request
   /// gets its own connection rather than sharing one behind a mutex — sqlite3
   /// handles concurrent readers natively and a global lock would serialize the
   /// whole GUI behind whichever request is decoding a mesh blob.
   ///
-  /// Writers are the job worker and the editor endpoints (with_write below);
-  /// both hold the runner's writer lock, so at most one of them is writing at
-  /// any moment. Each connection waits up to ProjectDB's busy timeout (5 s),
-  /// and the server-lifetime WAL anchor keeps the WAL index alive, so a 503
-  /// here means a lock really was held that long — by a writer.
-  template <typename Handler> crow::response with_db(Handler &&handler) {
+  /// Writers are the case's job worker and the editor endpoints (with_write
+  /// below); both hold the case's writer lock, so at most one of them is
+  /// writing at any moment. Each connection waits up to ProjectDB's busy
+  /// timeout (5 s), and the case's WAL anchor keeps the WAL index alive, so a
+  /// 503 here means a lock really was held that long — by a writer.
+  template <typename Handler>
+  crow::response with_db(ProjectContext &ctx, Handler &&handler) {
     try {
-      reusex::ProjectDB db(options_.project, /*readOnly=*/true);
+      reusex::ProjectDB db(ctx.project(), /*readOnly=*/true);
       return handler(db);
     } catch (const HttpError &e) {
       return error_response(e.status(), e.what());
@@ -654,13 +646,13 @@ class Server::Impl {
     }
   }
 
-  /// Run @p handler against a writable ProjectDB, under the project's writer
-  /// lock.
+  /// Run @p handler against a writable ProjectDB of @p ctx's project, under
+  /// the case's writer lock.
   ///
-  /// The editor endpoints are the second writer in this process; the pipeline
-  /// job worker is the first. They exclude each other through
-  /// JobRunner::try_acquire_writer, which the worker holds for the whole of
-  /// every stage. Two rules follow, and both are deliberate:
+  /// The editor endpoints are the second writer of a case; its pipeline job
+  /// is the first. They exclude each other through the queue's writer lock,
+  /// which the worker holds for the whole of every stage. Two rules follow,
+  /// and both are deliberate:
   ///
   ///  * **A queued or running job means 409, not a wait.** A stage holds the
   ///    lock for minutes; blocking a request that long is indistinguishable
@@ -674,20 +666,21 @@ class Server::Impl {
   ///    from there means sqlite stayed locked that long.
   ///
   /// Nothing is written when either check fails, so both are safe to retry.
-  template <typename Handler> crow::response with_write(Handler &&handler) {
-    if (runner_->is_busy() || runner_->queued_count() > 0)
+  template <typename Handler>
+  crow::response with_write(ProjectContext &ctx, Handler &&handler) {
+    if (ctx.is_busy())
       return error_response(409,
                             "a pipeline job is running or queued; edits are "
                             "refused while a stage is writing the project");
 
-    auto lease = runner_->try_acquire_writer(
+    auto lease = ctx.jobs().try_acquire_writer(
         std::chrono::milliseconds(kWriteLockTimeoutMs));
     if (!lease.owns_lock())
       return error_response(503, "the project is being written to; retry "
                                  "shortly");
 
     try {
-      reusex::ProjectDB db(options_.project, /*readOnly=*/false);
+      reusex::ProjectDB db(ctx.project(), /*readOnly=*/false);
       return handler(db);
     } catch (const HttpError &e) {
       return error_response(e.status(), e.what());
@@ -723,51 +716,106 @@ class Server::Impl {
     return params;
   }
 
-  // --- WebSocket -----------------------------------------------------------
-
-  void broadcast(const pipeline::JobEvent &event) {
-    const std::string payload =
-        job_event_json(event, options_.project.filename().string()).dump();
-
-    // LOCKING INVARIANT — the sends happen INSIDE clients_mutex_ on purpose.
-    //
-    // crow::websocket::connection is a raw pointer we do not own, and Crow
-    // does not hand out a shared_ptr for it: check_destroy() invokes the close
-    // handler and then frees the object. The close handler registered below
-    // erases the entry while holding this same mutex, so a connection present
-    // in clients_ cannot be destroyed while we hold the lock. Snapshotting the
-    // pointers and sending after unlocking — the obvious-looking version —
-    // races a closing tab against the job worker and sends into freed memory.
-    //
-    // Holding the lock across the send is cheap and cannot deadlock:
-    // send_data() serialises the frame and posts it to the asio io_context, it
-    // never runs a handler inline, so nothing re-enters this mutex.
-    std::lock_guard<std::mutex> lock(clients_mutex_);
-    for (auto &[connection, subscription] : clients_) {
-      if (!event_matches_subscription(event, subscription))
-        continue;
-      try {
-        connection->send_text(payload);
-      } catch (const std::exception &e) {
-        spdlog::debug("WebSocket send failed: {}", e.what());
-      }
-    }
+  /// The JSON for one case, with whether it is open right now.
+  nlohmann::json case_of(const CaseInfo &info) const {
+    return case_json(info, registry_->find_open(info.id) != nullptr);
   }
 
-  /// Send a non-job message (e.g. `clouds.changed`) to every connection.
-  /// Job subscriptions filter job events only; a data-change notice concerns
-  /// every view, so it ignores them. Same locking invariant as broadcast().
-  void broadcast_message(const nlohmann::json &message) {
-    const std::string payload = message.dump();
-    std::lock_guard<std::mutex> lock(clients_mutex_);
-    for (auto &[connection, subscription] : clients_) {
-      (void)subscription;
-      try {
-        connection->send_text(payload);
-      } catch (const std::exception &e) {
-        spdlog::debug("WebSocket send failed: {}", e.what());
-      }
-    }
+  // --- server-level routes: cases and uploads -------------------------------
+
+  void register_case_routes() {
+    app_.route_dynamic("/api/v1/cases")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return guarded([&] {
+            if (req.method == crow::HTTPMethod::GET) {
+              json list = json::array();
+              for (const auto &info : cases_->list())
+                list.push_back(case_of(info));
+              return json_response(200, cases_list_json(std::move(list),
+                                                        cases_->writable(),
+                                                        uploads_->limits()));
+            }
+            const std::string name = parse_case_create(req.body);
+            const CaseInfo info = cases_->create(name);
+            spdlog::info("Case '{}' created", info.id);
+            return json_response(201, case_of(info));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/cases/<string>")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH,
+                 crow::HTTPMethod::DELETE)([this](const crow::request &req,
+                                                  std::string cid) {
+          return guarded([&] {
+            if (req.method == crow::HTTPMethod::GET) {
+              auto info = cases_->find(cid);
+              if (!info)
+                throw HttpError(404, "no such case '" + cid + "'");
+              return json_response(200, case_of(*info));
+            }
+            if (req.method == crow::HTTPMethod::PATCH) {
+              const auto patch = parse_case_patch(req.body);
+              return json_response(200, case_of(cases_->update(cid, patch)));
+            }
+            if (!cases_->find(cid))
+              throw HttpError(404, "no such case '" + cid + "'");
+            // Close it first, here, so its WAL is checkpointed and its files
+            // are no longer open when they move.
+            if (!registry_->force_close(cid, std::chrono::seconds(5)))
+              throw HttpError(409, "case '" + cid +
+                                       "' is busy (a job is queued or running, "
+                                       "or a request is still in flight)");
+            cases_->move_to_trash(cid);
+            return crow::response(204);
+          });
+        });
+
+    app_.route_dynamic("/api/v1/uploads")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return guarded([&] {
+            const auto request = parse_upload_request(req.body);
+            const auto session = uploads_->begin(request.name, request.size);
+            return json_response(201, upload_json(session, uploads_->limits()));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/uploads/<string>")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PUT,
+                 crow::HTTPMethod::DELETE)([this](const crow::request &req,
+                                                  std::string id) {
+          return guarded([&] {
+            if (req.method == crow::HTTPMethod::GET)
+              return json_response(
+                  200, upload_json(uploads_->status(id), uploads_->limits()));
+            if (req.method == crow::HTTPMethod::DELETE) {
+              uploads_->abort(id);
+              return crow::response(204);
+            }
+            const auto offset =
+                parse_upload_offset(req.url_params.get("offset"));
+            const auto session = uploads_->append(id, offset, req.body);
+            return json_response(200, upload_json(session, uploads_->limits()));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/uploads/<string>/complete")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &,
+                                                std::string id) {
+          return guarded([&] {
+            auto [session, staged] = uploads_->finish(id);
+            if (!has_sqlite_header(staged)) {
+              std::error_code ec;
+              std::filesystem::remove(staged, ec);
+              throw HttpError(422, "the uploaded file is not a .rux project "
+                                   "(no SQLite header)");
+            }
+            const CaseInfo info = cases_->adopt(session.name, staged);
+            spdlog::info("Case '{}' created from an upload of {} bytes",
+                         info.id, session.size);
+            return json_response(201, case_of(info));
+          });
+        });
   }
 
   // --- routes --------------------------------------------------------------
@@ -777,16 +825,34 @@ class Server::Impl {
       return app_.route_dynamic(path).methods(crow::HTTPMethod::GET);
     };
 
+    register_case_routes();
+
     // ---- meta ----
+    // Server-level: answers without opening any case.
     get("/api/v1/health")([this](const crow::request &) {
-      // Never fails: a browser pointed at a broken project should still be told
-      // *that*, in the documented shape, rather than get a bare 500.
+      return json_response(200, server_health_json(cases_->list().size()));
+    });
+
+    // Per case: the version handshake plus that project's state. Never fails
+    // for a known case: a browser pointed at a broken project should still be
+    // told *that*, in the documented shape, rather than get a bare 500.
+    get(C("/health"))([this](const crow::request &, std::string cid) {
+      const auto info = cases_->find(cid);
+      if (!info)
+        return error_response(404, "no such case '" + cid + "'");
       try {
-        reusex::ProjectDB db(options_.project, /*readOnly=*/true);
-        return json_response(200, health_json(&db, options_.project));
+        auto ctx = registry_->acquire(cid);
+        reusex::ProjectDB db(ctx ? ctx->project() : info->path,
+                             /*readOnly=*/true);
+        auto out = health_json(&db, info->path);
+        out["case"] = info->id;
+        return json_response(200, out);
       } catch (const std::exception &e) {
-        spdlog::warn("Health check could not open the project: {}", e.what());
-        return json_response(200, health_json(nullptr, options_.project));
+        spdlog::warn("Health check could not open case '{}': {}", cid,
+                     e.what());
+        auto out = health_json(nullptr, info->path);
+        out["case"] = info->id;
+        return json_response(200, out);
       }
     });
 
@@ -798,184 +864,234 @@ class Server::Impl {
     });
 
     // ---- project ----
-    get("/api/v1/project")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, project_summary_json(db));
+    get(C("/project"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [](const reusex::ProjectDB &db) {
+          return json_response(200, project_summary_json(db));
+        });
       });
     });
 
-    get("/api/v1/projects")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, projects_json(db, params));
+    get(C("/projects"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, projects_json(db, params));
+        });
       });
     });
 
-    app_.route_dynamic("/api/v1/projects/<string>")
+    app_.route_dynamic(C("/projects/<string>"))
         .methods(crow::HTTPMethod::PATCH)(
-            [this](const crow::request &req, std::string id) {
-              return with_write([&](reusex::ProjectDB &db) {
-                return json_response(200, patch_project(db, id, req.body));
+            [this](const crow::request &req, std::string cid, std::string id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(200, patch_project(db, id, req.body));
+                });
               });
             });
 
     // ---- clouds ----
-    get("/api/v1/clouds")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, clouds_json(db, params));
+    get(C("/clouds"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, clouds_json(db, params));
+        });
       });
     });
 
-    get("/api/v1/clouds/<string>")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, cloud_json(db, name));
+    get(C("/clouds/<string>"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, cloud_json(db, name));
+            });
           });
         });
 
     // The only route with two wire formats, so the only one that cannot go
     // straight through json_response(): `format=binary` answers a RUXP page
     // (docs/gui/binary-points.md), which is not JSON.
-    get("/api/v1/clouds/<string>/points")(
-        [this](const crow::request &req, std::string name) {
-          const Params params = params_of(req);
-          return with_db([&](const reusex::ProjectDB &db) {
-            const auto points = cloud_points(db, name, params);
-            if (points.body)
-              return json_response(200, *points.body);
-            crow::response res = blob_response(*points.blob);
-            for (const auto &[key, value] : points.headers)
-              res.set_header(key, value);
-            return res;
+    get(C("/clouds/<string>/points"))(
+        [this](const crow::request &req, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              const auto points = cloud_points(db, name, params);
+              if (points.body)
+                return json_response(200, *points.body);
+              crow::response res = blob_response(*points.blob);
+              for (const auto &[key, value] : points.headers)
+                res.set_header(key, value);
+              return res;
+            });
           });
         });
 
     // One rule for both methods: registering the same path twice would create
     // two competing Crow rules (same reasoning as /jobs below).
-    app_.route_dynamic("/api/v1/clouds/<string>/labels")
-        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH)(
-            [this](const crow::request &req, std::string name) {
-              if (req.method == crow::HTTPMethod::GET)
-                return with_db([&](const reusex::ProjectDB &db) {
-                  return json_response(200, cloud_labels_json(db, name));
-                });
-              return with_write([&](reusex::ProjectDB &db) {
-                return json_response(200,
-                                     patch_cloud_labels(db, name, req.body));
+    app_.route_dynamic(C("/clouds/<string>/labels"))
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::PATCH)([this](const crow::request &req,
+                                                 std::string cid,
+                                                 std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            if (req.method == crow::HTTPMethod::GET)
+              return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                return json_response(200, cloud_labels_json(db, name));
               });
+            return with_write(ctx, [&](reusex::ProjectDB &db) {
+              return json_response(200, patch_cloud_labels(db, name, req.body));
             });
+          });
+        });
 
-    get("/api/v1/clouds/<string>/tiles")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, cloud_tiles_json(db, name));
+    get(C("/clouds/<string>/tiles"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, cloud_tiles_json(db, name));
+            });
           });
         });
 
     // ---- meshes ----
-    get("/api/v1/meshes")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, meshes_json(db, params));
+    get(C("/meshes"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, meshes_json(db, params));
+        });
       });
     });
 
-    get("/api/v1/meshes/<string>")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, mesh_json(db, name));
+    get(C("/meshes/<string>"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, mesh_json(db, name));
+            });
           });
         });
 
-    get("/api/v1/meshes/<string>/data")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return blob_response(mesh_data_blob(db, name));
+    get(C("/meshes/<string>/data"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return blob_response(mesh_data_blob(db, name));
+            });
           });
         });
 
-    get("/api/v1/meshes/<string>/textures")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, mesh_textures_json(db, name));
+    get(C("/meshes/<string>/textures"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, mesh_textures_json(db, name));
+            });
           });
         });
 
-    get("/api/v1/meshes/<string>/textures/<string>")(
-        [this](const crow::request &, std::string name, std::string texture) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return blob_response(mesh_texture_blob(db, name, texture));
+    get(C("/meshes/<string>/textures/<string>"))(
+        [this](const crow::request &, std::string cid, std::string name,
+               std::string texture) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return blob_response(mesh_texture_blob(db, name, texture));
+            });
           });
         });
 
     // ---- evidence renders (#265 Phase 2 Task 8) ----
-    get("/api/v1/renders")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return blob_response(render_blob(db, view_renderer_, params));
+    get(C("/renders"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return blob_response(render_blob(db, view_renderer_, params));
+        });
       });
     });
 
     // ---- gaussian splats (#322) ----
-    get("/api/v1/gsplats")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, gsplats_json(db, params));
+    get(C("/gsplats"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, gsplats_json(db, params));
+        });
       });
     });
 
-    get("/api/v1/gsplats/<string>")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, gsplat_json(db, name));
+    get(C("/gsplats/<string>"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, gsplat_json(db, name));
+            });
           });
         });
 
-    get("/api/v1/gsplats/<string>/data")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return blob_response(gsplat_blob(db, name));
+    get(C("/gsplats/<string>/data"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return blob_response(gsplat_blob(db, name));
+            });
           });
         });
 
     // ---- sensor frames ----
-    get("/api/v1/frames")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, frames_json(db, params));
+    get(C("/frames"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, frames_json(db, params));
+        });
       });
     });
 
     // Registered before /frames/<int> so the static "visibility" segment is
     // matched ahead of the integer rule.
-    get("/api/v1/frames/visibility")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, frames_visibility_json(db, params));
-      });
-    });
+    get(C("/frames/visibility"))(
+        [this](const crow::request &req, std::string cid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, frames_visibility_json(db, params));
+            });
+          });
+        });
 
-    get("/api/v1/frames/<int>")([this](const crow::request &, int id) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, frame_json(db, id));
-      });
-    });
+    get(C("/frames/<int>"))(
+        [this](const crow::request &, std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, frame_json(db, id));
+            });
+          });
+        });
 
-    get("/api/v1/frames/<int>/image")([this](const crow::request &req, int id) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        const auto image = frame_image(db, id, params);
-        crow::response res = blob_response(image.blob);
-        // Convenience only, exactly like the X-Ruxp-* headers: the picture is
-        // the response, and a client must not need these to use it.
-        if (image.range.valid) {
-          res.set_header("X-Image-Range-Min", std::to_string(image.range.min));
-          res.set_header("X-Image-Range-Max", std::to_string(image.range.max));
-        }
-        return res;
-      });
-    });
+    get(C("/frames/<int>/image"))(
+        [this](const crow::request &req, std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              const auto image = frame_image(db, id, params);
+              crow::response res = blob_response(image.blob);
+              // Convenience only, exactly like the X-Ruxp-* headers: the
+              // picture is the response, and a client must not need these to
+              // use it.
+              if (image.range.valid) {
+                res.set_header("X-Image-Range-Min",
+                               std::to_string(image.range.min));
+                res.set_header("X-Image-Range-Max",
+                               std::to_string(image.range.max));
+              }
+              return res;
+            });
+          });
+        });
 
     // GET /api/v1/models/sam3/status — managed-model provisioning status
     // (self-contained SAM3 packaging). Lets the UI poll while the ONNX bundle
@@ -1011,66 +1127,68 @@ class Server::Impl {
     // #467). The segmenter is injected by ruxd's main; returns 503 if
     // absent. use_cuda defaults to ServerOptions::segment_cuda; can be
     // overridden per-request via the body.
-    app_.route_dynamic(std::string(kApiPrefix) + "/frames/<int>/segment")
-        .methods(
-            crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
-          return guarded([&]() -> crow::response {
-            if (!segmenter_)
-              return error_response(503,
-                                    "no SAM3 model registered; start the "
-                                    "server via 'ruxd --local' and ensure a "
-                                    "model is available");
+    app_.route_dynamic(C("/frames/<int>/segment"))
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req,
+                                                std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return guarded([&]() -> crow::response {
+              if (!segmenter_)
+                return error_response(503,
+                                      "no SAM3 model registered; start the "
+                                      "server via 'ruxd --local' and ensure a "
+                                      "model is available");
 
-            // Parse and validate the request body.
-            const auto seg_req =
-                parse_segment_frame_request(req.body, options_.segment_cuda);
+              // Parse and validate the request body.
+              const auto seg_req =
+                  parse_segment_frame_request(req.body, options_.segment_cuda);
 
-            // Resolve the model path (managed model when omitted). May 503
-            // while the managed model is downloading/building.
-            const std::string model_path =
-                resolve_model_path(seg_req.model_path, seg_req.use_cuda);
+              // Resolve the model path (managed model when omitted). May 503
+              // while the managed model is downloading/building.
+              const std::string model_path =
+                  resolve_model_path(seg_req.model_path, seg_req.use_cuda);
 
-            // Load frame image (brief read-only DB connection).
-            cv::Mat image;
-            {
-              try {
-                reusex::ProjectDB db(options_.project, /*readOnly=*/true);
-                if (!db.has_sensor_frame(id))
-                  throw HttpError(404, "sensor frame " + std::to_string(id) +
-                                           " not found");
-                image = db.sensor_frame_image(id);
-              } catch (const HttpError &) {
-                throw;
-              } catch (const std::exception &e) {
-                throw HttpError(500, e.what());
+              // Load frame image (brief read-only DB connection).
+              cv::Mat image;
+              {
+                try {
+                  reusex::ProjectDB db(ctx.project(), /*readOnly=*/true);
+                  if (!db.has_sensor_frame(id))
+                    throw HttpError(404, "sensor frame " + std::to_string(id) +
+                                             " not found");
+                  image = db.sensor_frame_image(id);
+                } catch (const HttpError &) {
+                  throw;
+                } catch (const std::exception &e) {
+                  throw HttpError(500, e.what());
+                }
               }
-            }
-            if (image.empty())
-              throw HttpError(404, "frame " + std::to_string(id) +
-                                       " has no color image");
+              if (image.empty())
+                throw HttpError(404, "frame " + std::to_string(id) +
+                                         " has no color image");
 
-            // Run inference (outside any DB connection — may take seconds).
-            const auto result =
-                segmenter_->segment(image, seg_req.prompts, seg_req.confidence,
-                                    model_path, seg_req.use_cuda);
+              // Run inference (outside any DB connection — may take seconds).
+              const auto result = segmenter_->segment(
+                  image, seg_req.prompts, seg_req.confidence, model_path,
+                  seg_req.use_cuda);
 
-            // Optionally persist the mask (uses write lock to exclude jobs).
-            bool saved = false;
-            if (seg_req.save && !result.label_map.empty()) {
-              auto write_res =
-                  with_write([&](reusex::ProjectDB &wdb) -> crow::response {
-                    wdb.save_segmentation_image(id, result.label_map);
-                    return json_response(200, nlohmann::json{});
-                  });
-              if (write_res.code != 200)
-                return write_res;
-              saved = true;
-            }
+              // Optionally persist the mask (uses write lock to exclude jobs).
+              bool saved = false;
+              if (seg_req.save && !result.label_map.empty()) {
+                auto write_res = with_write(
+                    ctx, [&](reusex::ProjectDB &wdb) -> crow::response {
+                      wdb.save_segmentation_image(id, result.label_map);
+                      return json_response(200, nlohmann::json{});
+                    });
+                if (write_res.code != 200)
+                  return write_res;
+                saved = true;
+              }
 
-            return json_response(
-                200, segment_frame_result_json(id, result.label_map,
-                                               result.class_names, saved,
-                                               result.geometry_prompts_used));
+              return json_response(
+                  200, segment_frame_result_json(id, result.label_map,
+                                                 result.class_names, saved,
+                                                 result.geometry_prompts_used));
+            });
           });
         });
 
@@ -1078,198 +1196,225 @@ class Server::Impl {
     // frame's saved segmentation into the base cloud, file it as a new
     // instance + survey part (spec B2), then tell every client which clouds
     // changed so a viewport can reload them.
-    app_.route_dynamic(std::string(kApiPrefix) +
-                       "/frames/<int>/segment/resource")
+    app_.route_dynamic(C("/frames/<int>/segment/resource"))
         .methods(crow::HTTPMethod::POST)(
-            [this](const crow::request &req, int id) {
-              // Parse first: a bad body is a 400 whether or not a job holds the
-              // writer lock.
-              SegmentResourceRequest body;
-              try {
-                body = parse_segment_resource_request(req.body);
-              } catch (const HttpError &e) {
-                return error_response(e.status(), e.what());
-              }
-              std::vector<std::string> changed;
-              auto res = with_write([&](reusex::ProjectDB &db) {
-                auto out = execute_segment_resource(db, id, body);
-                changed = out.at("clouds").get<std::vector<std::string>>();
-                return json_response(201, out);
+            [this](const crow::request &req, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                // Parse first: a bad body is a 400 whether or not a job holds
+                // the writer lock.
+                SegmentResourceRequest body;
+                try {
+                  body = parse_segment_resource_request(req.body);
+                } catch (const HttpError &e) {
+                  return error_response(e.status(), e.what());
+                }
+                std::vector<std::string> changed;
+                auto res = with_write(ctx, [&](reusex::ProjectDB &db) {
+                  auto out = execute_segment_resource(db, id, body);
+                  changed = out.at("clouds").get<std::vector<std::string>>();
+                  return json_response(201, out);
+                });
+                if (res.code == 201 && !changed.empty())
+                  ctx.broadcast_message(
+                      clouds_changed_json(changed, ctx.file_name()));
+                return res;
               });
-              if (res.code == 201 && !changed.empty())
-                broadcast_message(clouds_changed_json(
-                    changed, options_.project.filename().string()));
-              return res;
             });
 
     // ---- panoramas ----
-    get("/api/v1/panoramas")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, panoramas_json(db, params));
+    get(C("/panoramas"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, panoramas_json(db, params));
+        });
       });
     });
 
-    get("/api/v1/panoramas/<int>")([this](const crow::request &, int id) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, panorama_json(db, id));
-      });
-    });
+    get(C("/panoramas/<int>"))(
+        [this](const crow::request &, std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, panorama_json(db, id));
+            });
+          });
+        });
 
-    get("/api/v1/panoramas/<int>/image")(
-        [this](const crow::request &req, int id) {
-          const Params params = params_of(req);
-          return with_db([&](const reusex::ProjectDB &db) {
-            return blob_response(panorama_image_blob(db, id, params));
+    get(C("/panoramas/<int>/image"))(
+        [this](const crow::request &req, std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return blob_response(panorama_image_blob(db, id, params));
+            });
           });
         });
 
     // POST /api/v1/panoramas/<id>/segment — interactive SAM3 segmentation on
     // 360 panoramas (#448, #467). Mirrors POST /frames/<id>/segment but tiles
     // the equirect through segment_panorama() rather than segment_image().
-    app_.route_dynamic(std::string(kApiPrefix) + "/panoramas/<int>/segment")
-        .methods(
-            crow::HTTPMethod::POST)([this](const crow::request &req, int id) {
-          return guarded([&]() -> crow::response {
-            if (!panorama_segmenter_)
-              return error_response(
-                  503,
-                  "no SAM3 panorama segmenter registered; start the "
-                  "server via 'ruxd --local' and ensure a model is available");
+    app_.route_dynamic(C("/panoramas/<int>/segment"))
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req,
+                                                std::string cid, int id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return guarded([&]() -> crow::response {
+              if (!panorama_segmenter_)
+                return error_response(
+                    503, "no SAM3 panorama segmenter registered; start the "
+                         "server via 'ruxd --local' and ensure a model is "
+                         "available");
 
-            const auto seg_req =
-                parse_segment_panorama_request(req.body, options_.segment_cuda);
+              const auto seg_req = parse_segment_panorama_request(
+                  req.body, options_.segment_cuda);
 
-            // Resolve the model path (managed model when omitted). May 503
-            // while the managed model is downloading/building.
-            const std::string model_path =
-                resolve_model_path(seg_req.model_path, seg_req.use_cuda);
+              // Resolve the model path (managed model when omitted). May 503
+              // while the managed model is downloading/building.
+              const std::string model_path =
+                  resolve_model_path(seg_req.model_path, seg_req.use_cuda);
 
-            // Load panorama image (brief read-only connection).
-            cv::Mat image;
-            {
-              try {
-                reusex::ProjectDB db(options_.project, /*readOnly=*/true);
-                image = db.panoramic_image(id);
-              } catch (const HttpError &) {
-                throw;
-              } catch (const std::exception &e) {
-                throw HttpError(500, e.what());
+              // Load panorama image (brief read-only connection).
+              cv::Mat image;
+              {
+                try {
+                  reusex::ProjectDB db(ctx.project(), /*readOnly=*/true);
+                  image = db.panoramic_image(id);
+                } catch (const HttpError &) {
+                  throw;
+                } catch (const std::exception &e) {
+                  throw HttpError(500, e.what());
+                }
               }
-            }
-            if (image.empty())
-              throw HttpError(404, "panorama " + std::to_string(id) +
-                                       " not found or has no image");
+              if (image.empty())
+                throw HttpError(404, "panorama " + std::to_string(id) +
+                                         " not found or has no image");
 
-            // Run inference outside any DB connection — may take seconds.
-            const auto result = panorama_segmenter_->segment(
-                image, seg_req.prompts, seg_req.confidence, seg_req.n_yaw,
-                seg_req.fov_deg, model_path, seg_req.use_cuda);
+              // Run inference outside any DB connection — may take seconds.
+              const auto result = panorama_segmenter_->segment(
+                  image, seg_req.prompts, seg_req.confidence, seg_req.n_yaw,
+                  seg_req.fov_deg, model_path, seg_req.use_cuda);
 
-            // Optionally persist the label map.
-            bool saved = false;
-            if (seg_req.save && !result.label_map.empty()) {
-              auto write_res =
-                  with_write([&](reusex::ProjectDB &wdb) -> crow::response {
-                    wdb.save_panorama_segmentation(id, result.label_map);
-                    return json_response(200, nlohmann::json{});
-                  });
-              if (write_res.code != 200)
-                return write_res;
-              saved = true;
-            }
+              // Optionally persist the label map.
+              bool saved = false;
+              if (seg_req.save && !result.label_map.empty()) {
+                auto write_res = with_write(
+                    ctx, [&](reusex::ProjectDB &wdb) -> crow::response {
+                      wdb.save_panorama_segmentation(id, result.label_map);
+                      return json_response(200, nlohmann::json{});
+                    });
+                if (write_res.code != 200)
+                  return write_res;
+                saved = true;
+              }
 
-            return json_response(
-                200, segment_panorama_result_json(id, result.label_map,
-                                                  result.class_names, saved));
+              return json_response(
+                  200, segment_panorama_result_json(id, result.label_map,
+                                                    result.class_names, saved));
+            });
           });
         });
 
     // ---- components / materials / instances ----
-    get("/api/v1/components")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, components_json(db, params));
+    get(C("/components"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, components_json(db, params));
+        });
       });
     });
 
-    get("/api/v1/components/<string>")(
-        [this](const crow::request &, std::string name) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, component_json(db, name));
+    get(C("/components/<string>"))(
+        [this](const crow::request &, std::string cid, std::string name) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, component_json(db, name));
+            });
           });
         });
 
     // One rule for both methods: registering the same path twice would create
     // two competing Crow rules (same reasoning as /jobs below).
-    app_.route_dynamic("/api/v1/materials")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET) {
-            const Params params = params_of(req);
-            return with_db([&](const reusex::ProjectDB &db) {
-              return json_response(200, materials_json(db, params));
+    app_.route_dynamic(C("/materials"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET) {
+                  const Params params = params_of(req);
+                  return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                    return json_response(200, materials_json(db, params));
+                  });
+                }
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, create_material(db));
+                });
+              });
             });
-          }
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_material(db));
-          });
-        });
 
-    app_.route_dynamic("/api/v1/materials/<string>")
+    app_.route_dynamic(C("/materials/<string>"))
         .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH,
-                 crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, std::string guid) {
-              if (req.method == crow::HTTPMethod::GET)
-                return with_db([&](const reusex::ProjectDB &db) {
-                  return json_response(200, material_json(db, guid));
-                });
-              if (req.method == crow::HTTPMethod::PATCH)
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(200, patch_material(db, guid, req.body));
-                });
-              return with_write([&](reusex::ProjectDB &db) {
-                delete_material(db, guid);
-                return crow::response(204);
+                 crow::HTTPMethod::DELETE)([this](const crow::request &req,
+                                                  std::string cid,
+                                                  std::string guid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            if (req.method == crow::HTTPMethod::GET)
+              return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                return json_response(200, material_json(db, guid));
               });
-            });
-
-    app_.route_dynamic("/api/v1/materials/<string>/thumbnail")
-        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PUT)(
-            [this](const crow::request &req, std::string guid) {
-              if (req.method == crow::HTTPMethod::GET)
-                return with_db([&](const reusex::ProjectDB &db) {
-                  return blob_response(material_thumbnail_blob(db, guid));
-                });
-              return with_write([&](reusex::ProjectDB &db) {
-                set_material_thumbnail(db, guid, req.body,
-                                       req.get_header_value("Content-Type"));
-                return crow::response(204);
+            if (req.method == crow::HTTPMethod::PATCH)
+              return with_write(ctx, [&](reusex::ProjectDB &db) {
+                return json_response(200, patch_material(db, guid, req.body));
               });
+            return with_write(ctx, [&](reusex::ProjectDB &db) {
+              delete_material(db, guid);
+              return crow::response(204);
             });
-
-    app_.route_dynamic("/api/v1/resources/columns")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET)
-            return with_db([&](const reusex::ProjectDB &db) {
-              return json_response(200, material_columns_json(db));
-            });
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_material_column(db, req.body));
           });
         });
-    app_.route_dynamic("/api/v1/resources/columns/<string>")
-        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, std::string id) {
-              if (req.method == crow::HTTPMethod::PATCH)
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(200,
-                                       patch_material_column(db, id, req.body));
+
+    app_.route_dynamic(C("/materials/<string>/thumbnail"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PUT)(
+            [this](const crow::request &req, std::string cid,
+                   std::string guid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET)
+                  return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                    return blob_response(material_thumbnail_blob(db, guid));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  set_material_thumbnail(db, guid, req.body,
+                                         req.get_header_value("Content-Type"));
+                  return crow::response(204);
                 });
-              return with_write([&](reusex::ProjectDB &db) {
-                delete_material_column(db, id);
-                return crow::response(204);
+              });
+            });
+
+    app_.route_dynamic(C("/resources/columns"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET)
+                  return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                    return json_response(200, material_columns_json(db));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201,
+                                       create_material_column(db, req.body));
+                });
+              });
+            });
+    app_.route_dynamic(C("/resources/columns/<string>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid, std::string id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::PATCH)
+                  return with_write(ctx, [&](reusex::ProjectDB &db) {
+                    return json_response(
+                        200, patch_material_column(db, id, req.body));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  delete_material_column(db, id);
+                  return crow::response(204);
+                });
               });
             });
 
@@ -1277,412 +1422,530 @@ class Server::Impl {
     // Static paths are registered before /resources/<string>. Crow keeps one
     // trie per method and that route takes only PATCH/DELETE, so a GET can
     // never reach it either way.
-    get("/api/v1/resources/keys")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, resource_keys_json(db));
+    get(C("/resources/keys"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [](const reusex::ProjectDB &db) {
+          return json_response(200, resource_keys_json(db));
+        });
       });
     });
-    get("/api/v1/resources/export.csv")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        const auto b = resources_csv_blob(db, params);
-        crow::response res(200);
-        res.set_header("Content-Type", b.content_type);
-        res.set_header("Content-Disposition",
-                       "attachment; filename=\"ressourcer.csv\"");
-        res.body.assign(reinterpret_cast<const char *>(b.data.data()),
-                        b.data.size());
-        return res;
-      });
-    });
-    app_.route_dynamic("/api/v1/resources")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET) {
+    get(C("/resources/export.csv"))(
+        [this](const crow::request &req, std::string cid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
             const Params params = params_of(req);
-            return with_db([&](const reusex::ProjectDB &db) {
-              return json_response(200, resources_json(db, params));
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              const auto b = resources_csv_blob(db, params);
+              crow::response res(200);
+              res.set_header("Content-Type", b.content_type);
+              res.set_header("Content-Disposition",
+                             "attachment; filename=\"ressourcer.csv\"");
+              res.body.assign(reinterpret_cast<const char *>(b.data.data()),
+                              b.data.size());
+              return res;
             });
-          }
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_resource_json(db, req.body));
           });
         });
-    app_.route_dynamic("/api/v1/resources/<string>")
-        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, std::string code) {
-              if (req.method == crow::HTTPMethod::PATCH) {
-                const Params params = params_of(req);
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(
-                      200, patch_resource_json(db, code, params, req.body));
+    app_.route_dynamic(C("/resources"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET) {
+                  const Params params = params_of(req);
+                  return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                    return json_response(200, resources_json(db, params));
+                  });
+                }
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, create_resource_json(db, req.body));
                 });
-              }
-              return with_write([&](reusex::ProjectDB &db) {
-                delete_resource(db, code);
-                return crow::response(204);
+              });
+            });
+    app_.route_dynamic(C("/resources/<string>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid,
+                   std::string code) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::PATCH) {
+                  const Params params = params_of(req);
+                  return with_write(ctx, [&](reusex::ProjectDB &db) {
+                    return json_response(
+                        200, patch_resource_json(db, code, params, req.body));
+                  });
+                }
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  delete_resource(db, code);
+                  return crow::response(204);
+                });
               });
             });
 
     // ---- templates (schema v25) ----
-    app_.route_dynamic("/api/v1/templates")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET)
-            return with_db([](const reusex::ProjectDB &db) {
-              return json_response(200, templates_json(db));
-            });
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_template_json(db, req.body));
-          });
-        });
-    app_.route_dynamic("/api/v1/templates/restore-seeds")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &) {
-          return with_write([](reusex::ProjectDB &db) {
-            return json_response(200, restore_seed_templates_json(db));
-          });
-        });
-    app_.route_dynamic("/api/v1/templates/<int>")
-        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, int id) {
-              if (req.method == crow::HTTPMethod::PATCH)
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(200,
-                                       patch_template_json(db, id, req.body));
+    app_.route_dynamic(C("/templates"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET)
+                  return with_db(ctx, [](const reusex::ProjectDB &db) {
+                    return json_response(200, templates_json(db));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, create_template_json(db, req.body));
                 });
-              return with_write([&](reusex::ProjectDB &db) {
-                delete_template(db, id);
-                return crow::response(204);
               });
             });
-    app_.route_dynamic("/api/v1/templates/<int>/duplicate")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &, int id) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, duplicate_template_json(db, id));
+    app_.route_dynamic(C("/templates/restore-seeds"))
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [](reusex::ProjectDB &db) {
+                  return json_response(200, restore_seed_templates_json(db));
+                });
+              });
+            });
+    app_.route_dynamic(C("/templates/<int>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::PATCH)
+                  return with_write(ctx, [&](reusex::ProjectDB &db) {
+                    return json_response(200,
+                                         patch_template_json(db, id, req.body));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  delete_template(db, id);
+                  return crow::response(204);
+                });
+              });
+            });
+    app_.route_dynamic(C("/templates/<int>/duplicate"))
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, duplicate_template_json(db, id));
+                });
+              });
+            });
+
+    get(C("/instances/<string>"))(
+        [this](const crow::request &req, std::string cid, std::string cloud) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, instances_json(db, cloud, params));
+            });
           });
         });
 
-    get("/api/v1/instances/<string>")(
-        [this](const crow::request &req, std::string cloud) {
-          const Params params = params_of(req);
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, instances_json(db, cloud, params));
+    get(C("/instances/<string>/<int>/frames"))(
+        [this](const crow::request &req, std::string cid, std::string cloud,
+               int instance_id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(
+                  200, instance_frames_json(
+                           db, cloud, instance_id, params,
+                           [&ctx](const reusex::ProjectDB &conn,
+                                  const std::string &c, std::uint32_t id) {
+                             return ctx.photo_cache().peek(conn, c, id);
+                           }));
+            });
           });
         });
 
-    get("/api/v1/instances/<string>/<int>/frames")(
-        [this](const crow::request &req, std::string cloud, int instance_id) {
-          const Params params = params_of(req);
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(
-                200, instance_frames_json(
-                         db, cloud, instance_id, params,
-                         [this](const reusex::ProjectDB &conn,
-                                const std::string &c, std::uint32_t id) {
-                           return photo_cache_.peek(conn, c, id);
-                         }));
+    get(C("/instances/<string>/<int>/panoramas"))(
+        [this](const crow::request &req, std::string cid, std::string cloud,
+               int instance_id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const Params params = params_of(req);
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(
+                  200, instance_panoramas_json(db, cloud, instance_id, params));
+            });
           });
         });
 
-    get("/api/v1/instances/<string>/<int>/panoramas")(
-        [this](const crow::request &req, std::string cloud, int instance_id) {
-          const Params params = params_of(req);
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(
-                200, instance_panoramas_json(db, cloud, instance_id, params));
-          });
-        });
-
-    app_.route_dynamic("/api/v1/instances/<string>/<int>/material")
-        .methods(crow::HTTPMethod::PUT)([this](const crow::request &req,
-                                               std::string cloud,
-                                               int instance_id) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(
-                200, link_instance_material(db, cloud, instance_id, req.body));
-          });
-        });
+    app_.route_dynamic(C("/instances/<string>/<int>/material"))
+        .methods(crow::HTTPMethod::PUT)(
+            [this](const crow::request &req, std::string cid, std::string cloud,
+                   int instance_id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(
+                      200,
+                      link_instance_material(db, cloud, instance_id, req.body));
+                });
+              });
+            });
 
     // ---- pose graph ----
-    get("/api/v1/posegraph")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, posegraph_json(db));
+    get(C("/posegraph"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [](const reusex::ProjectDB &db) {
+          return json_response(200, posegraph_json(db));
+        });
       });
     });
 
-    app_.route_dynamic("/api/v1/posegraph/edges/<int>/<int>")
-        .methods(crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, int from, int to) {
-              const auto type = params_of(req).str("type", "");
-              return with_write([&](reusex::ProjectDB &db) {
-                return json_response(200,
-                                     delete_posegraph_edge(db, from, to, type));
-              });
+    app_.route_dynamic(C("/posegraph/edges/<int>/<int>"))
+        .methods(crow::HTTPMethod::DELETE)([this](const crow::request &req,
+                                                  std::string cid, int from,
+                                                  int to) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            const auto type = params_of(req).str("type", "");
+            return with_write(ctx, [&](reusex::ProjectDB &db) {
+              return json_response(200,
+                                   delete_posegraph_edge(db, from, to, type));
             });
-
-    app_.route_dynamic("/api/v1/posegraph/edges")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, add_posegraph_edge(db, req.body));
           });
         });
 
-    app_.route_dynamic("/api/v1/posegraph/icp")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(
-                200,
-                refine_posegraph_icp(db, options_.icp_refine_fn, req.body));
+    app_.route_dynamic(C("/posegraph/edges"))
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, add_posegraph_edge(db, req.body));
+                });
+              });
+            });
+
+    app_.route_dynamic(C("/posegraph/icp"))
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req,
+                                                std::string cid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(
+                  200,
+                  refine_posegraph_icp(db, options_.icp_refine_fn, req.body));
+            });
           });
         });
 
     // ---- pipeline ----
-    get("/api/v1/stages")([this](const crow::request &) {
-      return with_db([](const reusex::ProjectDB &db) {
-        return json_response(200, stages_json(db));
+    get(C("/stages"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [](const reusex::ProjectDB &db) {
+          return json_response(200, stages_json(db));
+        });
       });
     });
 
-    get("/api/v1/stages/<string>/validation")(
-        [this](const crow::request &, std::string stage) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return json_response(200, stage_validation_json(db, stage));
+    get(C("/stages/<string>/validation"))(
+        [this](const crow::request &, std::string cid, std::string stage) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_db(ctx, [&](const reusex::ProjectDB &db) {
+              return json_response(200, stage_validation_json(db, stage));
+            });
           });
         });
 
-    get("/api/v1/pipeline-log")([this](const crow::request &req) {
-      const Params params = params_of(req);
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, pipeline_log_json(db, params));
+    get(C("/pipeline-log"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        const Params params = params_of(req);
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, pipeline_log_json(db, params));
+        });
       });
     });
 
     // ---- jobs ----
     // One rule for both methods: registering the same path twice would create
     // two competing Crow rules.
-    app_.route_dynamic("/api/v1/jobs")
+    app_.route_dynamic(C("/jobs"))
         .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          return guarded([&] {
-            const auto project = options_.project.filename().string();
-            if (req.method == crow::HTTPMethod::GET)
-              return json_response(200, jobs_page_json(runner_->jobs(), project,
-                                                       params_of(req)));
+                 crow::HTTPMethod::POST)([this](const crow::request &req,
+                                                std::string cid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return guarded([&] {
+              const auto project = ctx.file_name();
+              if (req.method == crow::HTTPMethod::GET)
+                return json_response(
+                    200,
+                    jobs_page_json(ctx.jobs().jobs(), project, params_of(req)));
 
-            const auto submission = parse_job_request(req.body);
-            check_job_project(submission, project);
-            const auto id =
-                runner_->submit(submission.stage, submission.parameters);
-            auto record = runner_->job(id);
-            if (!record)
-              throw HttpError(500, "job vanished immediately after submit");
-            return json_response(202, job_json(*record, project));
+              const auto submission = parse_job_request(req.body);
+              check_job_project(submission, project);
+              const auto id =
+                  ctx.jobs().submit(submission.stage, submission.parameters);
+              auto record = ctx.jobs().job(id);
+              if (!record)
+                throw HttpError(500, "job vanished immediately after submit");
+              return json_response(202, job_json(*record, project));
+            });
           });
         });
 
-    get("/api/v1/jobs/<string>")([this](const crow::request &, std::string id) {
-      return guarded([&] {
-        auto record = runner_->job(id);
-        if (!record)
-          throw HttpError(404, "no such job '" + id + "'");
-        return json_response(
-            200, job_json(*record, options_.project.filename().string()));
-      });
-    });
-
-    app_.route_dynamic("/api/v1/jobs/<string>/cancel")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &,
-                                                std::string id) {
-          return guarded([&] {
-            if (!runner_->cancel(id))
-              throw HttpError(404, "no such job '" + id + "'");
-            auto record = runner_->job(id);
-            if (!record)
-              throw HttpError(404, "no such job '" + id + "'");
-            return json_response(
-                200, job_json(*record, options_.project.filename().string()));
+    get(C("/jobs/<string>"))(
+        [this](const crow::request &, std::string cid, std::string id) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return guarded([&] {
+              auto record = ctx.jobs().job(id);
+              if (!record)
+                throw HttpError(404, "no such job '" + id + "'");
+              return json_response(200, job_json(*record, ctx.file_name()));
+            });
           });
         });
+
+    app_.route_dynamic(C("/jobs/<string>/cancel"))
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &, std::string cid, std::string id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return guarded([&] {
+                  if (!ctx.jobs().cancel(id))
+                    throw HttpError(404, "no such job '" + id + "'");
+                  auto record = ctx.jobs().job(id);
+                  if (!record)
+                    throw HttpError(404, "no such job '" + id + "'");
+                  return json_response(200, job_json(*record, ctx.file_name()));
+                });
+              });
+            });
 
     // ---- report PDFs (#456) ----
-    app_.route_dynamic("/api/v1/reports/ressourcekortlaegning")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET)
-            return with_db([](const reusex::ProjectDB &db) {
-              return json_response(200, list_report_pdfs_json(db));
+    app_.route_dynamic(C("/reports/ressourcekortlaegning"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET)
+                  return with_db(ctx, [](const reusex::ProjectDB &db) {
+                    return json_response(200, list_report_pdfs_json(db));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201,
+                                       generate_report_pdf_json(db, req.body));
+                });
+              });
             });
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, generate_report_pdf_json(db, req.body));
-          });
-        });
 
-    app_.route_dynamic("/api/v1/reports/ressourcekortlaegning/<int>")
-        .methods(crow::HTTPMethod::GET)([this](const crow::request &, int id) {
-          return with_db([&](const reusex::ProjectDB &db) {
-            return blob_response(report_pdf_blob(db, id));
-          });
-        });
+    app_.route_dynamic(C("/reports/ressourcekortlaegning/<int>"))
+        .methods(crow::HTTPMethod::GET)(
+            [this](const crow::request &, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                  return blob_response(report_pdf_blob(db, id));
+                });
+              });
+            });
 
     // ---- CSV export (#459) ----
-    get("/api/v1/exports/csv")([this](const crow::request &req) {
-      std::vector<std::string> columns;
-      if (const char *raw = req.url_params.get("columns"); raw && *raw) {
-        std::istringstream ss(raw);
-        std::string col;
-        while (std::getline(ss, col, ','))
-          if (!col.empty())
-            columns.push_back(col);
-      }
-      return with_write([&](reusex::ProjectDB &db) {
-        auto b = export_csv_blob(db, columns);
-        crow::response res(200);
-        res.set_header("Content-Type", b.content_type);
-        res.set_header("Content-Disposition",
-                       "attachment; filename=\"elements.csv\"");
-        res.body.assign(reinterpret_cast<const char *>(b.data.data()),
-                        b.data.size());
-        return res;
+    get(C("/exports/csv"))([this](const crow::request &req, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        std::vector<std::string> columns;
+        if (const char *raw = req.url_params.get("columns"); raw && *raw) {
+          std::istringstream ss(raw);
+          std::string col;
+          while (std::getline(ss, col, ','))
+            if (!col.empty())
+              columns.push_back(col);
+        }
+        return with_write(ctx, [&](reusex::ProjectDB &db) {
+          auto b = export_csv_blob(db, columns);
+          crow::response res(200);
+          res.set_header("Content-Type", b.content_type);
+          res.set_header("Content-Disposition",
+                         "attachment; filename=\"elements.csv\"");
+          res.body.assign(reinterpret_cast<const char *>(b.data.data()),
+                          b.data.size());
+          return res;
+        });
       });
     });
 
     // ---- survey (Ressourcekortlægning, #265 Phase 2) ----
-    get("/api/v1/survey")([this](const crow::request &) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, survey_json(db));
+    get(C("/survey"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, survey_json(db));
+        });
       });
     });
-    get("/api/v1/survey/summary")([this](const crow::request &) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, survey_summary_json(db));
+    get(C("/survey/summary"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, survey_summary_json(db));
+        });
       });
     });
-    get("/api/v1/survey/photos")([this](const crow::request &) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(
-            200, survey_photos_json(
-                     db, [this](const reusex::ProjectDB &conn,
-                                const std::string &cloud,
-                                const std::set<std::uint32_t> &wanted) {
-                       return photo_cache_.get(conn, cloud, wanted);
-                     }));
+    get(C("/survey/photos"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(
+              200, survey_photos_json(
+                       db, [&ctx](const reusex::ProjectDB &conn,
+                                  const std::string &cloud,
+                                  const std::set<std::uint32_t> &wanted) {
+                         return ctx.photo_cache().get(conn, cloud, wanted);
+                       }));
+        });
       });
     });
-    get("/api/v1/survey/fractions")([this](const crow::request &) {
-      return with_db([&](const reusex::ProjectDB &db) {
-        return json_response(200, survey_fractions_json(db));
+    get(C("/survey/fractions"))([this](const crow::request &, std::string cid) {
+      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        return with_db(ctx, [&](const reusex::ProjectDB &db) {
+          return json_response(200, survey_fractions_json(db));
+        });
       });
     });
 
-    app_.route_dynamic("/api/v1/survey/sync")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(200, sync_survey_json(db, req.body));
-          });
-        });
-    app_.route_dynamic("/api/v1/survey/types")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_survey_type_json(db, req.body));
-          });
-        });
-    app_.route_dynamic("/api/v1/survey/types/<int>")
-        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, int id) {
-              if (req.method == crow::HTTPMethod::DELETE)
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(200, delete_survey_type_json(db, id));
+    app_.route_dynamic(C("/survey/sync"))
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(200, sync_survey_json(db, req.body));
                 });
-              return with_write([&](reusex::ProjectDB &db) {
-                return json_response(200,
-                                     patch_survey_type_json(db, id, req.body));
               });
             });
-    app_.route_dynamic("/api/v1/survey/parts/<string>")
+    app_.route_dynamic(C("/survey/types"))
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req,
+                                                std::string cid) {
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_write(ctx, [&](reusex::ProjectDB &db) {
+              return json_response(201, create_survey_type_json(db, req.body));
+            });
+          });
+        });
+    app_.route_dynamic(C("/survey/types/<int>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::DELETE)
+                  return with_write(ctx, [&](reusex::ProjectDB &db) {
+                    return json_response(200, delete_survey_type_json(db, id));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(
+                      200, patch_survey_type_json(db, id, req.body));
+                });
+              });
+            });
+    app_.route_dynamic(C("/survey/parts/<string>"))
         .methods(crow::HTTPMethod::PATCH)([this](const crow::request &req,
+                                                 std::string cid,
                                                  std::string code) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(200,
-                                 patch_survey_part_json(db, code, req.body));
+          return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+            return with_write(ctx, [&](reusex::ProjectDB &db) {
+              return json_response(200,
+                                   patch_survey_part_json(db, code, req.body));
+            });
           });
         });
 
     // One rule for both methods: registering the same path twice would create
     // two competing Crow rules (same reasoning as /jobs above).
-    app_.route_dynamic("/api/v1/samples")
-        .methods(crow::HTTPMethod::GET,
-                 crow::HTTPMethod::POST)([this](const crow::request &req) {
-          if (req.method == crow::HTTPMethod::GET)
-            return with_db([&](const reusex::ProjectDB &db) {
-              return json_response(200, samples_json(db));
-            });
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(201, create_sample_json(db, req.body));
-          });
-        });
-
-    app_.route_dynamic("/api/v1/samples/<int>")
-        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
-            [this](const crow::request &req, int id) {
-              if (req.method == crow::HTTPMethod::PATCH)
-                return with_write([&](reusex::ProjectDB &db) {
-                  return json_response(200,
-                                       patch_sample_json(db, id, req.body));
+    app_.route_dynamic(C("/samples"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::GET)
+                  return with_db(ctx, [&](const reusex::ProjectDB &db) {
+                    return json_response(200, samples_json(db));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(201, create_sample_json(db, req.body));
                 });
-              return with_write([&](reusex::ProjectDB &db) {
-                delete_sample(db, id);
-                return crow::response(204);
               });
             });
 
-    app_.route_dynamic("/api/v1/samples/<int>/links")
-        .methods(
-            crow::HTTPMethod::PUT)([this](const crow::request &req, int id) {
-          return with_write([&](reusex::ProjectDB &db) {
-            return json_response(200, set_sample_links_json(db, id, req.body));
-          });
-        });
+    app_.route_dynamic(C("/samples/<int>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                if (req.method == crow::HTTPMethod::PATCH)
+                  return with_write(ctx, [&](reusex::ProjectDB &db) {
+                    return json_response(200,
+                                         patch_sample_json(db, id, req.body));
+                  });
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  delete_sample(db, id);
+                  return crow::response(204);
+                });
+              });
+            });
+
+    app_.route_dynamic(C("/samples/<int>/links"))
+        .methods(crow::HTTPMethod::PUT)(
+            [this](const crow::request &req, std::string cid, int id) {
+              return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+                return with_write(ctx, [&](reusex::ProjectDB &db) {
+                  return json_response(200,
+                                       set_sample_links_json(db, id, req.body));
+                });
+              });
+            });
 
     register_websocket();
     register_static();
   }
 
   void register_websocket() {
-    CROW_WEBSOCKET_ROUTE(app_, "/api/v1/events")
-        .onaccept([this](const crow::request &req, void **) {
+    app_.route_dynamic(C("/events"))
+        .websocket<App>(&app_)
+        .onaccept([this](const crow::request &req,
+                         std::optional<crow::response> &res, void **userdata) {
           // WebSockets are NOT subject to CORS — a browser will happily open
           // one cross-origin and hand the frames to the attacker's script. The
           // handshake is therefore the only place this can be enforced, and
           // Crow ignores a middleware response on the upgrade path, so the
-          // check lives here rather than in SecurityMiddleware.
+          // checks live here rather than in SecurityMiddleware.
           const auto &security = app_.get_middleware<SecurityMiddleware>();
           if (!security.host_ok(req)) {
             spdlog::warn("Refused a WebSocket upgrade for host '{}'",
                          req.get_header_value("Host"));
-            return false;
+            res = error_response(403, "host is not served here");
+            return;
           }
           if (!security.check(req).ok) {
             spdlog::warn("Refused a WebSocket upgrade without the access "
                          "token");
-            return false;
+            res = error_response(401, "missing or wrong access token");
+            return;
           }
           const std::string origin = req.get_header_value("Origin");
-          if (origin.empty())
-            return true; // Non-browser client (curl, the CLI, a test).
-          if (security.origin_ok(req, origin))
-            return true;
-          spdlog::warn("Refused a WebSocket upgrade from origin '{}'", origin);
-          return false;
+          // An empty Origin is a non-browser client (curl, the CLI, a test).
+          if (!origin.empty() && !security.origin_ok(req, origin)) {
+            spdlog::warn("Refused a WebSocket upgrade from origin '{}'",
+                         origin);
+            res = error_response(403, "origin is not allowed");
+            return;
+          }
+          const auto cid = case_id_of_events_url(req.url);
+          if (!cid || !cases_->find(*cid)) {
+            res = error_response(404, "no such case");
+            return;
+          }
+          // Handed to onopen, which owns it from there.
+          *userdata = new std::string(*cid);
         })
         .onopen([this](crow::websocket::connection &conn) {
-          {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
-            clients_.emplace(&conn, std::nullopt);
+          std::unique_ptr<std::string> cid(
+              static_cast<std::string *>(conn.userdata()));
+          conn.userdata(nullptr);
+          std::shared_ptr<ProjectContext> ctx;
+          try {
+            ctx = cid ? registry_->acquire(*cid) : nullptr;
+          } catch (const std::exception &e) {
+            spdlog::warn("WebSocket for case '{}' refused: {}",
+                         cid ? *cid : "?", e.what());
           }
-          spdlog::debug("WebSocket client connected");
-          // Snapshot on connect, so a client that joins mid-run is immediately
-          // consistent without a separate GET /jobs.
-          conn.send_text(hello_json(runner_->jobs(), options_.project).dump());
+          if (!ctx) {
+            conn.close("case unavailable");
+            return;
+          }
+          {
+            // The socket keeps no lease (a weak reference only): an open tab
+            // keeps its case open through the subscriber count, not by
+            // pinning it, so deleting the case still works.
+            std::lock_guard<std::mutex> lock(sockets_mutex_);
+            sockets_[&conn] = ctx;
+          }
+          ctx->subscribe(&conn, [&conn](const std::string &payload) {
+            conn.send_text(payload);
+          });
+          spdlog::debug("WebSocket client connected to case '{}'", ctx->id());
         })
         .onmessage([this](crow::websocket::connection &conn,
                           const std::string &data, bool is_binary) {
@@ -1693,28 +1956,51 @@ class Server::Impl {
                                .dump());
             return;
           }
-          auto reply = handle_ws_message(
-              data, [this, &conn](std::optional<std::string> job_id) {
-                std::lock_guard<std::mutex> lock(clients_mutex_);
-                auto it = clients_.find(&conn);
-                if (it != clients_.end())
-                  it->second = std::move(job_id);
+          auto ctx = socket_case(conn);
+          auto reply =
+              handle_ws_message(data, [&](std::optional<std::string> job_id) {
+                if (ctx)
+                  ctx->set_filter(&conn, std::move(job_id));
               });
           if (reply)
             conn.send_text(reply->dump());
         })
         .onclose([this](crow::websocket::connection &conn, const std::string &,
                         uint16_t) {
-          std::lock_guard<std::mutex> lock(clients_mutex_);
-          clients_.erase(&conn);
+          drop_socket(conn);
           spdlog::debug("WebSocket client disconnected");
         })
         .onerror([this](crow::websocket::connection &conn,
                         const std::string &reason) {
           spdlog::debug("WebSocket error: {}", reason);
-          std::lock_guard<std::mutex> lock(clients_mutex_);
-          clients_.erase(&conn);
+          drop_socket(conn);
         });
+  }
+
+  /// The case a socket subscribed to, if it is still open.
+  std::shared_ptr<ProjectContext>
+  socket_case(crow::websocket::connection &conn) {
+    std::lock_guard<std::mutex> lock(sockets_mutex_);
+    auto it = sockets_.find(&conn);
+    return it == sockets_.end() ? nullptr : it->second.lock();
+  }
+
+  /// Unsubscribe and forget a socket. Runs before Crow frees the connection,
+  /// which is what makes ProjectContext::broadcast's send-under-lock safe.
+  void drop_socket(crow::websocket::connection &conn) {
+    std::weak_ptr<ProjectContext> weak;
+    {
+      std::lock_guard<std::mutex> lock(sockets_mutex_);
+      auto it = sockets_.find(&conn);
+      if (it == sockets_.end())
+        return;
+      weak = it->second;
+      sockets_.erase(it);
+    }
+    if (auto ctx = weak.lock()) {
+      ctx->unsubscribe(&conn);
+      ctx->touch(ProjectContext::Clock::now());
+    }
   }
 
   /// Serve one file from the bundle, or an empty optional if it is not there.
@@ -1768,8 +2054,7 @@ class Server::Impl {
         return std::move(*served);
     }
 
-    crow::response res(200,
-                       placeholder_page(options_.project.filename().string()));
+    crow::response res(200, placeholder_page("ruxd"));
     res.set_header("Content-Type", "text/html; charset=utf-8");
     return res;
   }
@@ -1804,19 +2089,24 @@ class Server::Impl {
 
   ServerOptions options_;
 
-  // MEMBER ORDER IS LOAD-BEARING (destruction runs in reverse). The client
-  // table and its mutex are declared FIRST so they are destroyed LAST: the job
-  // worker inside runner_, and Crow's own threads inside app_, both touch them
-  // right up until they are stopped. ~Impl also tears those two down
-  // explicitly, so this ordering is the belt to that braces.
-  std::mutex clients_mutex_;
-  /// Connection -> its job filter (nullopt = receives every event).
-  std::unordered_map<crow::websocket::connection *, std::optional<std::string>>
-      clients_;
+  // MEMBER ORDER IS LOAD-BEARING (destruction runs in reverse). The scheduler
+  // outlives the registry (each case's queue lives on it), the registry
+  // outlives Crow (whose threads lease cases), and the socket table outlives
+  // Crow too, since its close handlers run until Crow is stopped. ~Impl also
+  // tears these down explicitly, so this ordering is the belt to those braces.
+  std::shared_ptr<ICaseStore> cases_;
+  std::unique_ptr<UploadManager> uploads_;
+  pipeline::StageExecutor executor_;
+  std::unique_ptr<pipeline::JobScheduler> scheduler_;
+  std::unique_ptr<ProjectRegistry> registry_;
+
+  std::mutex sockets_mutex_;
+  /// Open WebSocket -> the case it subscribed to.
+  std::unordered_map<crow::websocket::connection *,
+                     std::weak_ptr<ProjectContext>>
+      sockets_;
 
   App app_;
-  std::unique_ptr<pipeline::JobRunner> runner_;
-  size_t listener_ = 0;
 
   /// Optional SAM3 segmenter registered by ruxd's main (#409).
   /// Not owned; lifetime must exceed the server's. nullptr ⟹ 503.
@@ -1834,17 +2124,6 @@ class Server::Impl {
   /// Optional evidence-render renderer (#265 Phase 2 Task 8). Not owned;
   /// lifetime must exceed the server's. nullptr ⟹ 503.
   IViewRenderer *view_renderer_ = nullptr;
-
-  /// Occlusion-aware photo evidence behind GET /survey/photos (seconds to
-  /// compute), invalidated when a job finishes; warmed at startup.
-  PhotoEvidenceCache photo_cache_;
-  std::atomic<bool> stopping_{false};
-  std::thread warmup_;
-
-  /// Read-write connection that keeps the project's WAL index alive between
-  /// requests and checkpoints on shutdown (see the constructor). Never
-  /// queried after startup; reset explicitly at the end of ~Impl.
-  std::unique_ptr<reusex::ProjectDB> wal_anchor_;
 };
 
 // ===========================================================================
@@ -1863,6 +2142,8 @@ const ServerOptions &Server::options() const noexcept {
 std::string Server::url() const { return impl_->url(); }
 
 bool Server::has_assets() const noexcept { return impl_->has_assets(); }
+
+std::vector<CaseInfo> Server::cases() const { return impl_->cases(); }
 
 int Server::run() { return impl_->run(); }
 

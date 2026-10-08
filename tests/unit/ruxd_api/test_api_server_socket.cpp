@@ -27,6 +27,9 @@
 
 #include <api/Server.hpp>
 #include <api/assets.hpp>
+#include <api/cases.hpp>
+
+#include <nlohmann/json.hpp>
 
 #include <sqlite3.h>
 
@@ -248,11 +251,11 @@ class KeepAliveConnection {
   std::string buffer_;
 };
 
-/// A minimal WebSocket client for /api/v1/events: performs the upgrade and
-/// reads unfragmented server text frames (server frames are never masked).
+/// A minimal WebSocket client for a case's events socket: performs the upgrade
+/// and reads unfragmented server text frames (server frames are never masked).
 class WebSocketClient {
     public:
-  explicit WebSocketClient(std::uint16_t port) {
+  WebSocketClient(std::uint16_t port, const std::string &path) {
     fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
     REQUIRE(fd_ >= 0);
     sockaddr_in addr{};
@@ -265,7 +268,8 @@ class WebSocketClient {
     timeout.tv_sec = 10;
     ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     const std::string upgrade =
-        "GET /api/v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        "GET " + path +
+        " HTTP/1.1\r\nHost: 127.0.0.1\r\n"
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
         "Sec-WebSocket-Version: 13\r\n\r\n";
@@ -366,10 +370,17 @@ class RunningServer {
   std::thread thread_;
 };
 
+/// `/api/v1/cases/<id of @p project>` + @p rest: the case a lone `.rux`
+/// target is served as.
+std::string case_path(const fs::path &project, std::string_view rest) {
+  return "/api/v1/cases/" + case_slug(project.stem().string()) +
+         std::string(rest);
+}
+
 ServerOptions options_for(const fs::path &project, const fs::path &assets,
                           std::uint16_t port) {
   ServerOptions options;
-  options.project = project;
+  options.target = project;
   options.asset_dir = assets;
   options.port = port;
   options.open_browser = false;
@@ -495,23 +506,36 @@ TEST_CASE("RunningServer_ResourceRoutes_StaticPathsBeatTheCodeParam",
   write_file(assets.path / "index.html", kIndexBody);
   RunningServer server(options_for(project.path, assets.path, free_port()));
   KeepAliveConnection connection(server.port());
-  for (const char *route :
-       {"/api/v1/resources/keys", "/api/v1/resources/columns",
-        "/api/v1/resources", "/api/v1/resources/export.csv?template=2"}) {
+  for (const std::string &route :
+       {case_path(project.path, "/resources/keys"),
+        case_path(project.path, "/resources/columns"),
+        case_path(project.path, "/resources"),
+        case_path(project.path, "/resources/export.csv?template=2")}) {
     INFO("route: " << route);
     CHECK(connection.get(route).status == 200);
   }
-  CHECK(connection.get("/api/v1/resources/export.csv").status == 400);
-  CHECK(connection.get("/api/v1/resources/export.csv?template=").status == 400);
-  CHECK(connection.get("/api/v1/resources?template=").status == 400);
-  const Response csv =
-      connection.get("/api/v1/resources/export.csv?template=2");
+  CHECK(
+      connection.get(case_path(project.path, "/resources/export.csv")).status ==
+      400);
+  CHECK(
+      connection.get(case_path(project.path, "/resources/export.csv?template="))
+          .status == 400);
+  CHECK(
+      connection.get(case_path(project.path, "/resources?template=")).status ==
+      400);
+  const Response csv = connection.get(
+      case_path(project.path, "/resources/export.csv?template=2"));
   CHECK(csv.content_type == "text/csv; charset=utf-8");
   CHECK(csv.content_disposition == "attachment; filename=\"ressourcer.csv\"");
-  CHECK(connection.get("/api/v1/templates").status == 200);
-  CHECK(connection.send_json("POST", "/api/v1/templates/restore-seeds", "{}")
+  CHECK(connection.get(case_path(project.path, "/templates")).status == 200);
+  CHECK(connection
+            .send_json("POST",
+                       case_path(project.path, "/templates/restore-seeds"),
+                       "{}")
             .status == 200);
-  CHECK(connection.send_json("POST", "/api/v1/templates/1/duplicate", "{}")
+  CHECK(connection
+            .send_json("POST",
+                       case_path(project.path, "/templates/1/duplicate"), "{}")
             .status == 201);
 }
 
@@ -540,7 +564,8 @@ TEST_CASE("RunningServer_ResourceColumns_NameConflictsAre409",
   }
   RunningServer server(options_for(project.path, assets.path, free_port()));
   KeepAliveConnection connection(server.port());
-  for (const std::string base : {"/api/v1/resources/columns"}) {
+  for (const std::string &base :
+       {case_path(project.path, "/resources/columns")}) {
     INFO("base: " << base);
     for (const char *name : {"Gammel", "width_mm"}) {
       INFO("name: " << name);
@@ -564,7 +589,7 @@ TEST_CASE("RunningServer_NoAssetsKeepAliveRequests_ServesPlaceholderRepeatedly",
   TempPath project("test_gui_server_socket", ".rux");
 
   ServerOptions options;
-  options.project = project.path;
+  options.target = project.path;
   options.port = free_port();
   options.open_browser = false;
   options.threads = 2;
@@ -595,16 +620,19 @@ TEST_CASE("RunningServer_ConcurrentReadsOnAFreshServer_NeverBusy",
   TempPath project("test_gui_server_socket", ".rux");
 
   ServerOptions options;
-  options.project = project.path;
+  options.target = project.path;
   options.port = free_port();
   options.open_browser = false;
   options.threads = 8;
   RunningServer server(std::move(options));
 
   const std::vector<std::string> paths{
-      "/api/v1/project",          "/api/v1/survey/summary",
-      "/api/v1/survey/fractions", "/api/v1/survey",
-      "/api/v1/samples",          "/api/v1/reports/ressourcekortlaegning"};
+      case_path(project.path, "/project"),
+      case_path(project.path, "/survey/summary"),
+      case_path(project.path, "/survey/fractions"),
+      case_path(project.path, "/survey"),
+      case_path(project.path, "/samples"),
+      case_path(project.path, "/reports/ressourcekortlaegning")};
   constexpr int kClients = 8;
   constexpr int kRounds = 15;
   std::mutex mutex;
@@ -649,14 +677,15 @@ TEST_CASE("RunningServer_EditThenShutdown_LeavesTheEditInTheMainFile",
 
   {
     ServerOptions options;
-    options.project = project.path;
+    options.target = project.path;
     options.port = free_port();
     options.open_browser = false;
     options.threads = 2;
     RunningServer server(std::move(options));
     KeepAliveConnection connection(server.port());
-    const Response response = connection.send_json(
-        "PATCH", "/api/v1/projects/p1", R"({"name":"Checkpoint probe"})");
+    const Response response =
+        connection.send_json("PATCH", case_path(project.path, "/projects/p1"),
+                             R"({"name":"Checkpoint probe"})");
     INFO(response.body);
     REQUIRE(response.status == 200);
   }
@@ -713,23 +742,26 @@ TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
     db.save_point_cloud("cloud", cloud);
   }
   ServerOptions options;
-  options.project = project.path;
+  options.target = project.path;
   options.port = free_port();
   options.open_browser = false;
   options.threads = 2;
   RunningServer server(std::move(options));
   KeepAliveConnection connection(server.port());
 
-  const std::string route = "/api/v1/frames/1/segment/resource";
+  const std::string route =
+      case_path(project.path, "/frames/1/segment/resource");
   CHECK(connection.send_json("POST", route, "not json").status == 400);
   CHECK(connection.send_json("POST", route, R"({"mask_label":0})").status ==
         400);
   CHECK(connection
-            .send_json("POST", "/api/v1/frames/2/segment/resource",
+            .send_json("POST",
+                       case_path(project.path, "/frames/2/segment/resource"),
                        R"({"mask_label":0,"class_name":"Dør"})")
             .status == 422);
   CHECK(connection
-            .send_json("POST", "/api/v1/frames/99/segment/resource",
+            .send_json("POST",
+                       case_path(project.path, "/frames/99/segment/resource"),
                        R"({"mask_label":0,"class_name":"Dør"})")
             .status == 404);
   const Response created = connection.send_json(
@@ -738,7 +770,7 @@ TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
   CHECK(created.status == 201);
   CHECK(created.body.find("\"resource_code\":\"RX-001\"") != std::string::npos);
   // Every WebSocket client hears which clouds changed.
-  WebSocketClient ws(server.port());
+  WebSocketClient ws(server.port(), case_path(project.path, "/events"));
   CHECK(ws.next_text().find("\"type\":\"hello\"") != std::string::npos);
   CHECK(connection
             .send_json("POST", route, R"({"mask_label":0,"class_name":"Væg"})")
@@ -749,16 +781,18 @@ TEST_CASE("RunningServer_SegmentResource_StatusesAndRouting",
   CHECK(event.find("\"names\":[\"labels\",\"instances\"]") !=
         std::string::npos);
   // The sibling segment route still answers (no segmenter registered here).
-  CHECK(connection.send_json("POST", "/api/v1/frames/1/segment", "{}").status ==
-        503);
+  CHECK(
+      connection
+          .send_json("POST", case_path(project.path, "/frames/1/segment"), "{}")
+          .status == 503);
 }
 
 namespace {
 
-/// The status line a WebSocket upgrade of /api/v1/events gets, sent with
+/// The status line a WebSocket upgrade of @p path gets, sent with
 /// @p extra_headers. Crow closes the connection on a refused upgrade, so an
 /// empty string means "refused without a response".
-std::string websocket_upgrade_status(std::uint16_t port,
+std::string websocket_upgrade_status(std::uint16_t port, std::string_view path,
                                      std::string_view extra_headers) {
   const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
   REQUIRE(fd >= 0);
@@ -771,7 +805,7 @@ std::string websocket_upgrade_status(std::uint16_t port,
   timeval timeout{};
   timeout.tv_sec = 10;
   ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  std::string upgrade = "GET /api/v1/events HTTP/1.1\r\n";
+  std::string upgrade = "GET " + std::string(path) + " HTTP/1.1\r\n";
   if (extra_headers.find("Host:") == std::string_view::npos)
     upgrade += "Host: 127.0.0.1\r\n";
   upgrade += "Upgrade: websocket\r\nConnection: Upgrade\r\n"
@@ -818,6 +852,7 @@ TEST_CASE("RunningServer_AuthToken_RequiredOnEveryRouteAndUpgrade",
   options.auth_token = "s3cret";
   const std::string cookie = "ruxd_token_" + std::to_string(options.port);
   RunningServer server(std::move(options));
+  const std::string events = case_path(project.path, "/events");
   KeepAliveConnection connection(server.port());
 
   SECTION("no token: API and static files are refused") {
@@ -828,7 +863,7 @@ TEST_CASE("RunningServer_AuthToken_RequiredOnEveryRouteAndUpgrade",
     // A cookie named for another port is another server's.
     CHECK(connection.get("/api/v1/health", "Cookie: ruxd_token_1=s3cret\r\n")
               .status == 401);
-    CHECK(websocket_upgrade_status(server.port(), "").find("101") ==
+    CHECK(websocket_upgrade_status(server.port(), events, "").find("101") ==
           std::string::npos);
   }
 
@@ -841,7 +876,7 @@ TEST_CASE("RunningServer_AuthToken_RequiredOnEveryRouteAndUpgrade",
     const Response with_cookie = connection.get(
         "/api/v1/health", "Cookie: a=1; " + cookie + "=s3cret\r\n");
     CHECK(with_cookie.status == 200);
-    CHECK(websocket_upgrade_status(server.port(),
+    CHECK(websocket_upgrade_status(server.port(), events,
                                    "Cookie: " + cookie + "=s3cret\r\n")
               .find("101") != std::string::npos);
   }
@@ -879,23 +914,24 @@ TEST_CASE("RunningServer_TokenAndWildcardBind_SameOriginBrowserMayMutate",
   options.auth_token = "s3cret";
   const std::string host = "192.168.1.20:" + std::to_string(options.port);
   RunningServer server(std::move(options));
+  const std::string events = case_path(project.path, "/events");
   KeepAliveConnection connection(server.port());
 
   const std::string auth = "Authorization: Bearer s3cret\r\n";
   const Response same = connection.send_json(
-      "POST", "/api/v1/jobs", R"({"stage":"nope"})",
+      "POST", case_path(project.path, "/jobs"), R"({"stage":"nope"})",
       "Host: " + host + "\r\nOrigin: http://" + host + "\r\n" + auth);
   INFO(same.body);
   CHECK(same.status != 403);
   CHECK(same.status != 401);
 
   const Response foreign = connection.send_json(
-      "POST", "/api/v1/jobs", R"({"stage":"nope"})",
+      "POST", case_path(project.path, "/jobs"), R"({"stage":"nope"})",
       "Host: " + host + "\r\nOrigin: http://evil.example\r\n" + auth);
   CHECK(foreign.status == 403);
 
   CHECK(websocket_upgrade_status(
-            server.port(),
+            server.port(), events,
             "Origin: http://127.0.0.1:" + std::to_string(server.port()) +
                 "\r\nCookie: ruxd_token_" + std::to_string(server.port()) +
                 "=s3cret\r\n")
@@ -908,6 +944,7 @@ TEST_CASE("RunningServer_LoopbackBind_RefusesForeignHostHeader",
   // with no Origin header and Host: evil.example. Only the Host check sees it.
   TempPath project("test_api_server_host", ".rux");
   RunningServer server(options_for(project.path, {}, free_port()));
+  const std::string events = case_path(project.path, "/events");
   KeepAliveConnection connection(server.port());
 
   const auto port = std::to_string(server.port());
@@ -919,7 +956,230 @@ TEST_CASE("RunningServer_LoopbackBind_RefusesForeignHostHeader",
       connection.get("/api/v1/health", "Host: [::1]:" + port + "\r\n").status ==
       200);
   CHECK(connection.get("/api/v1/health").status == 200); // Host: 127.0.0.1
-  CHECK(websocket_upgrade_status(server.port(),
+  CHECK(websocket_upgrade_status(server.port(), events,
                                  "Host: evil.example:" + port + "\r\n")
             .find("101") == std::string::npos);
+}
+
+// ===========================================================================
+// Several cases from one server (spec 2026-10-08, phase S2)
+// ===========================================================================
+
+namespace {
+
+std::string slurp(const fs::path &path) {
+  std::ifstream in(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(in), {}};
+}
+
+/// Read text frames until one whose "type" is @p type.
+nlohmann::json next_of_type(WebSocketClient &ws, std::string_view type) {
+  for (int i = 0; i < 200; ++i) {
+    auto message = nlohmann::json::parse(ws.next_text());
+    if (message.value("type", "") == type)
+      return message;
+  }
+  FAIL("no '" << type << "' message arrived");
+  return {};
+}
+
+} // namespace
+
+TEST_CASE("RunningServer_TwoCases_ConcurrentRequestsStayInTheirCase",
+          "[ruxd_api][server][socket][cases]") {
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_cases");
+  for (const char *name : {"alpha", "beta"})
+    reusex::ProjectDB db(dir.path / (std::string(name) + ".rux"));
+
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.threads = 8;
+  options.job_workers = 2;
+  // A stage that takes a moment, so case alpha has a job in flight while
+  // case beta is browsed.
+  options.stage_executor = [](const reusex::pipeline::StageContext &ctx) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    return reusex::pipeline::StageResult::success(
+        "ran on " + ctx.project.filename().string());
+  };
+  RunningServer server(std::move(options));
+
+  WebSocketClient ws_alpha(server.port(), "/api/v1/cases/alpha/events");
+  WebSocketClient ws_beta(server.port(), "/api/v1/cases/beta/events");
+  CHECK(next_of_type(ws_alpha, "hello")["case"] == "alpha");
+  CHECK(next_of_type(ws_beta, "hello")["case"] == "beta");
+
+  {
+    KeepAliveConnection connection(server.port());
+    for (const std::string cid : {"alpha", "beta"})
+      REQUIRE(connection
+                  .send_json("PATCH", "/api/v1/cases/" + cid + "/projects/p1",
+                             R"({"name":"Sag )" + cid + "\"}")
+                  .status == 200);
+    const auto job = connection.send_json("POST", "/api/v1/cases/alpha/jobs",
+                                          R"({"stage":"planes"})");
+    INFO(job.body);
+    REQUIRE(job.status == 202);
+  }
+
+  // Many clients on both cases at once, while alpha's job runs.
+  std::mutex mutex;
+  std::vector<std::string> failures;
+  std::vector<std::thread> clients;
+  for (int c = 0; c < 8; ++c)
+    clients.emplace_back([&, c] {
+      const std::string cid = c % 2 == 0 ? "alpha" : "beta";
+      try {
+        KeepAliveConnection connection(server.port());
+        for (int i = 0; i < 10; ++i) {
+          const Response r =
+              connection.get("/api/v1/cases/" + cid + "/projects");
+          const bool ok =
+              r.status == 200 &&
+              r.body.find("\"Sag " + cid + "\"") != std::string::npos &&
+              r.body.find(cid == "alpha" ? "Sag beta" : "Sag alpha") ==
+                  std::string::npos;
+          if (!ok) {
+            std::lock_guard lock(mutex);
+            failures.push_back(cid + " -> " + std::to_string(r.status) + " " +
+                               r.body);
+          }
+        }
+      } catch (const std::exception &e) {
+        std::lock_guard lock(mutex);
+        failures.push_back(std::string("client error: ") + e.what());
+      }
+    });
+  for (auto &client : clients)
+    client.join();
+  INFO((failures.empty() ? std::string() : failures.front()));
+  CHECK(failures.empty());
+
+  // Alpha's socket hears its job finish...
+  const auto finished = next_of_type(ws_alpha, "job.finished");
+  CHECK(finished["case"] == "alpha");
+  CHECK(finished["job"]["result"]["summary"] == "ran on alpha.rux");
+
+  // ...and beta's heard nothing of it: the first job message it gets is its
+  // own job's.
+  KeepAliveConnection connection(server.port());
+  REQUIRE(
+      connection
+          .send_json("POST", "/api/v1/cases/beta/jobs", R"({"stage":"rooms"})")
+          .status == 202);
+  const auto first = nlohmann::json::parse(ws_beta.next_text());
+  CHECK(first["type"] == "job.submitted");
+  CHECK(first["case"] == "beta");
+  CHECK(first["job"]["stage"] == "rooms");
+
+  // Each case lists only its own jobs.
+  const auto alpha_jobs =
+      nlohmann::json::parse(connection.get("/api/v1/cases/alpha/jobs").body);
+  REQUIRE(alpha_jobs["jobs"].size() == 1);
+  CHECK(alpha_jobs["jobs"][0]["stage"] == "planes");
+}
+
+TEST_CASE("RunningServer_CasesApi_CreateUploadRenameDelete",
+          "[ruxd_api][server][socket][cases]") {
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_cases");
+  {
+    reusex::ProjectDB db(dir.path / "eksisterende.rux");
+  }
+  TempDir src("test_api_server_cases_src");
+  {
+    reusex::ProjectDB db(src.path / "upload.rux");
+  }
+  const std::string bytes = slurp(src.path / "upload.rux");
+
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.upload_limits.max_bytes = bytes.size() + 10;
+  options.upload_limits.max_chunk_bytes = bytes.size() / 2 + 1;
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  auto list = nlohmann::json::parse(connection.get("/api/v1/cases").body);
+  REQUIRE(list["cases"].size() == 1);
+  CHECK(list["cases"][0]["id"] == "eksisterende");
+  CHECK(list["cases"][0]["file_name"] == "eksisterende.rux");
+  CHECK_FALSE(list["cases"][0].contains("path")); // no server paths
+  CHECK(list["writable"] == true);
+
+  // Create an empty case.
+  const auto created =
+      connection.send_json("POST", "/api/v1/cases", R"({"name":"Ny sag"})");
+  INFO(created.body);
+  REQUIRE(created.status == 201);
+  CHECK(nlohmann::json::parse(created.body)["id"] == "ny-sag");
+  CHECK(connection.get("/api/v1/cases/ny-sag/project").status == 200);
+
+  // Rename it.
+  const auto renamed = connection.send_json("PATCH", "/api/v1/cases/ny-sag",
+                                            R"({"name":"Omdøbt"})");
+  CHECK(renamed.status == 200);
+  CHECK(nlohmann::json::parse(renamed.body)["name"] == "Omdøbt");
+
+  // Upload a project in two chunks.
+  CHECK(connection
+            .send_json("POST", "/api/v1/uploads",
+                       R"({"name":"For stor","size":)" +
+                           std::to_string(bytes.size() + 11) + "}")
+            .status == 413);
+  const auto begun = connection.send_json(
+      "POST", "/api/v1/uploads",
+      R"({"name":"Uploadet","size":)" + std::to_string(bytes.size()) + "}");
+  REQUIRE(begun.status == 201);
+  const std::string upload = nlohmann::json::parse(begun.body)["id"];
+  const std::size_t half = bytes.size() / 2;
+  CHECK(connection
+            .send_json("PUT", "/api/v1/uploads/" + upload + "?offset=0",
+                       std::string_view(bytes).substr(0, half + 2))
+            .status == 413); // over the chunk limit
+  CHECK(connection
+            .send_json("PUT", "/api/v1/uploads/" + upload + "?offset=0",
+                       std::string_view(bytes).substr(0, half))
+            .status == 200);
+  CHECK(connection
+            .send_json("POST", "/api/v1/uploads/" + upload + "/complete", "{}")
+            .status == 409); // incomplete
+  CHECK(connection
+            .send_json("PUT", "/api/v1/uploads/" + upload + "?offset=0",
+                       std::string_view(bytes).substr(half))
+            .status == 409); // wrong offset
+  CHECK(connection
+            .send_json("PUT",
+                       "/api/v1/uploads/" + upload +
+                           "?offset=" + std::to_string(half),
+                       std::string_view(bytes).substr(half))
+            .status == 200);
+  const auto done = connection.send_json(
+      "POST", "/api/v1/uploads/" + upload + "/complete", "{}");
+  INFO(done.body);
+  REQUIRE(done.status == 201);
+  CHECK(nlohmann::json::parse(done.body)["id"] == "uploadet");
+  CHECK(connection.get("/api/v1/cases/uploadet/health").status == 200);
+
+  list = nlohmann::json::parse(connection.get("/api/v1/cases").body);
+  CHECK(list["cases"].size() == 3);
+
+  // Unknown and hostile ids are 404s, on HTTP and on the socket.
+  for (const char *path :
+       {"/api/v1/cases/nope/project", "/api/v1/cases/..%2F..%2Fetc/project",
+        "/api/v1/cases/%2e%2e/project", "/api/v1/cases/nope"}) {
+    INFO(path);
+    CHECK(connection.get(path).status == 404);
+  }
+  CHECK(websocket_upgrade_status(server.port(), "/api/v1/cases/nope/events", "")
+            .find("101") == std::string::npos);
+
+  // Delete moves the case to the trash.
+  CHECK(connection.send_json("DELETE", "/api/v1/cases/uploadet", "").status ==
+        204);
+  CHECK(connection.get("/api/v1/cases/uploadet").status == 404);
+  CHECK(connection.get("/api/v1/cases/uploadet/project").status == 404);
+  CHECK_FALSE(fs::exists(dir.path / "uploadet"));
+  bool in_trash = false;
+  for (const auto &entry : fs::directory_iterator(dir.path / ".ruxd" / "trash"))
+    in_trash |= fs::exists(entry.path() / "project.rux");
+  CHECK(in_trash);
 }

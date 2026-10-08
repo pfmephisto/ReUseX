@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/clouds.hpp"
+#include "api/point_lod.hpp"
 #include "create/stage_bridge.hpp"
 #include "exit_status.hpp"
-#include "gui/point_lod.hpp"
 #include "stage_prerequisites.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
@@ -125,7 +125,7 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
       // Build spatial tile index for frustum-culled streaming (#395).
       if (db.has_point_cloud("cloud") &&
           db.point_cloud_storage_order("cloud") == "morton_10bit_bitrev") {
-        const auto blob = rux::gui::compute_tile_index(db, "cloud");
+        const auto blob = ruxd::api::compute_tile_index(db, "cloud");
         if (!blob.empty()) {
           db.save_tile_index("cloud", blob);
           spdlog::info("Built spatial tile index ({} bytes)", blob.size());

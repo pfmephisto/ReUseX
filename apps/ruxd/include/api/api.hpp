@@ -1,0 +1,790 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// The GUI API surface, expressed as plain functions over a ProjectDB.
+//
+// Everything here is deliberately HTTP-framework-free: handlers take a
+// ProjectDB (plus already-parsed parameters) and return JSON or bytes, and
+// signal failure by throwing HttpError. gui/Server.hpp is the only place that
+// knows about Crow. That split is what makes the contract unit-testable
+// (tests/unit/ruxd_api/) without standing up a socket.
+//
+// The contract these functions implement is docs/gui/openapi.yaml. Any change
+// here that alters a response shape is a change to that document too.
+
+#include "FrameSegmenter.hpp"
+#include "ViewRenderer.hpp"
+
+#include <reusex/core/instance_evidence.hpp>
+#include <reusex/pipeline/JobRunner.hpp>
+#include <reusex/pipeline/stages.hpp>
+#include <reusex/vision/sam3_prompt.hpp>
+
+#include <nlohmann/json.hpp>
+#include <opencv2/core.hpp>
+
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace reusex {
+class ProjectDB;
+}
+
+namespace ruxd::api {
+
+/// Contract version served under kApiPrefix. Bump only for breaking changes,
+/// and take a new prefix when you do.
+inline constexpr std::string_view kApiVersion = "1.0.0";
+inline constexpr std::string_view kApiPrefix = "/api/v1";
+/// Identifies which implementation of the contract is answering.
+inline constexpr std::string_view kImplementation = "rux-gui";
+
+// --- paging ---------------------------------------------------------------
+//
+// Every collection that grows with the size of a scan is paged the same way:
+// `offset` + `limit` in, an `offset`/`count`/`total` envelope out. `limit=0`
+// means "the server maximum" — a real number per resource, never "unbounded",
+// so no request can ask the server to materialize an arbitrarily large
+// response. The maxima differ only where the per-item cost differs.
+
+/// Upper bound on `limit` for the paged points endpoint, so a stray query
+/// cannot ask the server to materialize an unbounded response.
+inline constexpr size_t kMaxPointsPerPage = 1000000;
+inline constexpr size_t kDefaultPointsPerPage = 100000;
+
+/// Upper bound on `limit` for the pipeline-log endpoint. `limit=0` means "as
+/// many as the server will give", which is this — not "unbounded", which would
+/// let one query serialize an entire project's history into memory.
+inline constexpr int kMaxLogEntries = 1000;
+inline constexpr int kDefaultLogEntries = 100;
+
+/// Upper bound on `limit` for the ordinary object collections (clouds, meshes,
+/// panoramas, components, materials, instances, jobs, project records). These
+/// are counted in the hundreds at worst, so the cap is about bounding the
+/// response rather than about forcing anyone to page.
+inline constexpr int kMaxCollectionItems = 1000;
+
+/// Upper bound on `limit` for the sensor-frame id list. Deliberately larger
+/// than kMaxCollectionItems: an id is four bytes on the wire, and making a
+/// scan of ordinary size page through its own frame list would be ceremony.
+inline constexpr int kMaxFrameIds = 10000;
+
+/// Upper bound on the `max_size` image parameter. Downscaling only ever makes
+/// an image cheaper, so the cap is about rejecting nonsense (and negative
+/// values) rather than about cost.
+inline constexpr int kMaxImageSize = 4096;
+
+/// How long a mutating request waits for the project's writer lock before
+/// answering 503. A running stage holds that lock for minutes, so waiting is
+/// pointless: the honest answer is "busy, retry", not a stalled request.
+inline constexpr int kWriteLockTimeoutMs = 250;
+
+/// Thrown by a handler to produce a non-200 JSON error response.
+class HttpError : public std::runtime_error {
+    public:
+  HttpError(int status, std::string message)
+      : std::runtime_error(std::move(message)), status_(status) {}
+
+  int status() const noexcept { return status_; }
+
+    private:
+  int status_;
+};
+
+/// Translate the exception in flight into the documented HTTP status — the
+/// ONE mapping every resources/templates handler shares:
+/// core::KeyValueError and std::invalid_argument -> 400, std::out_of_range
+/// -> 404, core::NameConflictError -> 409. HttpError and anything else are
+/// rethrown unchanged. Call only from inside a catch block.
+[[noreturn]] void rethrow_as_http_error();
+
+/// Run @p f, mapping library exceptions through rethrow_as_http_error().
+template <typename F> decltype(auto) map_library_errors(F &&f) {
+  try {
+    return std::forward<F>(f)();
+  } catch (...) {
+    rethrow_as_http_error();
+  }
+}
+
+/// A non-JSON response body (image, mesh blob).
+struct Blob {
+  std::string content_type;
+  std::vector<uint8_t> data;
+};
+
+/// One row of the route table. The table is the single source of truth for
+/// both route registration and the self-describing /endpoints response.
+struct Endpoint {
+  std::string method;
+  std::string path;    ///< Crow route pattern, e.g. "/api/v1/clouds/<string>".
+  std::string summary; ///< Matches the OpenAPI `summary` for the same path.
+  bool binary = false; ///< True when the response is not JSON.
+};
+
+/// Every endpoint this server serves, in documentation order.
+const std::vector<Endpoint> &endpoint_table();
+
+/// Already-decoded query parameters, so handlers never touch crow::request.
+class Params {
+    public:
+  void set(std::string key, std::string value);
+  std::optional<std::string> find(std::string_view key) const;
+
+  /// String value, or @p fallback when absent/empty.
+  std::string str(std::string_view key, std::string fallback) const;
+
+  /// Integer value, or @p fallback when absent.
+  /// @throws HttpError(400) when present but not a valid integer.
+  long long integer(std::string_view key, long long fallback) const;
+
+  /// Boolean value, or nullopt when absent/empty.
+  ///
+  /// Accepts `true`/`false`, `1`/`0`, `yes`/`no`, any case. Anything else is a
+  /// 400 rather than a silent `false`, because a filter that quietly inverts
+  /// itself on a typo is worse than one that refuses.
+  /// @throws HttpError(400) when present but not a recognised boolean.
+  std::optional<bool> boolean(std::string_view key) const;
+
+    private:
+  std::map<std::string, std::string, std::less<>> values_;
+};
+
+// --- paging ---------------------------------------------------------------
+//
+// Declared after Params, which these take by reference.
+
+/// A validated, clamped `offset`/`limit` window over a collection.
+struct PageRequest {
+  uint64_t offset = 0;
+  uint64_t limit = 0;
+};
+
+/// The half-open `[first, last)` index range a page covers, plus the size of
+/// the collection it was taken from.
+///
+/// A page starting past the end is empty (`first == last`) rather than an
+/// error: a client walking a collection that shrank underneath it should get
+/// an honest empty page, not a 404 it has to special-case.
+struct PageWindow {
+  size_t first = 0;
+  size_t last = 0;
+  size_t total = 0;
+
+  size_t count() const noexcept { return last - first; }
+};
+
+/// Parse and clamp `offset`/`limit` for a paged collection.
+///
+/// @param default_limit `limit` when the parameter is absent.
+/// @param max_limit     The server maximum. A `limit` of 0 requests exactly
+///                      this; a larger one is clamped down to it rather than
+///                      rejected, so a client may always ask for more than it
+///                      expects to receive.
+/// @throws HttpError(400) on a negative `offset`/`limit`, or a non-integer.
+PageRequest parse_page_request(const Params &params, long long default_limit,
+                               long long max_limit);
+
+/// Clamp @p page onto a collection of @p total items.
+PageWindow page_window(const PageRequest &page, size_t total);
+
+/// Add the shared `offset`/`count`/`total` envelope to a collection response.
+///
+/// Every paged collection carries these three fields under exactly these
+/// names, so a client writes its "is there more?" logic once
+/// (docs/gui/openapi.yaml, schema `Page`).
+void add_page_envelope(nlohmann::json &object, const PageWindow &window);
+
+// --- error / meta ---------------------------------------------------------
+
+nlohmann::json error_json(int status, std::string_view message);
+
+/// @param db  nullptr when the project could not be opened; the response then
+///            reports `project.open == false` instead of failing outright, so
+///            a browser pointed at a broken project still gets a usable page.
+nlohmann::json health_json(const reusex::ProjectDB *db,
+                           const std::filesystem::path &project);
+
+nlohmann::json endpoints_json();
+
+// --- project --------------------------------------------------------------
+
+/// The dashboard payload. Deliberately NOT paged: it is one object describing
+/// a project, not a collection, and a client that had to page it would be
+/// making several requests to answer the one question it exists to answer.
+nlohmann::json project_summary_json(const reusex::ProjectDB &db);
+
+nlohmann::json projects_json(const reusex::ProjectDB &db, const Params &params);
+
+// --- clouds ---------------------------------------------------------------
+
+nlohmann::json clouds_json(const reusex::ProjectDB &db, const Params &params);
+nlohmann::json cloud_json(const reusex::ProjectDB &db, const std::string &name);
+
+/// Label id → name for one cloud, as `{"labels": {...}}`.
+/// Id 0 is never included: it means unlabeled (STANDARDS §3).
+nlohmann::json cloud_labels_json(const reusex::ProjectDB &db,
+                                 const std::string &name);
+
+/// Spatial tile index for a morton_10bit_bitrev cloud (#395).
+///
+/// Returns the per-tile AABBs so a viewport can frustum-cull and stream only
+/// the tiles it can see. Tile k contains the points where
+/// `(sort_key & (K-1)) == k`, selected by an O(N) scan at serve time.
+/// @throws HttpError(404) when @p name is not a stored cloud, or when no tile
+///         index has been computed for it.
+nlohmann::json cloud_tiles_json(const reusex::ProjectDB &db,
+                                const std::string &name);
+
+/// One page of point data as JSON, ignoring `format`.
+///
+/// Backed by ProjectDB::point_cloud_page(), so it reads only the bytes the
+/// page occupies. Use cloud_points() to serve the endpoint — this is the
+/// `format=json` half of it.
+///
+/// With `max_points` (#320) the answer is instead a voxel-subsampled view of
+/// the *whole* cloud, and the body carries `lod` (and `voxel_size` when it is
+/// true). `max_points` is mutually exclusive with `offset`/`limit`; see
+/// docs/gui/binary-points.md § "Level of detail".
+/// @throws HttpError(404) when @p name is not a stored cloud, HttpError(400)
+///         on a malformed `offset`/`limit`/`max_points`, on `max_points`
+///         combined with `offset`/`limit`, or on a `max_points` request
+///         against a cloud with no positions and no usable `lod_source`.
+nlohmann::json cloud_points_json(const reusex::ProjectDB &db,
+                                 const std::string &name, const Params &params);
+
+/// One points-endpoint response. Exactly one of @c body / @c blob is set,
+/// decided by the `format` parameter — the route needs two different return
+/// paths because a RUXP page is not JSON.
+struct PointsResponse {
+  std::optional<nlohmann::json> body; ///< Set on `format=json`.
+  std::optional<Blob> blob;           ///< Set on `format=binary` (RUXP v1).
+  /// `X-Ruxp-*` mirrors of the body header, set on the binary path only.
+  /// A debugging convenience: the body header is the contract, and a client
+  /// must not depend on these being present (docs/gui/binary-points.md).
+  std::vector<std::pair<std::string, std::string>> headers;
+};
+
+/// Serve one page of point data in the requested wire format.
+/// @throws HttpError(404) for an unknown cloud, HttpError(400) for a `format`
+///         other than json|binary or a malformed `offset`/`limit`.
+PointsResponse cloud_points(const reusex::ProjectDB &db,
+                            const std::string &name, const Params &params);
+
+// --- meshes ---------------------------------------------------------------
+
+nlohmann::json meshes_json(const reusex::ProjectDB &db, const Params &params);
+nlohmann::json mesh_json(const reusex::ProjectDB &db, const std::string &name);
+nlohmann::json mesh_textures_json(const reusex::ProjectDB &db,
+                                  const std::string &name);
+Blob mesh_data_blob(const reusex::ProjectDB &db, const std::string &name);
+Blob mesh_texture_blob(const reusex::ProjectDB &db, const std::string &name,
+                       const std::string &texture);
+
+// --- evidence renders (#265 Phase 2 Task 8) --------------------------------
+
+/// Parse and validate the query of GET /renders.
+/// @throws HttpError(400) on an unknown view/layer or an out-of-range value.
+RenderRequest render_request_from(const Params &params);
+
+/// Render one evidence image, dispatching to @p renderer.
+///
+/// @throws HttpError(503) when @p renderer is null, or RenderUnavailable
+///         (no usable offscreen OpenGL context).
+/// @throws HttpError(400) on a malformed request or std::invalid_argument
+///         from the renderer.
+/// @throws HttpError(422) when the project lacks data the render needs.
+Blob render_blob(const reusex::ProjectDB &db, IViewRenderer *renderer,
+                 const Params &params);
+
+// --- sensor frames --------------------------------------------------------
+
+/// Range of the valid stored values a `normalize=true` rendering mapped.
+///
+/// Reported so a UI can label its own scale bar; `valid` is false when the
+/// image had no measured pixels at all, in which case there was no range to
+/// report and none is sent.
+struct ValueRange {
+  bool valid = false;
+  double min = 0.0;
+  double max = 0.0;
+};
+
+/// An encoded image plus the provenance of any rendering applied to it.
+struct ImageResponse {
+  Blob blob;
+  ValueRange range; ///< Only populated for a normalized single-channel kind.
+};
+
+/// @param params `segmented` filters the id list; see docs/gui/openapi.yaml.
+nlohmann::json frames_json(const reusex::ProjectDB &db, const Params &params);
+nlohmann::json frame_json(const reusex::ProjectDB &db, int id);
+
+/// Sensor frames that see a world point, ranked most-central-first (#453).
+///
+/// Backed by `reusex::core::visible_frames()`: each posed frame is a frustum
+/// test plus a centrality score (distance of the projection from the principal
+/// point). Useful for the one-click "best source image" flow.
+///
+/// @param params `x`, `y`, `z` (required, world coordinates), optional
+///        `max_depth` (metres; reject farther frames) and `limit` (max frames
+///        in the body; 0 = all).
+/// @throws HttpError(400) when a coordinate is missing or not a finite number.
+nlohmann::json frames_visibility_json(const reusex::ProjectDB &db,
+                                      const Params &params);
+
+/// One of a frame's images, encoded as PNG.
+///
+/// @param params `kind` (color|depth|confidence|segmentation), `max_size`
+///        (longest edge, downscale only) and `normalize` (render for display
+///        rather than for measurement).
+ImageResponse frame_image(const reusex::ProjectDB &db, int id,
+                          const Params &params);
+
+// --- Segment request parsing + execution (#467) ----------------------------
+
+/// Parsed and validated body of POST /frames/<id>/segment.
+struct SegmentFrameRequest {
+  /// SAM3 model path. Empty ⟹ resolve/prepare the managed model server-side.
+  std::string model_path;
+  float confidence = 0.5f;
+  bool save = true;
+  /// Whether to use CUDA/TensorRT inference. Defaults to the server-wide
+  /// value; overridable per-request via the `use_cuda` body field.
+  bool use_cuda = true;
+  std::vector<reusex::vision::Sam3Prompt> prompts;
+};
+
+/// Text a box-only prompt (empty `text`) is sent to SAM3 as — the shared
+/// geometry-only convention, see reusex::vision::kGeometryOnlyPromptText. The
+/// response's `labels` entry for such a prompt reads "visual".
+using reusex::vision::kGeometryOnlyPromptText;
+
+/// Parse and validate the body of POST /frames/<id>/segment.
+///
+/// @param server_cuda_default  Server-wide use_cuda default; used when the
+///        request body omits the `use_cuda` field.
+/// @note An empty/omitted model_path is accepted; the handler resolves it to
+///       the managed SAM3 model (or returns 400 if none is configured).
+/// @note A prompt may omit `text` (or send "") when it has at least one box;
+///       its text becomes kGeometryOnlyPromptText. Without boxes, an empty
+///       text is still a 400.
+/// @throws HttpError(400) on bad JSON or invalid prompt/box format.
+SegmentFrameRequest parse_segment_frame_request(std::string_view body,
+                                                bool server_cuda_default);
+
+/// Parsed and validated body of POST /panoramas/<id>/segment.
+struct SegmentPanoramaRequest {
+  /// SAM3 model path. Empty ⟹ resolve/prepare the managed model server-side.
+  std::string model_path;
+  float confidence = 0.5f;
+  bool save = true;
+  bool use_cuda = true;
+  int n_yaw = 8;
+  double fov_deg = 90.0;
+  std::vector<reusex::vision::Sam3Prompt> prompts;
+};
+
+/// Parse and validate the body of POST /panoramas/<id>/segment.
+///
+/// @param server_cuda_default  Server-wide use_cuda default.
+/// @note An empty/omitted model_path resolves to the managed SAM3 model.
+/// @throws HttpError(400) on bad JSON or invalid prompt format.
+SegmentPanoramaRequest parse_segment_panorama_request(std::string_view body,
+                                                      bool server_cuda_default);
+
+/// Load a frame image, run SAM3 inference, and optionally save back.
+///
+/// Unit-testable helper (single ProjectDB connection, no Crow write lock).
+/// Server.cpp uses parse_segment_frame_request() + its own locking instead.
+///
+/// @throws HttpError(503) if segmenter is nullptr.
+/// @throws HttpError(404) if frame not found or has no colour image.
+nlohmann::json execute_segment_frame(reusex::ProjectDB &db, int frame_id,
+                                     const SegmentFrameRequest &req,
+                                     IFrameSegmenter *segmenter);
+
+/// Load a panorama image, run SAM3 inference, and optionally save back.
+///
+/// @throws HttpError(503) if segmenter is nullptr.
+/// @throws HttpError(404) if panorama not found.
+nlohmann::json execute_segment_panorama(reusex::ProjectDB &db, int pano_id,
+                                        const SegmentPanoramaRequest &req,
+                                        IPanoramaSegmenter *segmenter);
+
+/// Parsed and validated body of POST /frames/<id>/segment/resource.
+struct SegmentResourceRequest {
+  /// Label value (prompt index, API encoding >= 0) in the frame's saved
+  /// segmentation image whose pixels form the mask.
+  int mask_label = -1;
+  std::string class_name; ///< Trimmed, non-empty.
+  std::optional<int64_t> type_id;
+  /// The `mask_revision` of the segment run the mask came from. When set and
+  /// the frame's saved segmentation no longer matches it, the request is a
+  /// 409: a later run (e.g. the label queue) overwrote the mask.
+  std::optional<std::string> mask_revision;
+};
+
+/// Parse and validate the body of POST /frames/<id>/segment/resource.
+/// @throws HttpError(400) on bad JSON, a missing/negative/non-integer
+///         `mask_label`, a missing/blank `class_name`, a non-integer
+///         `type_id`, or a non-string `mask_revision`.
+SegmentResourceRequest parse_segment_resource_request(std::string_view body);
+
+/// Project one label of a frame's saved segmentation into the base cloud and
+/// file the selection as a new instance + survey part
+/// (core::project_frame_mask + core::apply_mask_selection).
+///
+/// @return `{resource_code, type_id, type_created, instance_id,
+///          instance_guid, point_count, label_id, label_created, clouds}` —
+///          `clouds` names the label clouds that were rewritten.
+/// @throws HttpError(404) unknown frame or type_id; HttpError(409) when
+///         `mask_revision` no longer matches the saved segmentation;
+///         HttpError(422) when the frame has no saved segmentation, the label
+///         has no pixels, the frame has no pose/depth, there is no base cloud,
+///         the mask covers no visible point, or `type_id` names a rejected
+///         (Afvist) survey type.
+nlohmann::json execute_segment_resource(reusex::ProjectDB &db, int frame_id,
+                                        const SegmentResourceRequest &req);
+
+/// The WebSocket `clouds.changed` message: these named clouds were rewritten
+/// by an editor endpoint; a client showing them should reload.
+nlohmann::json clouds_changed_json(const std::vector<std::string> &names,
+                                   std::string_view project);
+
+/// Build the JSON response body for POST /frames/<id>/segment (#409).
+///
+/// @param frame_id       The frame that was segmented.
+/// @param label_map      CV_32S result from segment_image(); may be empty.
+/// @param class_names    Class name per label id (empty = model default list).
+/// @param saved          True when the mask was written back to the project.
+/// @param geometry_prompts_used  True when box/point prompts reached SAM3
+///        (SegmentFrameResult::geometry_prompts_used).
+/// @return `{frame_id, saved, labeled_pixels, labels, geometry_prompts_used,
+///          mask_revision}` — `mask_revision` is segmentation_revision() of
+///          the saved mask, or null when nothing was saved.
+nlohmann::json
+segment_frame_result_json(int frame_id, const cv::Mat &label_map,
+                          const std::vector<std::string> &class_names,
+                          bool saved, bool geometry_prompts_used = false);
+
+/// A fingerprint of a frame's segmentation (CV_32S API encoding): equal for
+/// equal label maps, different (with overwhelming probability) for any
+/// changed pixel or size. Computed over the storage encoding, so the map a
+/// segment run saved and the one read back from the project agree. A
+/// segment response returns it as `mask_revision`; a resource request
+/// echoes it so a mask overwritten in between is refused (409).
+std::string segmentation_revision(const cv::Mat &api_labels);
+
+/// Build the JSON response body for POST /panoramas/<id>/segment (#448).
+///
+/// @param pano_id        The panorama that was segmented.
+/// @param label_map      CV_32S equirect label map; may be empty.
+/// @param class_names    Class name per label id (empty = model default list).
+/// @param saved          True when the mask was written back to the project.
+nlohmann::json
+segment_panorama_result_json(int pano_id, const cv::Mat &label_map,
+                             const std::vector<std::string> &class_names,
+                             bool saved);
+
+// --- panoramas ------------------------------------------------------------
+
+nlohmann::json panoramas_json(const reusex::ProjectDB &db,
+                              const Params &params);
+nlohmann::json panorama_json(const reusex::ProjectDB &db, int id);
+
+/// The equirectangular image, JPEG-encoded.
+///
+/// @param params `max_size` (longest edge, downscale only), for the thumbnail
+///        strip of a panorama picker — a stored equirect is routinely
+///        8192x4096 and several megabytes.
+Blob panorama_image_blob(const reusex::ProjectDB &db, int id,
+                         const Params &params);
+
+// --- components / materials / instances -----------------------------------
+
+nlohmann::json components_json(const reusex::ProjectDB &db,
+                               const Params &params);
+nlohmann::json component_json(const reusex::ProjectDB &db,
+                              const std::string &name);
+nlohmann::json materials_json(const reusex::ProjectDB &db,
+                              const Params &params);
+nlohmann::json material_json(const reusex::ProjectDB &db,
+                             const std::string &guid);
+
+/// Mint a new blank material passport and return its wire record (#414).
+///
+/// The passport is created with a fresh GUID, an ISO-8601 creation timestamp
+/// and version "0.1.0"; the response mirrors material_json() for a passport
+/// that has no properties or thumbnail yet.
+nlohmann::json create_material(reusex::ProjectDB &db);
+
+/// Delete a material passport by GUID.
+/// @throws HttpError(404) when no passport carries @p guid.
+void delete_material(reusex::ProjectDB &db, const std::string &guid);
+
+/// The stored thumbnail image for a material, with its stored MIME type.
+/// @throws HttpError(404) when the passport has no thumbnail stored.
+Blob material_thumbnail_blob(const reusex::ProjectDB &db,
+                             const std::string &guid);
+
+/// Store (or replace) a material's thumbnail from the raw request body.
+///
+/// @param body raw image bytes.
+/// @param mime the request Content-Type; empty falls back to "image/jpeg".
+void set_material_thumbnail(reusex::ProjectDB &db, const std::string &guid,
+                            const std::string &body, const std::string &mime);
+
+/// User-defined material column definitions, as a JSON array (schema v18).
+nlohmann::json material_columns_json(const reusex::ProjectDB &db);
+
+/// Create a material column definition from a request body.
+///
+/// @param body `{name, type, options?, sort_order?}`; `type` must be one of
+///        text/number/date/boolean/select.
+/// @throws HttpError(400) on a malformed body or an unknown `type`,
+///         HttpError(409) when the name is taken by a column or a leksikon
+///         field, or already holds stored passport values.
+nlohmann::json create_material_column(reusex::ProjectDB &db,
+                                      const std::string &body);
+
+/// Sparse-update a material column definition; only the fields present in the
+/// body change.
+/// @throws HttpError(404) when @p id is not a defined column, HttpError(400)
+///         on a malformed body or an unknown `type`, HttpError(409) when a
+///         rename hits a taken name or one with stored passport values. A
+///         rename moves the column's stored values.
+nlohmann::json patch_material_column(reusex::ProjectDB &db,
+                                     const std::string &id,
+                                     const std::string &body);
+
+/// Delete a material column definition by id.
+/// @throws HttpError(404) when @p id is not a defined column.
+void delete_material_column(reusex::ProjectDB &db, const std::string &id);
+
+nlohmann::json instances_json(const reusex::ProjectDB &db,
+                              const std::string &cloud, const Params &params);
+
+/// Sensor frames that see one instance, ranked most-central-first by its
+/// centroid (#453). The centroid is taken over the base `cloud` positions
+/// index-aligned with the instance-label @p cloud. Occlusion-aware: a frame
+/// counts only when its depth image confirms the centroid or one of the
+/// instance's surface samples (core::visible_frames_occluded with the
+/// core::PhotoQuery defaults — the same rule as GET /survey/photos). Same body
+/// shape as
+/// frames_visibility_json(), plus `cloud`, `instance_id` and
+/// `instance_point_count`.
+///
+/// @param params optional `max_depth` and `limit`; see frames_visibility_json.
+/// @throws HttpError(404) when the cloud or instance id is unknown,
+///         HttpError(409) when the base positions cloud is missing or not
+///         index-aligned with the instance labels.
+/// A cached ranking for one instance, or nullopt to compute it (the server
+/// passes its PhotoEvidenceCache::peek).
+using CachedInstanceEvidence =
+    std::function<std::optional<reusex::core::InstanceEvidence>(
+        const reusex::ProjectDB &db, const std::string &cloud,
+        std::uint32_t instance_id)>;
+
+/// @param cached consulted first when the request has no `max_depth`; a hit
+///        skips the depth decoding (~0.7 s on a large scan).
+nlohmann::json instance_frames_json(const reusex::ProjectDB &db,
+                                    const std::string &cloud, int instance_id,
+                                    const Params &params,
+                                    const CachedInstanceEvidence &cached = {});
+
+/// Placeable 360 panoramas near one instance's centroid, nearest first, each
+/// with the equirect `u,v` (0..1) the centroid lands on (spec A5). Body:
+/// `{point, cloud, instance_id, max_distance, panoramas: [{panorama_id,
+/// node_id, distance, u, v, heading}], total}`.
+///
+/// @param params optional `max_distance` (metres, default 15, 0 = no limit).
+/// @throws HttpError(400) for a bad `max_distance`, plus the errors of
+///         instance_frames_json().
+nlohmann::json instance_panoramas_json(const reusex::ProjectDB &db,
+                                       const std::string &cloud,
+                                       int instance_id, const Params &params);
+
+/// Link or replace a material passport on an instance (upsert on
+/// (cloud, instance_id)).  Returns the updated InstanceInfo JSON for that
+/// single row.
+///
+/// @throws HttpError(400) when the body is not a JSON object or `guid` is
+///         missing or not a string.
+/// @throws HttpError(404) when @p cloud is unknown, the instance_id is not in
+///         the cloud's instance table, or the material passport does not exist.
+nlohmann::json link_instance_material(reusex::ProjectDB &db,
+                                      const std::string &cloud, int instance_id,
+                                      const std::string &body);
+
+// --- pipeline -------------------------------------------------------------
+
+nlohmann::json stages_json(const reusex::ProjectDB &db);
+
+/// Input-contract validation for a single stage.
+///
+/// Same record shape as one element of stages_json(), so a client refreshing
+/// one card after a run does not have to reconcile two schemas.
+/// @throws HttpError(404) when @p stage is not in the catalogue.
+nlohmann::json stage_validation_json(const reusex::ProjectDB &db,
+                                     const std::string &stage);
+nlohmann::json pipeline_log_json(const reusex::ProjectDB &db,
+                                 const Params &params);
+
+// --- pose graph -----------------------------------------------------------
+
+/// Pose-graph nodes (frame poses with a stored world transform) and edges
+/// (written by `rux optimize`) with their post-solve residuals.  An un-
+/// optimised project returns an empty `edges` array.
+nlohmann::json posegraph_json(const reusex::ProjectDB &db);
+
+/// Delete a pose-graph edge identified by its from/to node ids.
+///
+/// When @p edge_type is non-empty only edges of that type are removed, so a
+/// caller that knows the type (the GUI always does) can remove a loop-closure
+/// edge without touching a coincident odometry edge.
+///
+/// @returns `{"deleted": N, "from": from, "to": to, "type": type}`.
+/// @throws HttpError(404) when no matching edge exists.
+/// @throws HttpError(400) when @p edge_type is not a known value.
+nlohmann::json delete_posegraph_edge(reusex::ProjectDB &db, int from, int to,
+                                     std::string_view edge_type = "");
+
+/// Add a manual pose-graph edge.
+///
+/// Body fields: `from` (int, required), `to` (int, required),
+/// `type` (string, default `"loop_closure"`), `weight` (number, default 1.0).
+/// The edge is stored with `residual = 0.0` — no optimizer has solved it yet.
+/// Returns the stored edge record.
+///
+/// @throws HttpError(400) on a malformed body, unknown edge type, or missing
+///         from/to.
+/// @throws HttpError(409) when the pose_graph_edges table does not exist yet
+///         (the project has never been optimised and has no graph to edit).
+nlohmann::json add_posegraph_edge(reusex::ProjectDB &db,
+                                  const std::string &body);
+
+/// Result of an ICP-based relative-pose refinement between two sensor frames.
+struct IcpRefineResult {
+  /// Row-major 4×4 relative pose: T_to^{-1} @ T_icp_delta @ T_from.
+  /// Maps a point from the "from" camera frame into the "to" camera frame.
+  std::array<double, 16> relative_pose{1, 0, 0, 0, 0, 1, 0, 0,
+                                       0, 0, 1, 0, 0, 0, 0, 1};
+  double fitness = 0.0;         ///< RMS correspondence error after ICP (m).
+  double inlier_fraction = 0.0; ///< Fraction of src pts within 5 cm of tgt.
+  bool converged = false;
+};
+
+/// Injected by the app layer to run depth-based pairwise ICP (#465).
+///
+/// Defined here (in the framework-free contract header) so Server.hpp and
+/// api.cpp can reference the type without pulling PCL into ruxd_api_lib.
+using IcpRefineFn =
+    std::function<IcpRefineResult(const reusex::ProjectDB &, int from, int to)>;
+
+/// Run ICP between the depth clouds of two stored sensor frames (#465).
+///
+/// Body: `{"from": int, "to": int}`. Returns the relative pose between the
+/// two frames as refined by depth-cloud ICP, along with fitness metrics.
+///
+/// @throws HttpError(503) when @p refine_fn is empty (ICP not compiled in).
+/// @throws HttpError(422) when a frame has no stored depth or pose.
+/// @throws HttpError(400) on a malformed body or same from/to ids.
+nlohmann::json refine_posegraph_icp(const reusex::ProjectDB &db,
+                                    const IcpRefineFn &refine_fn,
+                                    const std::string &body);
+
+// --- jobs -----------------------------------------------------------------
+
+/// @param project  Name of the project the job belongs to. Present on every
+///                 job and event so a client that later talks to a multi-
+///                 project ruxd (Phase 6) does not need a new message shape.
+nlohmann::json job_json(const reusex::pipeline::JobRecord &record,
+                        std::string_view project);
+
+/// Every supplied job, unpaged, as `{"jobs": [...]}`.
+///
+/// The WebSocket `hello` frame uses this: it is a snapshot of the whole store
+/// (which is itself bounded — see JobRunner), not a page of a collection, and
+/// giving it a page envelope would invite a client to try to walk it.
+nlohmann::json jobs_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
+                         std::string_view project);
+
+/// `GET /jobs`: one page of the job store, with the shared envelope.
+nlohmann::json
+jobs_page_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
+               std::string_view project, const Params &params);
+nlohmann::json job_event_json(const reusex::pipeline::JobEvent &event,
+                              std::string_view project);
+nlohmann::json hello_json(const std::vector<reusex::pipeline::JobRecord> &jobs,
+                          const std::filesystem::path &project);
+
+/// A validated `POST /jobs` body.
+struct JobSubmission {
+  reusex::pipeline::JobStage stage = reusex::pipeline::JobStage::clouds;
+  std::string parameters; ///< Serialized JSON object, "" when omitted.
+  /// Project the client believes it is addressing. Optional; when present the
+  /// server checks it against the project it actually has open, so a client
+  /// pointed at the wrong server is told so instead of quietly running a stage
+  /// against the wrong data.
+  std::optional<std::string> project;
+};
+
+/// Parse and validate a job submission body.
+/// @throws HttpError(400) on malformed JSON, a missing/unknown stage, or a
+///         `parameters` value that is not an object.
+JobSubmission parse_job_request(std::string_view body);
+
+/// Reject a submission aimed at a different project.
+/// @throws HttpError(409) when @p submission names a project that is not
+///         @p open_project.
+void check_job_project(const JobSubmission &submission,
+                       std::string_view open_project);
+
+/// Handle one client message on the WebSocket channel.
+/// @param body      the raw text frame
+/// @param subscribe called with the requested filter when the message is a
+///                  `subscribe` (nullopt clears the filter)
+/// @return the reply to send back, or nullopt when no reply is due.
+std::optional<nlohmann::json> handle_ws_message(
+    std::string_view body,
+    const std::function<void(std::optional<std::string>)> &subscribe);
+
+/// True when @p event should be delivered to a connection filtered to
+/// @p subscription (nullopt = unfiltered, receives everything).
+bool event_matches_subscription(const reusex::pipeline::JobEvent &event,
+                                const std::optional<std::string> &subscription);
+
+// --- report PDFs (schema v20, #456) -----------------------------------
+
+/// One ReportPdfVersion: id, created_at, label, size_bytes, version and
+/// blocking_types (null before schema v23). Shared by the list and the POST,
+/// and — via reusex::core::report_version_json — with ruxd.
+nlohmann::json report_version_json(const reusex::ProjectDB::ReportPdfRecord &r);
+
+/// All stored report PDF versions, newest first (metadata only).
+nlohmann::json list_report_pdfs_json(const reusex::ProjectDB &db);
+
+/// One stored PDF blob as a Blob response.
+/// @throws HttpError(404) when @p id has no stored PDF.
+Blob report_pdf_blob(const reusex::ProjectDB &db, int id);
+
+// --- CSV export (schema v21, #459) ---------------------------------------
+
+/// Generate project elements as a UTF-8 CSV blob.
+/// @param columns Ordered column names to include; empty = all columns.
+Blob export_csv_blob(reusex::ProjectDB &db,
+                     const std::vector<std::string> &columns);
+
+} // namespace ruxd::api

@@ -20,10 +20,6 @@
 
 #include <utility>
 
-namespace reusex {
-class ProjectDB;
-} // namespace reusex
-
 namespace ruxd {
 
 struct Clients;
@@ -63,30 +59,6 @@ void register_segment_routes(App &app, EndpointRegistry &reg);
 
 // GET /endpoints and GET /openapi.json — generated from the registry.
 void register_meta_routes(App &app, EndpointRegistry &reg);
-
-// Material passport CRUD + thumbnail routes (#414). POST/DELETE /materials,
-// GET /materials/{guid}, GET/PUT /materials/{guid}/thumbnail.
-void register_material_routes(App &app, EndpointRegistry &reg,
-                              reusex::ProjectDB &db);
-
-// Material column-definition CRUD (#415): GET/POST /material-columns and
-// PATCH/DELETE /material-columns/{id}.
-void register_material_column_routes(App &app, EndpointRegistry &reg,
-                                     reusex::ProjectDB &db);
-
-// Server-side PDF generation for Ressourcekortlægning (#456):
-//   POST   /reports/ressourcekortlaegning — generate + store + return metadata
-//   GET    /reports/ressourcekortlaegning — list stored versions
-//   GET    /reports/ressourcekortlaegning/<int> — fetch PDF bytes
-void register_report_routes(App &app, EndpointRegistry &reg,
-                            reusex::ProjectDB &db);
-
-// CSV export and named export-template CRUD (#459):
-//   GET    /exports/csv — stream CSV (optional ?columns= selection)
-//   GET/POST /export-templates — list / create templates
-//   GET/PATCH/DELETE /export-templates/<int> — fetch / update / remove one
-void register_export_routes(App &app, EndpointRegistry &reg,
-                            reusex::ProjectDB &db);
 
 // Catchall handler returning a JSON 404 for unmatched routes.
 void register_not_found_handler(App &app);

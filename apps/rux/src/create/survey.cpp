@@ -21,7 +21,7 @@ void setup_subcommand_create_survey(CLI::App &parent,
 
   sub->footer(R"(
 DESCRIPTION:
-  Fills the Ressourcekortlægning (Kortlægning in 'rux gui'): one survey type
+  Fills the Ressourcekortlægning (Kortlægning in the web GUI): one survey type
   per semantic class and one bygningsdel (RX-###) per instance, each placed in
   the room most of its points fall in. Idempotent — re-running only adds
   instances that have no part yet and never overwrites edits made in the GUI.
@@ -34,7 +34,7 @@ WORKFLOW:
   1. rux create instances
   2. rux create rooms          # optional, for room assignment
   3. rux create survey
-  4. rux gui                   # review in Kortlægning
+  4. ruxd --local scan.rux     # review in Kortlægning
 )");
 
   sub->add_option("-i,--instances", opt->sync.instances_cloud,

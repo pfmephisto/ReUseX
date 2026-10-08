@@ -41,12 +41,9 @@ struct Config {
   bool s3_path_style = true; // path-style addressing (MinIO/Ceph need it)
 
   // Auth — Bearer token required for authenticated routes. Empty disables auth.
+  // In --local mode it is the web API's access token instead (see
+  // api::ServerOptions::auth_token), required when binding beyond loopback.
   std::string auth_token; // secret
-
-  // Project — path to the .rux project database. When set, the material editor
-  // routes (#414/#415) are registered against it. Empty = not configured, those
-  // routes are skipped.
-  std::string project; // e.g. "./project.rux"
 };
 
 } // namespace ruxd

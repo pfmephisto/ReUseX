@@ -10,7 +10,6 @@
 #include <edit.hpp>
 #include <export.hpp>
 #include <get.hpp>
-#include <gui.hpp>
 #include <import.hpp>
 #include <info.hpp>
 #include <log.hpp>
@@ -186,7 +185,6 @@ int run(int argc, char **argv) {
   setup_subcommand_set(app, opt);
   setup_subcommand_del(app, opt);
 
-  setup_subcommand_gui(app, opt);
   setup_subcommand_info(app, opt);
   setup_subcommand_log(app, opt);
   setup_subcommand_validate(app, opt);

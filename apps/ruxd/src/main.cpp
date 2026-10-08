@@ -4,20 +4,22 @@
 
 // ruxd: HTTP service worker for ReUseX.
 //
-// A long-running server that will eventually execute processing operations
-// (e.g. point cloud segmentation) on demand from incoming HTTP requests. For
-// now the routes only log and return stub responses — the goal of this first
-// iteration is to prove that the server links against the `reusex` library and
-// stands up correctly. Real work (calling reusex::geometry::segment_planes,
-// etc.) will be wired into the handlers later.
+// Two modes:
 //
-// Routes are organized per feature under src/handlers/ and registered here via
-// the register_* functions declared in handlers.hpp.
+//  * `ruxd --local <file.rux | dir>` serves the web GUI — the bundled
+//    frontend plus the REST + WebSocket API in docs/gui/openapi.yaml — for one
+//    project, with no Postgres, Redis or S3 (src/local.cpp, ruxd_api_lib).
+//    This is what `rux gui` used to be.
+//  * Without --local, the multi-user service: for now the health / readyz /
+//    meta routes and backend-client probes in src/handlers/, registered here
+//    via the register_* functions declared in handlers.hpp. Serving cases from
+//    it is phase S2 of docs/superpowers/specs/
+//    2026-10-08-ruxd-multiuser-and-qt-client-design.md.
 
 #include <clients.hpp>
 #include <handlers.hpp>
+#include <local.hpp>
 
-#include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
@@ -138,11 +140,64 @@ int main(int argc, char **argv) {
                  "(empty = auth disabled)")
       ->envname("RUXD_AUTH_TOKEN");
 
-  // --- Project ---
-  cli.add_option("--project", cfg.project,
-                 "Path to a .rux project database. Enables the material editor "
-                 "routes when set.")
-      ->envname("RUXD_PROJECT");
+  // --- Local mode (the web GUI for one project; formerly `rux gui`) ---
+  ruxd::LocalOptions local;
+  local.server.open_browser = false;
+  constexpr std::uint16_t kLocalDefaultPort = 8420;
+  const std::string local_group = "Local mode";
+  cli.add_option("--local", local.target,
+                 "Serve the web GUI for one .rux file (or a directory holding "
+                 "exactly one) with no Postgres, Redis or S3")
+      ->group(local_group);
+  cli.add_option("--bind", local.server.bind_address,
+                 "Interface to bind in local mode. Anything beyond loopback "
+                 "requires --auth-token")
+      ->capture_default_str()
+      ->group(local_group);
+  cli.add_option("--allow-origin", local.server.allowed_origins,
+                 "Additional browser origin allowed to call the API "
+                 "(repeatable). Loopback is always allowed")
+      ->group(local_group);
+  cli.add_option("--assets", local.server.asset_dir,
+                 "Directory holding the frontend bundle (else $RUX_GUI_ASSETS, "
+                 "then <prefix>/share/reusex/gui)")
+      ->check(CLI::ExistingDirectory)
+      ->group(local_group);
+  cli.add_flag("--open-browser", local.server.open_browser,
+               "Open the system browser once listening")
+      ->group(local_group);
+  cli.add_flag("--segment-cuda,!--no-segment-cuda", local.server.segment_cuda,
+               "Use CUDA/TensorRT for the segment endpoints (default: on); "
+               "--no-segment-cuda routes inference through ONNX on the CPU")
+      ->group(local_group);
+  cli.add_option("--sam3-model", local.sam3_model_dir,
+                 "Explicit SAM3 model directory (TRT engine dir or ONNX dir). "
+                 "When omitted, a managed model is prepared on first use")
+      ->group(local_group);
+  cli.add_option("--models-dir", local.models_dir,
+                 "Base directory for managed models (default: "
+                 "$REUSEX_MODELS_DIR or the XDG cache dir)")
+      ->group(local_group);
+  cli.add_option("--sam3-manifest-url", local.sam3_manifest_url,
+                 "URL of the SAM3 ONNX bundle release manifest (default: "
+                 "built-in)")
+      ->group(local_group);
+
+  cli.footer(R"footer(
+LOCAL MODE:
+  ruxd --local scan.rux                 # web GUI on http://127.0.0.1:8420
+  ruxd --local scan.rux --open-browser  # ...and open it
+  ruxd --local ./case --port 9000       # the one .rux in ./case
+  ruxd --local scan.rux --bind 0.0.0.0 --auth-token "$(openssl rand -hex 16)"
+                                        # reachable on the LAN; open
+                                        # http://<host>:8420/?token=<token>
+
+  Local mode has no users and no login. On loopback (the default) it has no
+  authentication at all, so anything on this machine can read and change the
+  project and run pipeline stages. A --bind beyond loopback is refused without
+  --auth-token. Cross-origin requests are refused unless they come from
+  loopback or an origin named with --allow-origin.
+)footer");
 
   // Verbosity: -v, -vv, -vvv raise both spdlog and the ReUseX library logger
   // from the default warn level to info/debug/trace, mirroring rux.
@@ -161,6 +216,14 @@ int main(int argc, char **argv) {
       ->check(CLI::Range(0, 3));
 
   CLI11_PARSE(cli, argc, argv);
+
+  if (!local.target.empty()) {
+    local.server.port =
+        cli.get_option("--port")->count() > 0 ? cfg.port : kLocalDefaultPort;
+    local.server.threads = cfg.threads;
+    local.server.auth_token = cfg.auth_token;
+    return ruxd::run_local(std::move(local));
+  }
 
   // Prove the reusex library is linked and callable.
   reusex::core::info("ReUseX library linked, version {}",
@@ -187,29 +250,6 @@ int main(int argc, char **argv) {
   ruxd::register_health_routes(app, registry, clients);
   ruxd::register_segment_routes(app, registry);
   ruxd::register_meta_routes(app, registry);
-
-  // Material editor routes (#414/#415) need a .rux project database. ProjectDB
-  // is not thread-safe, so this single instance must outlive app.run() and the
-  // server must serialise access to it — it is opened here and captured by
-  // reference into the handlers.
-  //
-  // NOTE: the handlers currently share one ProjectDB across worker threads.
-  // That is only safe because writes to the editor tables are serialised
-  // elsewhere; a follow-up should add a mutex or a per-thread connection.
-  std::unique_ptr<reusex::ProjectDB> project_db;
-  if (!cfg.project.empty()) {
-    project_db = std::make_unique<reusex::ProjectDB>(cfg.project,
-                                                     /*readOnly=*/false);
-    ruxd::register_material_routes(app, registry, *project_db);
-    ruxd::register_material_column_routes(app, registry, *project_db);
-    ruxd::register_report_routes(app, registry, *project_db);
-    ruxd::register_export_routes(app, registry, *project_db);
-    reusex::core::info("material editor routes enabled (project: {})",
-                       cfg.project);
-  } else {
-    reusex::core::warn("material editor routes DISABLED (no --project / "
-                       "RUXD_PROJECT set)");
-  }
 
   ruxd::register_not_found_handler(app);
 

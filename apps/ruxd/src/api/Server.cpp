@@ -757,6 +757,16 @@ class Server::Impl {
     const std::string method = crow::method_name(req.method);
     gate.route = classify_route(method, req.url);
 
+    // RFC 9112 §3.2: a request with more than one Host field is a 400. Crow
+    // keeps every copy and get_header_value() returns an arbitrary one, so
+    // the check below could otherwise vet a different Host than a proxy or
+    // the page saw (final review #4).
+    if (req.headers.count("Host") > 1) {
+      spdlog::warn("Refused a request with {} Host headers",
+                   req.headers.count("Host"));
+      gate.decision = {400, "more than one Host header"};
+      return gate;
+    }
     if (!security.host_ok(req)) {
       spdlog::warn("Refused a request for host '{}'",
                    req.get_header_value("Host"));

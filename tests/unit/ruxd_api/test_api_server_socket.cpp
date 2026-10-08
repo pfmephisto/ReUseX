@@ -1805,6 +1805,30 @@ TEST_CASE("RunningServer_UpgradeHeaderOutsideTheUpgradePath_IsAuthenticated",
   CHECK(list["cases"].size() == 2);
 }
 
+TEST_CASE("RunningServer_DuplicateHostHeader_Is400",
+          "[ruxd_api][server][socket][auth]") {
+  // Final review #4: with two Host fields Crow returned one at random, so an
+  // evil Host first and a good one second could pass the Host check.
+  ServerModeFixture f;
+  const auto port = f.server->port();
+  const std::string bearer = "Authorization: Bearer " + f.superuser + "\r\n";
+  CHECK(raw_status(port, "GET /api/v1/cases HTTP/1.1\r\nHost: 127.0.0.1\r\n" +
+                             bearer + "Connection: close\r\n\r\n") == 200);
+  for (const std::string &hosts :
+       std::vector<std::string>{"Host: evil.example\r\nHost: 127.0.0.1\r\n",
+                                "Host: 127.0.0.1\r\nHost: evil.example\r\n",
+                                "Host: 127.0.0.1\r\nhost: 127.0.0.1\r\n"}) {
+    INFO(hosts);
+    CHECK(raw_status(port, "GET /api/v1/cases HTTP/1.1\r\n" + hosts + bearer +
+                               "Connection: close\r\n\r\n") == 400);
+    CHECK(raw_status(port, "DELETE /api/v1/cases/alpha HTTP/1.1\r\n" + hosts +
+                               bearer + "Connection: close\r\n\r\n") == 400);
+  }
+  KeepAliveConnection c(port);
+  CHECK(nlohmann::json::parse(c.get("/api/v1/cases", bearer).body)["cases"]
+            .size() == 2);
+}
+
 TEST_CASE("RunningServer_EventsSocket_ClosedWhenAccessEnds",
           "[ruxd_api][server][socket][auth]") {
   // Review I2: logout and losing membership close the events sockets they

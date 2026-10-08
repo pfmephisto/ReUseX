@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ProjectInfo } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
@@ -90,6 +91,7 @@ export function OverblikPage() {
   );
 
   const [editing, setEditing] = useState(false);
+  const canEdit = useCanEdit();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const closeEditor = useCallback(() => {
     setEditing(false);
@@ -124,7 +126,7 @@ export function OverblikPage() {
         onToggle={() => (editing ? closeEditor() : setEditing(true))}
         toggleRef={toggleRef}
       />
-      {editing && (
+      {canEdit && editing && (
         <ProjectMetaForm
           project={project}
           onCommit={commit}

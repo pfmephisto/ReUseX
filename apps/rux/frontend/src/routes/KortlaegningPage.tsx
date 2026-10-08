@@ -890,7 +890,7 @@ export function KortlaegningPage() {
         />
       )}
 
-      {addResourceOpen && (
+      {canEdit && addResourceOpen && (
         <AddResourceDialog
           types={types}
           defaultTypeId={selType?.id ?? null}
@@ -900,7 +900,7 @@ export function KortlaegningPage() {
         />
       )}
 
-      {addColumnOpen && (
+      {canEdit && addColumnOpen && (
         <AddColumnDialog
           template={template}
           existingLabels={keys.map((k) => k.label)}

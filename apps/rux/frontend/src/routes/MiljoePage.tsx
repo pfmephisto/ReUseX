@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { api, type ApiRequestError } from '../api/client';
 import type { Sample, SampleCreate, SamplePatch, SampleResult, SurveyType } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { MILJOE_PATH, parseMiljoeQuery } from '../app/links';
 import { createOnceGuard } from '../app/onceGuard';
 import { saveErrorMessage } from '../app/saveError';
@@ -88,6 +89,8 @@ export function MiljoePage() {
 
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // A viewer sees the samples; every control here writes.
+  const canEdit = useCanEdit();
   const [creating, setCreating] = useState(query.newForType !== null);
   const [focusedId, setFocusedId] = useState<number | null>(query.sampleId);
   // Bumped on every focus request, so re-targeting the already-focused card
@@ -316,18 +319,20 @@ export function MiljoePage() {
       <header className={styles.head}>
         <h2 className={styles.title}>Miljø & prøver</h2>
         <span className={styles.sub}>Prøver styrer miljøstatus på de koblede bygningsdele</span>
-        <button
-          ref={newButton}
-          type="button"
-          className={styles.btnPrimary}
-          onClick={() => setCreating(true)}
-          disabled={creating}
-        >
-          + Ny prøve
-        </button>
+        {canEdit && (
+          <button
+            ref={newButton}
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => setCreating(true)}
+            disabled={creating}
+          >
+            + Ny prøve
+          </button>
+        )}
       </header>
 
-      {creating && (
+      {canEdit && creating && (
         <NewSampleForm
           key={query.newForType ?? 'ny'}
           types={types}
@@ -343,9 +348,11 @@ export function MiljoePage() {
           title="Ingen prøver endnu"
           detail="Registrér en miljøprøve og kobl den til de typer i kortlægningen, den dækker. Indtil svaret foreligger, kan typerne ikke godkendes."
           action={
-            <button type="button" className={styles.btnPrimaryInline} onClick={() => setCreating(true)}>
-              + Ny prøve
-            </button>
+            canEdit ? (
+              <button type="button" className={styles.btnPrimaryInline} onClick={() => setCreating(true)}>
+                + Ny prøve
+              </button>
+            ) : undefined
           }
         />
       )}

@@ -470,31 +470,33 @@ export function SegmenteringPage() {
               />
             </label>
             {canEdit && (
-            <button
-              type="button"
-              className={styles.run}
-              onClick={run}
-              disabled={running || frameId === null}
-              aria-busy={running}
-              title="Ctrl/⌘ + Enter"
-            >
-              {running
-                ? runningFrame !== frameId
-                  ? `Segmenterer billede ${runningFrame}…`
-                  : sam3.view.phase === 'preparing' || sam3.view.phase === 'first-run'
-                    ? 'Klargør model…'
-                    : 'Segmenterer…'
-                : promptCount === 0
-                  ? 'Kør med standardklasser'
-                  : `Kør segmentering (${promptCount})`}
-            </button>
+              <button
+                type="button"
+                className={styles.run}
+                onClick={run}
+                disabled={running || frameId === null}
+                aria-busy={running}
+                title="Ctrl/⌘ + Enter"
+              >
+                {running
+                  ? runningFrame !== frameId
+                    ? `Segmenterer billede ${runningFrame}…`
+                    : sam3.view.phase === 'preparing' || sam3.view.phase === 'first-run'
+                      ? 'Klargør model…'
+                      : 'Segmenterer…'
+                  : promptCount === 0
+                    ? 'Kør med standardklasser'
+                    : `Kør segmentering (${promptCount})`}
+              </button>
             )}
             {error && (
               <div className={styles.error} role="alert">
                 <span>{error}</span>
-                <button type="button" className={styles.textBtn} onClick={run} disabled={running}>
-                  Prøv igen
-                </button>
+                {canEdit && (
+                  <button type="button" className={styles.textBtn} onClick={run} disabled={running}>
+                    Prøv igen
+                  </button>
+                )}
               </div>
             )}
           </section>
@@ -541,7 +543,7 @@ export function SegmenteringPage() {
                 </ul>
               )}
               {drawnHint && <p className={styles.hint}>{drawnHint}</p>}
-              {outcome.result.saved && classes.length > 0 && (
+              {canEdit && outcome.result.saved && classes.length > 0 && (
                 <>
                   <button
                     type="button"
@@ -578,38 +580,40 @@ export function SegmenteringPage() {
             </section>
           )}
 
-          <section className={styles.section}>
-            <h2 className={styles.heading}>Tilføj til kø</h2>
-            <p className={styles.hint}>
-              Samme prompts på nabobillederne, kørt samlet fra køen i{' '}
-              <Link to="/frames">Billeder</Link>.
-            </p>
-            <div className={styles.row}>
-              <label className={styles.num}>
-                Før
-                <input
-                  type="number"
-                  min={0}
-                  max={NEIGHBOR_MAX}
-                  value={before}
-                  onChange={(e) => setBefore(clampNeighborCount(e.target.value))}
-                />
-              </label>
-              <label className={styles.num}>
-                Efter
-                <input
-                  type="number"
-                  min={0}
-                  max={NEIGHBOR_MAX}
-                  value={after}
-                  onChange={(e) => setAfter(clampNeighborCount(e.target.value))}
-                />
-              </label>
-              <button type="button" className={styles.ghost} onClick={enqueue} disabled={frameId === null}>
-                Tilføj {queueCount} til kø
-              </button>
-            </div>
-          </section>
+          {canEdit && (
+            <section className={styles.section}>
+              <h2 className={styles.heading}>Tilføj til kø</h2>
+              <p className={styles.hint}>
+                Samme prompts på nabobillederne, kørt samlet fra køen i{' '}
+                <Link to="/frames">Billeder</Link>.
+              </p>
+              <div className={styles.row}>
+                <label className={styles.num}>
+                  Før
+                  <input
+                    type="number"
+                    min={0}
+                    max={NEIGHBOR_MAX}
+                    value={before}
+                    onChange={(e) => setBefore(clampNeighborCount(e.target.value))}
+                  />
+                </label>
+                <label className={styles.num}>
+                  Efter
+                  <input
+                    type="number"
+                    min={0}
+                    max={NEIGHBOR_MAX}
+                    value={after}
+                    onChange={(e) => setAfter(clampNeighborCount(e.target.value))}
+                  />
+                </label>
+                <button type="button" className={styles.ghost} onClick={enqueue} disabled={frameId === null}>
+                  Tilføj {queueCount} til kø
+                </button>
+              </div>
+            </section>
+          )}
 
           <p className={styles.footnote}>
             <span className={styles.key}>←</span> <span className={styles.key}>→</span> skift billede ·{' '}

@@ -6,6 +6,7 @@ import { useCallback, useState } from 'react';
 
 import { api } from '../api/client';
 import type { CloudInfo, InstanceInfo } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { useAsync } from '../app/useAsync';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
 import { EmptyState } from './EmptyState';
@@ -37,6 +38,7 @@ export function InstanceList({ cloud }: { cloud: string }) {
   const [failure, setFailure] = useState<WriteFailure | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState<number | null>(null);
+  const canEdit = useCanEdit(); // a viewer lists the instances only
 
   const handleCreateMaterial = useCallback(
     async (instance: InstanceInfo) => {
@@ -140,7 +142,7 @@ export function InstanceList({ cloud }: { cloud: string }) {
                 )}
               </td>
               <td className={styles.td}>
-                {!inst.material_guid && (
+                {canEdit && !inst.material_guid && (
                   <button
                     type="button"
                     className={styles.createBtn}

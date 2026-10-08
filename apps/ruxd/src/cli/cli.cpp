@@ -22,6 +22,8 @@
 
 #include <cli.hpp>
 
+#include <api/access.hpp>
+
 #include <reusex/core/logging.hpp>
 
 #include <spdlog/spdlog.h>
@@ -29,7 +31,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 constexpr int kMaxVerbosity = 3;
@@ -85,6 +93,20 @@ void configure_admin_cli(CLI::App &app, Invocation &inv) {
   token->add_option("--email", cmd.email, "The user it acts as")->required();
   token->add_option("--name", cmd.token_name, "What it is for")->required();
   token->add_option("--case", cmd.case_id, "Limit it to this case id");
+  token
+      ->add_option("--expires-days", cmd.expires_days,
+                   "Days until it stops working (0 = never; default 90)")
+      ->check(CLI::Range(0, 3650));
+
+  auto *tokens =
+      sub("list-tokens", "List API tokens (never the tokens themselves)",
+          Kind::list_tokens);
+  tokens->add_option("--email", cmd.email, "Only this user's");
+
+  auto *revoke =
+      sub("revoke-token", "Revoke an API token by id", Kind::revoke_token);
+  revoke->add_option("--id", cmd.token_id, "Its id (from list-tokens)")
+      ->required();
 
   auto *reg = sub("register-case",
                   "Serve an existing .rux file as a case, where it is "
@@ -115,6 +137,11 @@ void configure_cli(CLI::App &app, Invocation &inv) {
                  "PostgreSQL connection string "
                  "(postgresql://user:pass@host:5432/db)")
       ->envname("DATABASE_URL");
+  app.add_option("--pg-url-file", inv.pg_url_file,
+                 "Read the PostgreSQL connection string from this file "
+                 "(keeps the password out of the process list)")
+      ->envname("DATABASE_URL_FILE")
+      ->check(CLI::ExistingFile);
   app.add_option("--pg-pool-size", inv.config.pg_pool_size,
                  "PostgreSQL connection pool size (0 = one per worker thread)")
       ->envname("RUXD_PG_POOL_SIZE")
@@ -156,6 +183,11 @@ void configure_cli(CLI::App &app, Invocation &inv) {
                  "--local: the access token every request must present; "
                  "required beyond loopback")
       ->envname("RUXD_AUTH_TOKEN");
+  app.add_option("--auth-token-file", inv.auth_token_file,
+                 "Read --auth-token from this file (keeps it out of the "
+                 "process list)")
+      ->envname("RUXD_AUTH_TOKEN_FILE")
+      ->check(CLI::ExistingFile);
 
   // --- The web GUI: both modes (--local and the multi-user server) ---
   auto &local = inv.local;
@@ -174,6 +206,21 @@ void configure_cli(CLI::App &app, Invocation &inv) {
                  "defaults to the --local directory (none for a lone file, "
                  "which makes the case list read-only)")
       ->envname("RUXD_DATA_DIR")
+      ->group(local_group);
+  app.add_option("--trusted-proxy", local.server.trusted_proxies,
+                 "A reverse proxy (CIDR or address, repeatable) whose "
+                 "X-Forwarded-For names the client, for the login back-off. "
+                 "From anyone else the header is ignored")
+      ->check([](const std::string &value) {
+        return api::is_valid_cidr(value)
+                   ? std::string()
+                   : "'" + value + "' is not an IP address or CIDR";
+      })
+      ->group(local_group);
+  app.add_option("--audit-retention-days", inv.audit_retention_days,
+                 "Server mode: days the audit log is kept (0 = for ever)")
+      ->capture_default_str()
+      ->check(CLI::Range(0, 36500))
       ->group(local_group);
   app.add_option("--cookie-secure", inv.cookie_secure,
                  "Server mode: mark the session cookie Secure: auto (unless "
@@ -204,8 +251,8 @@ void configure_cli(CLI::App &app, Invocation &inv) {
       ->check(CLI::Range(1, 1 << 24))
       ->group(local_group);
   app.add_option("--bind", local.server.bind_address,
-                 "Interface to bind in local mode. Anything beyond loopback "
-                 "requires --auth-token")
+                 "Interface to bind. In local mode anything beyond loopback "
+                 "requires --auth-token; server mode always authenticates")
       ->capture_default_str()
       ->group(local_group);
   app.add_option("--allow-origin", local.server.allowed_origins,
@@ -298,6 +345,41 @@ void finish_invocation(const CLI::App &app, Invocation &inv) {
       std::chrono::minutes(inv.local.case_idle_minutes);
   inv.local.server.upload_limits.max_bytes =
       static_cast<std::uint64_t>(inv.local.max_upload_mb) << 20;
+  inv.local.server.audit_retention =
+      std::chrono::hours(24) * inv.audit_retention_days;
+}
+
+std::string read_secret_file(const std::filesystem::path &file) {
+  std::ifstream in(file);
+  if (!in)
+    throw std::runtime_error("cannot read " + file.string());
+  std::string text((std::istreambuf_iterator<char>(in)),
+                   std::istreambuf_iterator<char>());
+  const auto last = text.find_last_not_of(" \t\r\n");
+  text.erase(last == std::string::npos ? 0 : last + 1);
+  const auto first = text.find_first_not_of(" \t\r\n");
+  return first == std::string::npos ? std::string() : text.substr(first);
+}
+
+void load_secret_files(Invocation &inv) {
+  if (!inv.auth_token_file.empty())
+    inv.config.auth_token = read_secret_file(inv.auth_token_file);
+  if (!inv.pg_url_file.empty())
+    inv.config.pg_url = read_secret_file(inv.pg_url_file);
+  if (inv.is_local())
+    inv.local.server.auth_token = inv.config.auth_token;
+}
+
+std::vector<std::string> secrets_on_argv(int argc, char **argv) {
+  std::vector<std::string> out;
+  for (int i = 1; i < argc; ++i) {
+    const std::string_view arg(argv[i]);
+    for (const std::string_view name : {"--auth-token", "--pg-url"})
+      if (arg == name || (arg.substr(0, name.size()) == name &&
+                          arg.size() > name.size() && arg[name.size()] == '='))
+        out.emplace_back(name);
+  }
+  return out;
 }
 
 } // namespace ruxd

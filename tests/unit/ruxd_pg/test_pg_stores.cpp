@@ -65,7 +65,7 @@ int status_of(const std::function<void()> &fn) {
 
 } // namespace
 
-TEST_CASE("PendingMigrations_OrderAndUnknownVersions", "[ruxd_pg]") {
+TEST_CASE("PgPendingMigrations_OrderAndUnknownVersions", "[ruxd_pg]") {
   const std::vector<pg::Migration> all{
       {2, "b", "SELECT 2"}, {1, "a", "SELECT 1"}, {3, "c", "SELECT 3"}};
   const auto todo = pg::pending_migrations(all, {2});
@@ -78,7 +78,7 @@ TEST_CASE("PendingMigrations_OrderAndUnknownVersions", "[ruxd_pg]") {
   CHECK_THROWS(pg::pending_migrations({{1, "a", ""}, {1, "b", ""}}, {}));
 }
 
-TEST_CASE("EmbeddedMigrations_StartAtOneAndAreDense", "[ruxd_pg]") {
+TEST_CASE("PgEmbeddedMigrations_StartAtOneAndAreDense", "[ruxd_pg]") {
   const auto &all = pg::embedded_migrations();
   REQUIRE_FALSE(all.empty());
   for (std::size_t i = 0; i < all.size(); ++i) {
@@ -388,4 +388,88 @@ TEST_CASE("PgAdmin_CreateUserPasswordFromReaderNeverArgv",
   missing.kind = pg::AdminCommand::Kind::set_password;
   missing.email = "nobody@example.dk";
   CHECK(pg::run_admin(missing, auth, nullptr, reader, out, err) == 3);
+}
+
+TEST_CASE("PgMembers_LastOwnerCheckIsAtomic", "[ruxd_pg][postgres]") {
+  REUSEX_REQUIRE_POSTGRES();
+  EphemeralPostgres server;
+  auto db = migrated(server);
+  TempDir data("ruxd_pg_owners");
+  pg::PgCaseStore cases(db, data.path);
+  api::AuthService auth(pg::postgres_auth_stores(db), fast_auth());
+  auto &members = *auth.stores().members;
+  const auto k = cases.create("K", std::nullopt);
+  const auto a = auth.create_user("a@example.dk", "A", "hemmeligt1", false);
+  const auto b = auth.create_user("b@example.dk", "B", "hemmeligt1", false);
+  members.set_role(k.id, a.id, api::Role::owner);
+  members.set_role(k.id, b.id, api::Role::owner);
+  CHECK(members.change_role(k.id, 999, api::Role::viewer) ==
+        api::MemberChange::not_member);
+
+  // Two owners demoting each other at the same moment, many times over:
+  // exactly one may win each round, never both.
+  for (int round = 0; round < 20; ++round) {
+    std::atomic<int> done{0};
+    std::thread ta([&] {
+      if (members.change_role(k.id, a.id, api::Role::viewer) ==
+          api::MemberChange::done)
+        ++done;
+    });
+    std::thread tb([&] {
+      if (members.remove_member(k.id, b.id) == api::MemberChange::done)
+        ++done;
+    });
+    ta.join();
+    tb.join();
+    CHECK(done.load() == 1);
+    std::size_t owners = 0;
+    for (const auto &m : members.members(k.id))
+      owners += m.role == api::Role::owner ? 1 : 0;
+    CHECK(owners == 1);
+    // Reset: both owners again.
+    members.set_role(k.id, a.id, api::Role::owner);
+    members.set_role(k.id, b.id, api::Role::owner);
+  }
+}
+
+TEST_CASE("PgTokens_ListRevokeExpiryAndAuditRetention", "[ruxd_pg][postgres]") {
+  REUSEX_REQUIRE_POSTGRES();
+  EphemeralPostgres server;
+  auto db = migrated(server);
+  api::AuthService auth(pg::postgres_auth_stores(db), fast_auth());
+  const auto u = auth.create_user("t@example.dk", "T", "hemmeligt1", false);
+  const auto t1 =
+      auth.create_api_token(u.id, "ci", std::nullopt, std::chrono::hours(24));
+  auth.create_api_token(u.id, "evig", std::nullopt, std::chrono::seconds(0));
+  auto list = auth.stores().tokens->list(u.id);
+  REQUIRE(list.size() == 2);
+  CHECK(list[0].expires_at);
+  CHECK_FALSE(list[1].expires_at);
+  api::PresentedCredentials c;
+  c.bearer = t1;
+  CHECK(auth.authenticate(c).kind == api::PrincipalKind::api_token);
+  CHECK(auth.stores().tokens->list(u.id)[0].last_used_at);
+  CHECK(auth.stores().tokens->revoke(list[0].id, u.id));
+  CHECK_FALSE(auth.stores().tokens->revoke(list[0].id, u.id));
+  CHECK(auth.authenticate(c).kind == api::PrincipalKind::anonymous);
+
+  // Admin CLI: list and revoke.
+  std::ostringstream out, err;
+  pg::AdminCommand ls;
+  ls.kind = pg::AdminCommand::Kind::list_tokens;
+  CHECK(pg::run_admin(ls, auth, nullptr, {}, out, err) == 0);
+  CHECK(out.str().find("evig") != std::string::npos);
+  pg::AdminCommand rv;
+  rv.kind = pg::AdminCommand::Kind::revoke_token;
+  rv.token_id = list[1].id;
+  CHECK(pg::run_admin(rv, auth, nullptr, {}, out, err) == 0);
+  CHECK(auth.stores().tokens->list(u.id).empty());
+
+  // Audit retention: entries older than the cut are deleted.
+  auth.audit(api::superuser_principal(), std::nullopt, "test.old");
+  CHECK(auth.stores().audit->prune(api::SystemClock::now() +
+                                   std::chrono::hours(1)) >= 1);
+  pqxx::connection conn(server.dsn());
+  pqxx::nontransaction tx(conn);
+  CHECK(tx.exec("SELECT count(*) FROM audit_log").one_field().as<int>() == 0);
 }

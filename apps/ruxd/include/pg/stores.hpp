@@ -36,6 +36,8 @@ class PgUserStore final : public api::IUserStore {
                    const std::string &password_hash, bool is_admin) override;
   std::optional<api::User> find_by_email(std::string_view email) const override;
   std::optional<api::User> find_by_id(std::int64_t id) const override;
+  std::optional<std::pair<api::User, std::string>>
+  find_credentials(std::string_view email) const override;
   std::vector<api::User> list() const override;
   std::optional<std::string> password_hash(std::int64_t user_id) const override;
   void set_password_hash(std::int64_t user_id,
@@ -72,6 +74,10 @@ class PgApiTokenStore final : public api::IApiTokenStore {
   api::ApiTokenRecord create(api::ApiTokenRecord token) override;
   std::optional<api::ApiTokenRecord>
   find(std::string_view token_hash) const override;
+  std::vector<api::ApiTokenRecord>
+  list(std::optional<std::int64_t> user_id) const override;
+  bool revoke(std::int64_t id, std::optional<std::int64_t> owner) override;
+  void touch(std::int64_t id, api::SystemClock::time_point now) override;
 
     private:
   std::shared_ptr<Database> db_;
@@ -87,6 +93,13 @@ class PgMembershipStore final : public api::IMembershipStore {
   void set_role(std::string_view case_id, std::int64_t user_id,
                 api::Role role) override;
   bool remove(std::string_view case_id, std::int64_t user_id) override;
+  /// One transaction that locks the case's row (SELECT … FOR UPDATE), so
+  /// concurrent changes to one case's members are serialised and the
+  /// last-owner check cannot race.
+  api::MemberChange change_role(std::string_view case_id, std::int64_t user_id,
+                                api::Role role) override;
+  api::MemberChange remove_member(std::string_view case_id,
+                                  std::int64_t user_id) override;
   std::set<std::string> cases_of(std::int64_t user_id) const override;
   /// A no-op: deleting the `cases` row cascades.
   void forget_case(std::string_view case_id) override;
@@ -99,6 +112,7 @@ class PgAuditLog final : public api::IAuditLog {
     public:
   explicit PgAuditLog(std::shared_ptr<Database> db);
   void record(const api::AuditEntry &entry) override;
+  std::size_t prune(api::SystemClock::time_point before) override;
 
     private:
   std::shared_ptr<Database> db_;

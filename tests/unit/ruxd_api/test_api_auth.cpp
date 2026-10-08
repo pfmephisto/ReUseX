@@ -105,6 +105,24 @@ TEST_CASE("AuthService_Login_WrongUnknownOrDisabledIs401", "[ruxd_api][auth]") {
   CHECK(status_of([&] { f.auth->login("", "x", "ip"); }) == 400);
 }
 
+TEST_CASE("AuthService_Login_SuccessDoesNotCountAndResets",
+          "[ruxd_api][auth][ratelimit]") {
+  Fixture f;
+  f.auth->create_user("d@example.dk", "D", "hemmeligt1", false);
+  // Successful logins never count against the limit…
+  for (int i = 0; i < 12; ++i)
+    CHECK(f.auth->login("d@example.dk", "hemmeligt1", "9.9.9.8").user.email ==
+          "d@example.dk");
+  // …and one clears the failures before it.
+  for (int round = 0; round < 3; ++round) {
+    for (int i = 0; i < 4; ++i)
+      CHECK(status_of([&] {
+              f.auth->login("d@example.dk", "nej", "9.9.9.8");
+            }) == 401);
+    CHECK_NOTHROW(f.auth->login("d@example.dk", "hemmeligt1", "9.9.9.8"));
+  }
+}
+
 TEST_CASE("AuthService_Login_RateLimitedAfterFiveAttempts",
           "[ruxd_api][auth][ratelimit]") {
   Fixture f;
@@ -120,9 +138,11 @@ TEST_CASE("AuthService_Login_RateLimitedAfterFiveAttempts",
     CHECK(e.status() == 429);
     CHECK(e.retry_after().count() > 0);
   }
-  // From another address it goes through.
-  CHECK(f.auth->login("c@example.dk", "hemmeligt1", "8.8.8.8").user.email ==
-        "c@example.dk");
+  // The back-off is per account: another address waits too (an attacker
+  // rotating addresses gains nothing).
+  CHECK(status_of([&] {
+          f.auth->login("c@example.dk", "hemmeligt1", "2001:db8::1");
+        }) == 429);
 }
 
 TEST_CASE("AuthService_Session_SlidingAndAbsoluteExpiry", "[ruxd_api][auth]") {
@@ -199,7 +219,7 @@ TEST_CASE("AuthService_PasswordChangeOrDisable_EndsSessions",
 }
 
 TEST_CASE("AuthService_ApiTokenAndSuperuser", "[ruxd_api][auth]") {
-  Fixture f("super-secret-token");
+  Fixture f("super-secret-token-0123456789abcdef");
   const auto u = f.auth->create_user("g@example.dk", "G", "hemmeligt1", false);
 
   const auto token = f.auth->create_api_token(u.id, "ci", std::string("k"));
@@ -213,12 +233,82 @@ TEST_CASE("AuthService_ApiTokenAndSuperuser", "[ruxd_api][auth]") {
   CHECK_FALSE(f.stores.tokens->find(token));
 
   CHECK(f.with_bearer("rxt_wrong").kind == PrincipalKind::anonymous);
-  CHECK(f.with_bearer("super-secret-token").kind == PrincipalKind::superuser);
+  CHECK(f.with_bearer("super-secret-token-0123456789abcdef").kind ==
+        PrincipalKind::superuser);
   CHECK(f.with_bearer("super-secret-tokem").kind == PrincipalKind::anonymous);
 
   // A disabled user's tokens stop working.
   f.auth->set_disabled(u.id, true);
   CHECK(f.with_bearer(token).kind == PrincipalKind::anonymous);
+}
+
+TEST_CASE("AuthService_ShortSuperuserToken_Refused", "[ruxd_api][auth]") {
+  AuthOptions options;
+  options.superuser_token = "too-short";
+  CHECK_THROWS_AS(AuthService(in_memory_auth_stores(), options),
+                  std::invalid_argument);
+}
+
+TEST_CASE("AuthService_ApiTokens_ExpireRevokeAndList", "[ruxd_api][auth]") {
+  Fixture f;
+  const auto u = f.auth->create_user("t@example.dk", "T", "hemmeligt1", false);
+  const auto day = f.auth->create_api_token(u.id, "kort", std::nullopt,
+                                            std::chrono::hours(24));
+  const auto never = f.auth->create_api_token(u.id, "evig", std::nullopt,
+                                              std::chrono::seconds(0));
+  const auto defaulted = f.auth->create_api_token(u.id, "std", std::nullopt);
+  auto tokens = f.stores.tokens->list(u.id);
+  REQUIRE(tokens.size() == 3);
+  CHECK(tokens[0].expires_at);
+  CHECK_FALSE(tokens[1].expires_at);
+  CHECK(tokens[2].expires_at); // the default lifetime
+  CHECK(f.with_bearer(day).kind == PrincipalKind::api_token);
+  // Its last use is recorded.
+  CHECK(f.stores.tokens->list(u.id)[0].last_used_at);
+
+  // Expired: refused.
+  f.now += std::chrono::hours(25);
+  CHECK(f.with_bearer(day).kind == PrincipalKind::anonymous);
+  CHECK(f.with_bearer(never).kind == PrincipalKind::api_token);
+
+  // Revoked: refused; someone else cannot revoke it.
+  const auto id = tokens[1].id;
+  CHECK_FALSE(f.stores.tokens->revoke(id, u.id + 99));
+  CHECK(f.stores.tokens->revoke(id, u.id));
+  CHECK(f.with_bearer(never).kind == PrincipalKind::anonymous);
+  (void)defaulted;
+}
+
+TEST_CASE("AuthService_WrongBearerTokens_BackOff",
+          "[ruxd_api][auth][ratelimit]") {
+  Fixture f;
+  const auto u = f.auth->create_user("w@example.dk", "W", "hemmeligt1", false);
+  const auto good = f.auth->create_api_token(u.id, "ci", std::nullopt);
+  PresentedCredentials c;
+  c.client_ip = "198.51.100.7";
+  c.bearer = "rxt_guess";
+  for (int i = 0; i < 25; ++i)
+    CHECK(f.auth->authenticate(c).kind == PrincipalKind::anonymous);
+  // That address now waits: even a right token is not looked at.
+  c.bearer = good;
+  CHECK(f.auth->authenticate(c).kind == PrincipalKind::anonymous);
+  c.client_ip = "198.51.100.8";
+  CHECK(f.auth->authenticate(c).kind == PrincipalKind::api_token);
+}
+
+TEST_CASE("AuthService_StillValid_FollowsSessionsTokensAndUsers",
+          "[ruxd_api][auth]") {
+  Fixture f;
+  const auto u = f.auth->create_user("v@example.dk", "V", "hemmeligt1", false);
+  const auto login = f.auth->login("v@example.dk", "hemmeligt1", "ip");
+  const auto who = f.with_cookie(login.session_token);
+  CHECK(f.auth->still_valid(who));
+  const auto token = f.with_bearer(f.auth->create_api_token(u.id, "x", {}));
+  CHECK(f.auth->still_valid(token));
+  f.auth->set_disabled(u.id, true);
+  CHECK_FALSE(f.auth->still_valid(who));
+  CHECK_FALSE(f.auth->still_valid(token));
+  CHECK(f.auth->still_valid(local_principal()));
 }
 
 TEST_CASE("AuthService_RoleIn_MembersAdminsAndScopes", "[ruxd_api][auth]") {

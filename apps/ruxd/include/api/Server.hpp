@@ -103,6 +103,15 @@ struct ServerOptions {
   /// Whether the session cookie is `Secure` (server mode).
   CookieSecure cookie_secure = CookieSecure::automatic;
 
+  /// Reverse proxies (CIDRs or addresses) whose `X-Forwarded-For` names the
+  /// client (`--trusted-proxy`); from anyone else the header is ignored.
+  /// Used for the login back-off.
+  std::vector<std::string> trusted_proxies;
+
+  /// How long audit entries are kept (`--audit-retention-days`); 0 = for
+  /// ever. Pruned hourly on the case registry's sweep.
+  std::chrono::seconds audit_retention{std::chrono::hours(24 * 365)};
+
   /// Backs `GET /api/v1/readyz`: true when the server's backends are
   /// reachable. Empty = always ready (local mode has no backends).
   std::function<bool()> readiness;

@@ -57,8 +57,8 @@ class Database {
   /// versions applied.
   std::vector<int> migrate();
 
-  /// Whether a fresh connection can run `SELECT 1` (readiness).
-  bool ping() const;
+  /// Whether a pooled connection can run `SELECT 1` (readiness).
+  bool ping();
 
   const std::string &dsn() const noexcept { return dsn_; }
 

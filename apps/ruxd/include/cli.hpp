@@ -15,6 +15,9 @@
 #include <CLI/CLI.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 namespace ruxd {
 
@@ -32,6 +35,11 @@ struct Invocation {
   pg::AdminCommand admin;
   /// `--cookie-secure`: auto | always | never.
   std::string cookie_secure = "auto";
+  /// `--audit-retention-days` (server mode).
+  int audit_retention_days = 365;
+  /// `--auth-token-file`, `--pg-url-file`: secrets read from files.
+  std::filesystem::path auth_token_file;
+  std::filesystem::path pg_url_file;
 
   bool is_local() const { return !local.target.empty(); }
   bool is_admin() const { return admin.kind != pg::AdminCommand::Kind::none; }
@@ -47,6 +55,17 @@ void configure_cli(CLI::App &app, Invocation &inv);
 /// mode only: in server mode it is the superuser token), idle timeout and
 /// upload limit.
 void finish_invocation(const CLI::App &app, Invocation &inv);
+
+/// Read `--auth-token-file` / `--pg-url-file` into the config (they win
+/// over --auth-token / --pg-url). @throws std::runtime_error if unreadable.
+void load_secret_files(Invocation &inv);
+
+/// Read a secret file, trimmed of surrounding whitespace.
+std::string read_secret_file(const std::filesystem::path &file);
+
+/// Which secret options (--auth-token, --pg-url) appear on @p argv — where
+/// any user on the machine can read them in /proc. run() warns about each.
+std::vector<std::string> secrets_on_argv(int argc, char **argv);
 
 /// Parse, then run local mode or the service. @return process exit code.
 int run(int argc, char **argv);

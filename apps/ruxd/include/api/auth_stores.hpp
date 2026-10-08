@@ -25,6 +25,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ruxd::api {
@@ -46,6 +47,11 @@ class IUserStore {
   virtual User create(const std::string &email, const std::string &display_name,
                       const std::string &password_hash, bool is_admin) = 0;
   virtual std::optional<User> find_by_email(std::string_view email) const = 0;
+  /// The user and their password hash in ONE lookup, so a login costs the
+  /// same whether the email exists or not (apart from the argon2 work, which
+  /// is equalised by verifying a dummy hash).
+  virtual std::optional<std::pair<User, std::string>>
+  find_credentials(std::string_view email) const = 0;
   virtual std::optional<User> find_by_id(std::int64_t id) const = 0;
   /// Every user, by email.
   virtual std::vector<User> list() const = 0;
@@ -96,6 +102,10 @@ struct ApiTokenRecord {
   /// Limited to this case id, or every case its user may see.
   std::optional<std::string> case_id;
   SystemClock::time_point created_at;
+  /// After this it no longer authenticates; nullopt = never expires.
+  std::optional<SystemClock::time_point> expires_at;
+  /// Last time it authenticated a request (updated at most once a minute).
+  std::optional<SystemClock::time_point> last_used_at;
 };
 
 class IApiTokenStore {
@@ -105,7 +115,18 @@ class IApiTokenStore {
   virtual ApiTokenRecord create(ApiTokenRecord token) = 0;
   virtual std::optional<ApiTokenRecord>
   find(std::string_view token_hash) const = 0;
+  /// The tokens of @p user_id, or of everyone; never their hashes' preimage
+  /// (which the server does not have).
+  virtual std::vector<ApiTokenRecord>
+  list(std::optional<std::int64_t> user_id) const = 0;
+  /// Delete token @p id (only if it belongs to @p owner, when given).
+  /// @return false when there was no such token.
+  virtual bool revoke(std::int64_t id, std::optional<std::int64_t> owner) = 0;
+  virtual void touch(std::int64_t id, SystemClock::time_point now) = 0;
 };
+
+/// Outcome of a membership change that must keep the case owned.
+enum class MemberChange { done, not_member, last_owner };
 
 /// One member of a case.
 struct Member {
@@ -125,6 +146,14 @@ class IMembershipStore {
                         Role role) = 0;
   /// @return false when they were not a member.
   virtual bool remove(std::string_view case_id, std::int64_t user_id) = 0;
+  /// Change an existing member's role — refused (last_owner) when it would
+  /// demote the case's only owner. The check and the write are ONE atomic
+  /// step, so two owners demoting each other cannot both succeed.
+  virtual MemberChange change_role(std::string_view case_id,
+                                   std::int64_t user_id, Role role) = 0;
+  /// Remove a member, atomically refused when they are the only owner.
+  virtual MemberChange remove_member(std::string_view case_id,
+                                     std::int64_t user_id) = 0;
   /// The case ids @p user_id is a member of.
   virtual std::set<std::string> cases_of(std::int64_t user_id) const = 0;
   /// Drop every membership of a deleted case.
@@ -144,6 +173,8 @@ class IAuditLog {
     public:
   virtual ~IAuditLog() = default;
   virtual void record(const AuditEntry &entry) = 0;
+  /// Delete entries older than @p before (retention). @return how many.
+  virtual std::size_t prune(SystemClock::time_point before) = 0;
 };
 
 // --- in-memory implementations
@@ -155,6 +186,8 @@ class InMemoryUserStore final : public IUserStore {
               const std::string &password_hash, bool is_admin) override;
   std::optional<User> find_by_email(std::string_view email) const override;
   std::optional<User> find_by_id(std::int64_t id) const override;
+  std::optional<std::pair<User, std::string>>
+  find_credentials(std::string_view email) const override;
   std::vector<User> list() const override;
   std::optional<std::string> password_hash(std::int64_t user_id) const override;
   void set_password_hash(std::int64_t user_id,
@@ -194,6 +227,10 @@ class InMemoryApiTokenStore final : public IApiTokenStore {
   ApiTokenRecord create(ApiTokenRecord token) override;
   std::optional<ApiTokenRecord>
   find(std::string_view token_hash) const override;
+  std::vector<ApiTokenRecord>
+  list(std::optional<std::int64_t> user_id) const override;
+  bool revoke(std::int64_t id, std::optional<std::int64_t> owner) override;
+  void touch(std::int64_t id, SystemClock::time_point now) override;
 
     private:
   mutable std::mutex mutex_;
@@ -212,10 +249,18 @@ class InMemoryMembershipStore final : public IMembershipStore {
   void set_role(std::string_view case_id, std::int64_t user_id,
                 Role role) override;
   bool remove(std::string_view case_id, std::int64_t user_id) override;
+  MemberChange change_role(std::string_view case_id, std::int64_t user_id,
+                           Role role) override;
+  MemberChange remove_member(std::string_view case_id,
+                             std::int64_t user_id) override;
   std::set<std::string> cases_of(std::int64_t user_id) const override;
   void forget_case(std::string_view case_id) override;
 
     private:
+  /// Whether changing @p user_id to @p role (nullopt = removing) would leave
+  /// @p case_id ownerless. Caller holds mutex_.
+  bool would_orphan_locked(std::string_view case_id, std::int64_t user_id,
+                           std::optional<Role> role) const;
   std::shared_ptr<IUserStore> users_;
   mutable std::mutex mutex_;
   std::map<std::pair<std::string, std::int64_t>, Role> roles_;
@@ -224,11 +269,12 @@ class InMemoryMembershipStore final : public IMembershipStore {
 class InMemoryAuditLog final : public IAuditLog {
     public:
   void record(const AuditEntry &entry) override;
+  std::size_t prune(SystemClock::time_point before) override;
   std::vector<AuditEntry> entries() const;
 
     private:
   mutable std::mutex mutex_;
-  std::vector<AuditEntry> entries_;
+  std::vector<std::pair<SystemClock::time_point, AuditEntry>> entries_;
 };
 
 /// Everything AuthService needs, in one bundle.

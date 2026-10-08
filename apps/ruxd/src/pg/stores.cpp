@@ -61,6 +61,29 @@ api::User user_of(const pqxx::row &row) {
   return user;
 }
 
+const std::string kTokenColumns =
+    "t.id, t.token_hash, t.user_id, t.name, c.slug, "
+    "extract(epoch FROM t.created_at)::float8, "
+    "extract(epoch FROM t.expires_at)::float8, "
+    "extract(epoch FROM t.last_used_at)::float8 "
+    "FROM api_tokens t LEFT JOIN cases c ON c.id = t.case_id";
+
+api::ApiTokenRecord token_of(const pqxx::row &row) {
+  api::ApiTokenRecord t;
+  t.id = row[0].as<std::int64_t>();
+  t.token_hash = row[1].as<std::string>();
+  t.user_id = row[2].as<std::int64_t>();
+  t.name = row[3].as<std::string>();
+  if (!row[4].is_null())
+    t.case_id = row[4].as<std::string>();
+  t.created_at = from_epoch(row[5].as<double>());
+  if (!row[6].is_null())
+    t.expires_at = from_epoch(row[6].as<double>());
+  if (!row[7].is_null())
+    t.last_used_at = from_epoch(row[7].as<double>());
+  return t;
+}
+
 void require_one(const pqxx::result &result, const char *what) {
   if (result.affected_rows() == 0)
     throw HttpError(404, std::string("no such ") + what);
@@ -117,6 +140,20 @@ std::optional<api::User> PgUserStore::find_by_id(std::int64_t id) const {
     if (rows.empty())
       return std::nullopt;
     return user_of(rows[0]);
+  });
+}
+
+std::optional<std::pair<api::User, std::string>>
+PgUserStore::find_credentials(std::string_view email) const {
+  return db_->with([&](pqxx::connection &c)
+                       -> std::optional<std::pair<api::User, std::string>> {
+    pqxx::read_transaction tx(c);
+    const auto rows = tx.exec("SELECT " + kUserColumns +
+                                  ", password_hash FROM users WHERE email = $1",
+                              pqxx::params{api::normalize_email(email)});
+    if (rows.empty())
+      return std::nullopt;
+    return std::make_pair(user_of(rows[0]), rows[0][6].as<std::string>());
   });
 }
 
@@ -284,13 +321,17 @@ api::ApiTokenRecord PgApiTokenStore::create(api::ApiTokenRecord token) {
         throw HttpError(404, "no such case '" + *token.case_id + "'");
       case_pk = rows[0][0].as<std::int64_t>();
     }
-    token.id = tx.exec("INSERT INTO api_tokens (token_hash, user_id, name, "
-                       "case_id, created_at) VALUES ($1, $2, $3, $4, "
-                       "to_timestamp($5)) RETURNING id",
-                       pqxx::params{token.token_hash, token.user_id, token.name,
-                                    case_pk, to_epoch(token.created_at)})
-                   .one_field()
-                   .as<std::int64_t>();
+    std::optional<double> expires;
+    if (token.expires_at)
+      expires = to_epoch(*token.expires_at);
+    token.id =
+        tx.exec("INSERT INTO api_tokens (token_hash, user_id, name, "
+                "case_id, created_at, expires_at) VALUES ($1, $2, $3, "
+                "$4, to_timestamp($5), to_timestamp($6)) RETURNING id",
+                pqxx::params{token.token_hash, token.user_id, token.name,
+                             case_pk, to_epoch(token.created_at), expires})
+            .one_field()
+            .as<std::int64_t>();
     tx.commit();
     return token;
   });
@@ -301,23 +342,50 @@ PgApiTokenStore::find(std::string_view token_hash) const {
   return db_->with(
       [&](pqxx::connection &c) -> std::optional<api::ApiTokenRecord> {
         pqxx::read_transaction tx(c);
-        const auto rows = tx.exec(
-            "SELECT t.id, t.user_id, t.name, c.slug, "
-            "extract(epoch FROM t.created_at)::float8 FROM api_tokens t "
-            "LEFT JOIN cases c ON c.id = t.case_id WHERE t.token_hash = $1",
-            pqxx::params{std::string(token_hash)});
+        const auto rows =
+            tx.exec("SELECT " + kTokenColumns + " WHERE t.token_hash = $1",
+                    pqxx::params{std::string(token_hash)});
         if (rows.empty())
           return std::nullopt;
-        api::ApiTokenRecord t;
-        t.id = rows[0][0].as<std::int64_t>();
-        t.token_hash = std::string(token_hash);
-        t.user_id = rows[0][1].as<std::int64_t>();
-        t.name = rows[0][2].as<std::string>();
-        if (!rows[0][3].is_null())
-          t.case_id = rows[0][3].as<std::string>();
-        t.created_at = from_epoch(rows[0][4].as<double>());
-        return t;
+        return token_of(rows[0]);
       });
+}
+
+std::vector<api::ApiTokenRecord>
+PgApiTokenStore::list(std::optional<std::int64_t> user_id) const {
+  return db_->with([&](pqxx::connection &c) {
+    pqxx::read_transaction tx(c);
+    std::vector<api::ApiTokenRecord> out;
+    for (const auto &row :
+         tx.exec("SELECT " + kTokenColumns +
+                     " WHERE ($1::bigint IS NULL OR t.user_id = $1) "
+                     "ORDER BY t.id",
+                 pqxx::params{user_id}))
+      out.push_back(token_of(row));
+    return out;
+  });
+}
+
+bool PgApiTokenStore::revoke(std::int64_t id,
+                             std::optional<std::int64_t> owner) {
+  return db_->with([&](pqxx::connection &c) {
+    pqxx::work tx(c);
+    const auto r = tx.exec("DELETE FROM api_tokens WHERE id = $1 AND "
+                           "($2::bigint IS NULL OR user_id = $2)",
+                           pqxx::params{id, owner});
+    tx.commit();
+    return r.affected_rows() > 0;
+  });
+}
+
+void PgApiTokenStore::touch(std::int64_t id, api::SystemClock::time_point now) {
+  db_->with([&](pqxx::connection &c) {
+    pqxx::work tx(c);
+    tx.exec(
+        "UPDATE api_tokens SET last_used_at = to_timestamp($2) WHERE id = $1",
+        pqxx::params{id, to_epoch(now)});
+    tx.commit();
+  });
 }
 
 // --- membership
@@ -392,6 +460,63 @@ bool PgMembershipStore::remove(std::string_view case_id, std::int64_t user_id) {
   });
 }
 
+namespace {
+
+/// The change to a member, under a lock on the case's row: every membership
+/// change of one case runs one at a time, so the owner count it reads is the
+/// one it writes against.
+api::MemberChange change_member(Database &db, std::string_view case_id,
+                                std::int64_t user_id,
+                                std::optional<api::Role> role) {
+  return db.with([&](pqxx::connection &c) {
+    pqxx::work tx(c);
+    const auto cases =
+        tx.exec("SELECT id FROM cases WHERE slug = $1 FOR UPDATE",
+                pqxx::params{std::string(case_id)});
+    if (cases.empty())
+      return api::MemberChange::not_member;
+    const auto pk = cases[0][0].as<std::int64_t>();
+    const auto current = tx.exec(
+        "SELECT role FROM case_members WHERE case_id = $1 AND user_id = $2",
+        pqxx::params{pk, user_id});
+    if (current.empty())
+      return api::MemberChange::not_member;
+    if (current[0][0].as<std::string>() == "owner" &&
+        role != api::Role::owner) {
+      const auto owners =
+          tx.exec("SELECT count(*) FROM case_members WHERE case_id = $1 AND "
+                  "role = 'owner'",
+                  pqxx::params{pk})
+              .one_field()
+              .as<std::int64_t>();
+      if (owners <= 1)
+        return api::MemberChange::last_owner;
+    }
+    if (role)
+      tx.exec("UPDATE case_members SET role = $3 WHERE case_id = $1 AND "
+              "user_id = $2",
+              pqxx::params{pk, user_id, std::string(api::to_string(*role))});
+    else
+      tx.exec("DELETE FROM case_members WHERE case_id = $1 AND user_id = $2",
+              pqxx::params{pk, user_id});
+    tx.commit();
+    return api::MemberChange::done;
+  });
+}
+
+} // namespace
+
+api::MemberChange PgMembershipStore::change_role(std::string_view case_id,
+                                                 std::int64_t user_id,
+                                                 api::Role role) {
+  return change_member(*db_, case_id, user_id, role);
+}
+
+api::MemberChange PgMembershipStore::remove_member(std::string_view case_id,
+                                                   std::int64_t user_id) {
+  return change_member(*db_, case_id, user_id, std::nullopt);
+}
+
 std::set<std::string> PgMembershipStore::cases_of(std::int64_t user_id) const {
   return db_->with([&](pqxx::connection &c) {
     pqxx::read_transaction tx(c);
@@ -420,6 +545,16 @@ void PgAuditLog::record(const api::AuditEntry &e) {
             "(SELECT id FROM cases WHERE slug = $3), $3, $4, $5)",
             pqxx::params{e.user_id, e.actor, e.case_id, e.action, e.detail});
     tx.commit();
+  });
+}
+
+std::size_t PgAuditLog::prune(api::SystemClock::time_point before) {
+  return db_->with([&](pqxx::connection &c) {
+    pqxx::work tx(c);
+    const auto r = tx.exec("DELETE FROM audit_log WHERE at < to_timestamp($1)",
+                           pqxx::params{to_epoch(before)});
+    tx.commit();
+    return static_cast<std::size_t>(r.affected_rows());
   });
 }
 

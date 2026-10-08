@@ -85,6 +85,16 @@ std::optional<User> InMemoryUserStore::find_by_id(std::int64_t id) const {
   return it->second.user;
 }
 
+std::optional<std::pair<User, std::string>>
+InMemoryUserStore::find_credentials(std::string_view email) const {
+  const std::string key = normalize_email(email);
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (const auto &[id, r] : rows_)
+    if (r.user.email == key)
+      return std::make_pair(r.user, r.hash);
+  return std::nullopt;
+}
+
 std::vector<User> InMemoryUserStore::list() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<User> out;
@@ -191,6 +201,34 @@ InMemoryApiTokenStore::find(std::string_view token_hash) const {
   return it->second;
 }
 
+std::vector<ApiTokenRecord>
+InMemoryApiTokenStore::list(std::optional<std::int64_t> user_id) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<ApiTokenRecord> out;
+  for (const auto &[hash, t] : tokens_)
+    if (!user_id || t.user_id == *user_id)
+      out.push_back(t);
+  std::sort(out.begin(), out.end(),
+            [](const auto &a, const auto &b) { return a.id < b.id; });
+  return out;
+}
+
+bool InMemoryApiTokenStore::revoke(std::int64_t id,
+                                   std::optional<std::int64_t> owner) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return std::erase_if(tokens_, [&](const auto &kv) {
+           return kv.second.id == id && (!owner || kv.second.user_id == *owner);
+         }) > 0;
+}
+
+void InMemoryApiTokenStore::touch(std::int64_t id,
+                                  SystemClock::time_point now) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto &[hash, t] : tokens_)
+    if (t.id == id)
+      t.last_used_at = now;
+}
+
 // --- membership
 // ----------------------------------------------------------------
 
@@ -239,6 +277,46 @@ bool InMemoryMembershipStore::remove(std::string_view case_id,
   return roles_.erase({std::string(case_id), user_id}) > 0;
 }
 
+bool InMemoryMembershipStore::would_orphan_locked(
+    std::string_view case_id, std::int64_t user_id,
+    std::optional<Role> role) const {
+  if (role == Role::owner)
+    return false;
+  auto it = roles_.find({std::string(case_id), user_id});
+  if (it == roles_.end() || it->second != Role::owner)
+    return false;
+  std::size_t owners = 0;
+  for (const auto &[key, r] : roles_)
+    if (key.first == case_id && r == Role::owner)
+      ++owners;
+  return owners <= 1;
+}
+
+MemberChange InMemoryMembershipStore::change_role(std::string_view case_id,
+                                                  std::int64_t user_id,
+                                                  Role role) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto it = roles_.find({std::string(case_id), user_id});
+  if (it == roles_.end())
+    return MemberChange::not_member;
+  if (would_orphan_locked(case_id, user_id, role))
+    return MemberChange::last_owner;
+  it->second = role;
+  return MemberChange::done;
+}
+
+MemberChange InMemoryMembershipStore::remove_member(std::string_view case_id,
+                                                    std::int64_t user_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto it = roles_.find({std::string(case_id), user_id});
+  if (it == roles_.end())
+    return MemberChange::not_member;
+  if (would_orphan_locked(case_id, user_id, std::nullopt))
+    return MemberChange::last_owner;
+  roles_.erase(it);
+  return MemberChange::done;
+}
+
 std::set<std::string>
 InMemoryMembershipStore::cases_of(std::int64_t user_id) const {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -260,12 +338,21 @@ void InMemoryMembershipStore::forget_case(std::string_view case_id) {
 
 void InMemoryAuditLog::record(const AuditEntry &entry) {
   std::lock_guard<std::mutex> lock(mutex_);
-  entries_.push_back(entry);
+  entries_.emplace_back(SystemClock::now(), entry);
+}
+
+std::size_t InMemoryAuditLog::prune(SystemClock::time_point before) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return std::erase_if(entries_,
+                       [&](const auto &e) { return e.first < before; });
 }
 
 std::vector<AuditEntry> InMemoryAuditLog::entries() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return entries_;
+  std::vector<AuditEntry> out;
+  for (const auto &[at, e] : entries_)
+    out.push_back(e);
+  return out;
 }
 
 AuthStores in_memory_auth_stores() {

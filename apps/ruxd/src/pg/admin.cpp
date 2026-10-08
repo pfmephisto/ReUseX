@@ -10,6 +10,10 @@
 
 #include <fmt/format.h>
 
+#include <array>
+#include <chrono>
+#include <csignal>
+#include <ctime>
 #include <iostream>
 #include <stdexcept>
 
@@ -26,11 +30,30 @@ std::string strip_line_end(std::string line) {
   return line;
 }
 
-/// Echo off on the terminal for as long as this lives.
+/// The terminal settings to put back if Ctrl-C lands mid-prompt.
+termios g_saved_tty{};
+volatile std::sig_atomic_t g_tty_saved = 0;
+
+extern "C" void restore_tty_and_die(int sig) {
+  if (g_tty_saved)
+    ::tcsetattr(STDIN_FILENO, TCSANOW, &g_saved_tty);
+  ::signal(sig, SIG_DFL);
+  ::raise(sig);
+}
+
+/// Echo off on the terminal for as long as this lives — and back on if the
+/// prompt is interrupted (SIGINT/SIGTERM/SIGHUP), not just on return.
 class NoEcho {
     public:
   NoEcho() {
     if (::tcgetattr(STDIN_FILENO, &saved_) == 0) {
+      g_saved_tty = saved_;
+      g_tty_saved = 1;
+      struct sigaction handler{};
+      handler.sa_handler = restore_tty_and_die;
+      ::sigemptyset(&handler.sa_mask);
+      for (std::size_t i = 0; i < kSignals.size(); ++i)
+        ::sigaction(kSignals[i], &handler, &previous_[i]);
       termios quiet = saved_;
       quiet.c_lflag &= ~static_cast<tcflag_t>(ECHO);
       active_ = ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &quiet) == 0;
@@ -39,12 +62,19 @@ class NoEcho {
   ~NoEcho() {
     if (active_)
       ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved_);
+    if (g_tty_saved) {
+      for (std::size_t i = 0; i < kSignals.size(); ++i)
+        ::sigaction(kSignals[i], &previous_[i], nullptr);
+      g_tty_saved = 0;
+    }
   }
   NoEcho(const NoEcho &) = delete;
   NoEcho &operator=(const NoEcho &) = delete;
 
     private:
+  static constexpr std::array<int, 3> kSignals{SIGINT, SIGTERM, SIGHUP};
   termios saved_{};
+  std::array<struct sigaction, 3> previous_{};
   bool active_ = false;
 };
 
@@ -146,8 +176,11 @@ int run_admin(const AdminCommand &command, api::AuthService &auth,
       std::optional<std::string> scope;
       if (!command.case_id.empty())
         scope = command.case_id;
+      std::optional<std::chrono::seconds> life;
+      if (command.expires_days >= 0)
+        life = std::chrono::hours(24) * command.expires_days;
       const auto token =
-          auth.create_api_token(user.id, command.token_name, scope);
+          auth.create_api_token(user.id, command.token_name, scope, life);
       auth.audit(api::superuser_principal(), scope, "admin.create_token",
                  user.email + " " + command.token_name);
       // The token goes to stdout alone, so `token=$(ruxd admin …)` works;
@@ -157,6 +190,43 @@ int run_admin(const AdminCommand &command, api::AuthService &auth,
           command.token_name, user.email,
           scope ? " (case " + *scope + " only)" : "");
       out << token << '\n';
+      return 0;
+    }
+    case Kind::list_tokens: {
+      std::optional<std::int64_t> owner;
+      if (!command.email.empty())
+        owner = require_user(auth, command.email).id;
+      const auto tokens = auth.stores().tokens->list(owner);
+      auto day = [](api::SystemClock::time_point tp) {
+        const std::time_t t = api::SystemClock::to_time_t(tp);
+        std::tm utc{};
+        ::gmtime_r(&t, &utc);
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d", &utc);
+        return std::string(buf);
+      };
+      out << fmt::format("{:>4}  {:<6} {:<20} {:<16} {:<10} {:<10} {}\n", "id",
+                         "user", "name", "case", "expires", "last used",
+                         "created");
+      for (const auto &t : tokens)
+        out << fmt::format("{:>4}  {:<6} {:<20} {:<16} {:<10} {:<10} {}\n",
+                           t.id, t.user_id, t.name, t.case_id.value_or("(all)"),
+                           t.expires_at ? day(*t.expires_at) : "never",
+                           t.last_used_at ? day(*t.last_used_at) : "-",
+                           day(t.created_at));
+      if (tokens.empty())
+        out << "(no API tokens)\n";
+      return 0;
+    }
+    case Kind::revoke_token: {
+      if (command.token_id <= 0)
+        throw api::HttpError(400, "--id is required");
+      if (!auth.stores().tokens->revoke(command.token_id, std::nullopt))
+        throw api::HttpError(404, "no API token has id " +
+                                      std::to_string(command.token_id));
+      auth.audit(api::superuser_principal(), std::nullopt, "admin.revoke_token",
+                 std::to_string(command.token_id));
+      out << fmt::format("Revoked API token {}\n", command.token_id);
       return 0;
     }
     case Kind::register_case: {

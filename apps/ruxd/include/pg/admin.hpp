@@ -16,6 +16,7 @@
 
 #include <api/AuthService.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iosfwd>
@@ -33,6 +34,8 @@ struct AdminCommand {
     list_users,
     disable_user,
     create_token,
+    list_tokens,
+    revoke_token,
     register_case,
   };
   Kind kind = Kind::none;
@@ -45,6 +48,10 @@ struct AdminCommand {
   std::string token_name;
   /// create-token --case: limit the token to this case id.
   std::string case_id;
+  /// create-token --expires-days (0 = never; -1 = the default, 90 days).
+  int expires_days = -1;
+  /// revoke-token --id.
+  std::int64_t token_id = 0;
   /// register-case: the existing project file, the case name and owner.
   std::filesystem::path path;
   std::string case_name;

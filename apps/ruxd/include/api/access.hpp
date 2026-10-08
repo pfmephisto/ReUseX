@@ -21,12 +21,12 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ruxd::api {
 
@@ -105,6 +105,8 @@ struct Principal {
   std::optional<std::string> case_scope;
   /// The session's token hash, for logout and renewal (session only).
   std::string session_hash;
+  /// The API token's hash (api_token only), to re-check it later.
+  std::string token_hash;
 
   bool authenticated() const noexcept {
     return kind != PrincipalKind::anonymous;
@@ -146,45 +148,91 @@ struct AccessDecision {
 AccessDecision decide_access(const Principal &who, const RouteAccess &route,
                              std::optional<Role> role);
 
+// --- client addresses
+// ---------------------------------------------------------
+
+/// Whether @p ip (an IPv4 or IPv6 literal) lies in @p cidr ("10.0.0.0/8",
+/// "::1/128", or a bare address = a single host). Malformed input: false.
+bool cidr_contains(std::string_view cidr, std::string_view ip);
+
+/// Whether @p cidr parses as an IPv4/IPv6 network or address.
+bool is_valid_cidr(std::string_view cidr);
+
+/// The client a request comes from. @p peer is the TCP peer; when it is one
+/// of @p trusted_proxies, `X-Forwarded-For` (@p forwarded_for) is honoured:
+/// the right-most address that is not itself a trusted proxy. From anyone
+/// else the header is ignored (it is trivially forged).
+std::string client_address(std::string_view peer,
+                           std::string_view forwarded_for,
+                           const std::vector<std::string> &trusted_proxies);
+
+/// The rate-limit key of an address: an IPv6 address counts as its /64 (one
+/// subscriber's allocation — rotating within it must not reset the limit),
+/// an IPv4 (or IPv4-mapped IPv6) address as itself.
+std::string rate_limit_key(std::string_view ip);
+
 // --- login rate limit --------------------------------------------------------
 
 struct LoginRateLimitOptions {
-  /// Attempts per (client IP, email) within `window`.
-  std::size_t per_ip_and_email = 5;
-  /// Attempts per client IP within `window`, any email: a spray across
-  /// accounts from one address.
-  std::size_t per_ip = 30;
-  std::chrono::seconds window{60};
-  /// Keys tracked at once; the oldest are dropped past it, so a flood of
+  /// Failed logins an account may have before each further attempt waits.
+  std::size_t free_failures_per_account = 5;
+  /// The same for one client address (an IPv6 /64), any account: a spray.
+  std::size_t free_failures_per_address = 20;
+  /// The first wait once the free failures are used; it doubles with every
+  /// further failure (exponential back-off) …
+  std::chrono::seconds base_delay{1};
+  /// … up to this.
+  std::chrono::seconds max_delay{std::chrono::minutes(15)};
+  /// Failures are forgotten after this long without another.
+  std::chrono::seconds forget_after{std::chrono::minutes(30)};
+  /// Keys tracked at once; the stalest are dropped past it, so a flood of
   /// distinct emails cannot grow memory without bound.
   std::size_t max_keys = 10000;
 };
 
-/// The in-memory login rate limiter: a sliding window per key. Thread-safe.
-/// Every attempt counts, successful or not.
+/// Back-off for failed logins (and wrong Bearer tokens), in memory,
+/// thread-safe. Only FAILURES count; a successful login clears its account's
+/// failures. Past the free failures each attempt must wait base_delay ·
+/// 2^(failures − free), capped at max_delay — so a guesser is slowed to a
+/// crawl, while a locked-out user is never blocked for longer than max_delay.
 class LoginRateLimiter {
     public:
   using Clock = std::chrono::steady_clock;
 
   explicit LoginRateLimiter(LoginRateLimitOptions options = {});
 
-  /// Record an attempt by @p ip for @p email at @p now. @return 0 when it
-  /// may go ahead, else the seconds until the oldest attempt in the window
-  /// expires (for Retry-After). A refused attempt is not recorded.
-  std::chrono::seconds attempt(std::string_view ip, std::string_view email,
-                               Clock::time_point now = Clock::now());
+  /// 0 when a login for @p email from @p address_key (rate_limit_key) may
+  /// be tried at @p now, else the seconds to wait (for Retry-After).
+  std::chrono::seconds wait(std::string_view address_key,
+                            std::string_view email,
+                            Clock::time_point now = Clock::now());
+  /// Record a failed login.
+  void failure(std::string_view address_key, std::string_view email,
+               Clock::time_point now = Clock::now());
+  /// A successful login: the account's failures are forgotten.
+  void success(std::string_view email);
+
+  /// The address-only half, for wrong Bearer tokens.
+  std::chrono::seconds wait_address(std::string_view address_key,
+                                    Clock::time_point now = Clock::now());
+  void failure_address(std::string_view address_key,
+                       Clock::time_point now = Clock::now());
 
   const LoginRateLimitOptions &options() const noexcept { return options_; }
 
     private:
-  /// Seconds until a slot frees in @p window, or 0 if one is free now.
-  std::chrono::seconds wait_for(std::deque<Clock::time_point> &window,
-                                std::size_t limit, Clock::time_point now);
+  struct Failures {
+    std::size_t count = 0;
+    Clock::time_point last;
+  };
+  std::chrono::seconds wait_locked(const std::string &key, std::size_t free,
+                                   Clock::time_point now);
+  void fail_locked(const std::string &key, Clock::time_point now);
   void prune(Clock::time_point now);
 
   LoginRateLimitOptions options_;
   std::mutex mutex_;
-  std::map<std::string, std::deque<Clock::time_point>, std::less<>> windows_;
+  std::map<std::string, Failures, std::less<>> failures_;
 };
 
 } // namespace ruxd::api

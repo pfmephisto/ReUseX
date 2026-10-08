@@ -45,6 +45,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -256,7 +257,8 @@ class KeepAliveConnection {
 /// and reads unfragmented server text frames (server frames are never masked).
 class WebSocketClient {
     public:
-  WebSocketClient(std::uint16_t port, const std::string &path) {
+  WebSocketClient(std::uint16_t port, const std::string &path,
+                  const std::string &extra_headers = {}) {
     fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
     REQUIRE(fd_ >= 0);
     sockaddr_in addr{};
@@ -273,7 +275,8 @@ class WebSocketClient {
         " HTTP/1.1\r\nHost: 127.0.0.1\r\n"
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-        "Sec-WebSocket-Version: 13\r\n\r\n";
+        "Sec-WebSocket-Version: 13\r\n" +
+        extra_headers + "\r\n";
     REQUIRE(::send(fd_, upgrade.data(), upgrade.size(), MSG_NOSIGNAL) ==
             static_cast<ssize_t>(upgrade.size()));
     std::size_t end;
@@ -314,7 +317,43 @@ class WebSocketClient {
     }
   }
 
+  /// True once the server closes the socket (a close frame, or EOF) within
+  /// the receive timeout; false when it is still open after it.
+  bool closed_by_server() {
+    try {
+      while (true) {
+        need(2);
+        const auto b0 = static_cast<unsigned char>(buffer_[0]);
+        std::size_t len = static_cast<unsigned char>(buffer_[1]) & 0x7f;
+        std::size_t head = 2;
+        if (len == 126) {
+          need(4);
+          len =
+              (static_cast<std::size_t>(static_cast<unsigned char>(buffer_[2]))
+               << 8) |
+              static_cast<unsigned char>(buffer_[3]);
+          head = 4;
+        }
+        need(head + len);
+        buffer_.erase(0, head + len);
+        if ((b0 & 0x0f) == 0x8)
+          return true;
+      }
+    } catch (const StillOpen &) {
+      return false;
+    } catch (const std::runtime_error &) {
+      return true; // EOF
+    }
+  }
+
+  void set_timeout(int seconds) {
+    timeval timeout{};
+    timeout.tv_sec = seconds;
+    ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  }
+
     private:
+  struct StillOpen {};
   void need(std::size_t n) {
     while (buffer_.size() < n)
       fill();
@@ -322,6 +361,8 @@ class WebSocketClient {
   void fill() {
     char chunk[4096];
     const ssize_t n = ::recv(fd_, chunk, sizeof(chunk), 0);
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+      throw StillOpen{};
     if (n <= 0)
       throw std::runtime_error("websocket closed or stalled");
     buffer_.append(chunk, static_cast<std::size_t>(n));
@@ -1509,7 +1550,7 @@ TEST_CASE("RunningServer_ServerMode_ApiTokenAndSuperuser",
   auth_options.argon2.iterations = 1;
   auth_options.argon2.memory_kib = 256;
   auth_options.argon2.lanes = 1;
-  auth_options.superuser_token = "root-token-0123456789";
+  auth_options.superuser_token = "root-token-0123456789abcdefghijklmnop";
   auto auth = std::make_shared<AuthService>(stores, auth_options);
   const auto ci = auth->create_user("ci@example.dk", "CI", "hemmeligt1", false);
   stores.members->set_role("alpha", ci.id, Role::editor);
@@ -1540,10 +1581,273 @@ TEST_CASE("RunningServer_ServerMode_ApiTokenAndSuperuser",
             .status == 401);
 
   // The superuser token may do everything.
-  const std::string su = "Authorization: Bearer root-token-0123456789\r\n";
+  const std::string su =
+      "Authorization: Bearer root-token-0123456789abcdefghijklmnop\r\n";
   CHECK(fresh().get("/api/v1/users", su).status == 200);
   CHECK(fresh().get("/api/v1/cases/beta/project", su).status == 200);
   const auto me =
       nlohmann::json::parse(fresh().get("/api/v1/auth/me", su).body);
   CHECK(me["via"] == "superuser");
+}
+
+// ===========================================================================
+// Fix round 1 (S3 review): upgrade bypass, sockets, model_path, cookies
+// ===========================================================================
+
+namespace {
+
+/// Send @p request raw and return the status code of the answer (0 when the
+/// server closed without one). Reads only the head.
+int raw_status(std::uint16_t port, const std::string &request) {
+  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  REQUIRE(fd >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+  addr.sin_port = ::htons(port);
+  REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+          0);
+  timeval timeout{};
+  timeout.tv_sec = 10;
+  ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  ::send(fd, request.data(), request.size(), MSG_NOSIGNAL);
+  std::string reply;
+  char chunk[2048];
+  while (reply.find("\r\n") == std::string::npos) {
+    const ssize_t n = ::recv(fd, chunk, sizeof(chunk), 0);
+    if (n <= 0)
+      break;
+    reply.append(chunk, static_cast<std::size_t>(n));
+  }
+  ::close(fd);
+  const auto space = reply.find(' ');
+  if (space == std::string::npos)
+    return 0;
+  return std::atoi(reply.c_str() + space + 1);
+}
+
+struct ServerModeFixture {
+  ServerModeFixture() {
+    ::unsetenv("RUX_GUI_ASSETS");
+    for (const char *name : {"alpha.rux", "beta.rux"})
+      reusex::ProjectDB(dir.path / name, /*readOnly=*/false);
+    AuthOptions auth_options;
+    auth_options.argon2.iterations = 1;
+    auth_options.argon2.memory_kib = 256;
+    auth_options.argon2.lanes = 1;
+    auth_options.superuser_token = superuser;
+    auth = std::make_shared<AuthService>(stores, auth_options);
+    root = auth->create_user("root@example.dk", "Root", "hemmeligt1", true);
+    vera = auth->create_user("vera@example.dk", "Vera", "hemmeligt2", false);
+    stores.members->set_role("alpha", root.id, Role::owner);
+    stores.members->set_role("alpha", vera.id, Role::viewer);
+    ServerOptions options = options_for(dir.path, {}, free_port());
+    options.auth = auth;
+    server = std::make_unique<RunningServer>(std::move(options));
+  }
+  std::string login(const std::string &email, const std::string &password) {
+    KeepAliveConnection c(server->port());
+    const auto r = c.send_json("POST", "/api/v1/auth/login",
+                               R"({"email":")" + email + R"(","password":")" +
+                                   password + R"("})",
+                               origin());
+    REQUIRE(r.status == 200);
+    return "Cookie: " + r.set_cookie.substr(0, r.set_cookie.find(';')) + "\r\n";
+  }
+  std::string origin() const {
+    return "Origin: http://127.0.0.1:" + std::to_string(server->port()) +
+           "\r\n";
+  }
+  const std::string superuser = "superuser-token-0123456789abcdefghij";
+  TempDir dir{"test_api_server_fix1"};
+  AuthStores stores = in_memory_auth_stores();
+  std::shared_ptr<AuthService> auth;
+  User root, vera;
+  std::unique_ptr<RunningServer> server;
+};
+
+} // namespace
+
+TEST_CASE("RunningServer_UpgradeHeaderOutsideTheUpgradePath_IsAuthenticated",
+          "[ruxd_api][server][socket][auth]") {
+  // Review C1: Crow takes its WebSocket path only for HTTP/1.1. An HTTP/1.0
+  // request (or an h2c one) with an Upgrade header reaches the ordinary
+  // handler — and the middleware used to wave every `req.upgrade` through.
+  ServerModeFixture f;
+  const auto port = f.server->port();
+  const std::string vid = std::to_string(f.vera.id);
+
+  // HTTP/1.0 + Upgrade: anonymous reads, deletes and member removal refused.
+  CHECK(raw_status(port, "GET /api/v1/cases HTTP/1.0\r\nHost: 127.0.0.1\r\n"
+                         "Upgrade: x\r\n\r\n") == 401);
+  CHECK(raw_status(port, "GET /api/v1/cases/alpha/project HTTP/1.0\r\n"
+                         "Host: 127.0.0.1\r\nUpgrade: x\r\n\r\n") == 401);
+  CHECK(raw_status(port, "DELETE /api/v1/cases/alpha HTTP/1.0\r\n"
+                         "Host: 127.0.0.1\r\nUpgrade: x\r\n\r\n") == 401);
+  CHECK(raw_status(port, "DELETE /api/v1/cases/alpha/members/" + vid +
+                             " HTTP/1.0\r\nHost: 127.0.0.1\r\nUpgrade: "
+                             "websocket\r\nConnection: Upgrade\r\n\r\n") ==
+        401);
+  // HTTP/1.0 needs no Host — the Host check refuses it.
+  CHECK(raw_status(port, "GET /api/v1/cases HTTP/1.0\r\nUpgrade: x\r\n\r\n") ==
+        403);
+  // An h2c upgrade, which Crow ignores and serves normally: evaluated.
+  CHECK(raw_status(port, "GET /api/v1/cases/alpha/project HTTP/1.1\r\n"
+                         "Host: 127.0.0.1\r\nUpgrade: h2c\r\nConnection: "
+                         "Upgrade, HTTP2-Settings\r\n\r\n") == 401);
+  // HTTP/1.1 with Upgrade but no `Connection: upgrade`: whichever way the
+  // parser classifies it — Crow's upgrade path (an ordinary route answers
+  // 404 without running its handler) or an ordinary request (evaluated:
+  // 401; Crow's upgrade path has handed the socket away and just closes
+  // it: 0) — no handler runs for an anonymous caller.
+  for (const std::string &request : std::vector<std::string>{
+           "GET /api/v1/cases/alpha/project HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+           "Upgrade: x\r\n\r\n",
+           "DELETE /api/v1/cases/alpha HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+           "Upgrade: x\r\n\r\n",
+           "DELETE /api/v1/cases/alpha/members/" + vid +
+               " HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: x\r\n\r\n"}) {
+    INFO(request);
+    const int status = raw_status(port, request);
+    CHECK((status == 0 || status == 401 || status == 404));
+  }
+
+  // Nothing happened: the case and the membership are still there.
+  CHECK(f.stores.members->role_of("alpha", f.vera.id) == Role::viewer);
+  KeepAliveConnection c(port);
+  const auto list = nlohmann::json::parse(
+      c.get("/api/v1/cases", "Authorization: Bearer " + f.superuser + "\r\n")
+          .body);
+  CHECK(list["cases"].size() == 2);
+}
+
+TEST_CASE("RunningServer_EventsSocket_ClosedWhenAccessEnds",
+          "[ruxd_api][server][socket][auth]") {
+  // Review I2: logout and losing membership close the events sockets they
+  // opened, instead of leaving them streaming the case.
+  ServerModeFixture f;
+  const auto port = f.server->port();
+  const auto vera = f.login("vera@example.dk", "hemmeligt2");
+  const auto root = f.login("root@example.dk", "hemmeligt1");
+
+  SECTION("removed from the case") {
+    WebSocketClient ws(port, "/api/v1/cases/alpha/events", vera);
+    CHECK(nlohmann::json::parse(ws.next_text())["type"] == "hello");
+    KeepAliveConnection c(port);
+    CHECK(
+        c.send_json("DELETE",
+                    "/api/v1/cases/alpha/members/" + std::to_string(f.vera.id),
+                    "", root + f.origin())
+            .status == 204);
+    CHECK(ws.closed_by_server());
+  }
+  SECTION("logged out") {
+    WebSocketClient ws(port, "/api/v1/cases/alpha/events", vera);
+    CHECK(nlohmann::json::parse(ws.next_text())["type"] == "hello");
+    KeepAliveConnection c(port);
+    CHECK(c.send_json("POST", "/api/v1/auth/logout", "", vera + f.origin())
+              .status == 204);
+    CHECK(ws.closed_by_server());
+  }
+  SECTION("someone else's change leaves it open") {
+    WebSocketClient ws(port, "/api/v1/cases/alpha/events", vera);
+    CHECK(nlohmann::json::parse(ws.next_text())["type"] == "hello");
+    KeepAliveConnection c(port);
+    CHECK(c.send_json("POST", "/api/v1/auth/logout", "", root + f.origin())
+              .status == 204);
+    ws.set_timeout(1);
+    CHECK_FALSE(ws.closed_by_server());
+  }
+}
+
+TEST_CASE("RunningServer_ServerMode_ModelPathAndTokensAndCookies",
+          "[ruxd_api][server][socket][auth]") {
+  ServerModeFixture f;
+  const auto port = f.server->port();
+  const auto root = f.login("root@example.dk", "hemmeligt1");
+  KeepAliveConnection c(port);
+
+  // Review I3: no client-chosen model file in server mode.
+  CHECK(c.send_json("POST", "/api/v1/cases/alpha/frames/1/segment",
+                    R"({"model_path":"/etc/passwd","prompts":[{"text":"x"}]})",
+                    root + f.origin())
+            .status == 400);
+
+  // Review I5: API tokens — create (shown once), list (never the token),
+  // revoke.
+  const auto made =
+      c.send_json("POST", "/api/v1/auth/tokens",
+                  R"({"name":"ci","expires_days":7})", root + f.origin());
+  REQUIRE(made.status == 201);
+  const auto token = nlohmann::json::parse(made.body);
+  CHECK(token["token"].get<std::string>().rfind("rxt_", 0) == 0);
+  CHECK_FALSE(token["expires_at"].is_null());
+  const auto bearer =
+      "Authorization: Bearer " + token["token"].get<std::string>() + "\r\n";
+  CHECK(c.get("/api/v1/cases/alpha/project", bearer).status == 200);
+  const auto listed =
+      nlohmann::json::parse(c.get("/api/v1/auth/tokens", root).body);
+  REQUIRE(listed["tokens"].size() == 1);
+  CHECK_FALSE(listed["tokens"][0].contains("token"));
+  // A token cannot mint tokens.
+  CHECK(c.get("/api/v1/auth/tokens", bearer).status == 403);
+  CHECK(c.send_json("DELETE",
+                    "/api/v1/auth/tokens/" +
+                        std::to_string(token["id"].get<int>()),
+                    "", root + f.origin())
+            .status == 204);
+  CHECK(c.get("/api/v1/cases/alpha/project", bearer).status == 401);
+
+  // Review M2: an owner only finds people they already work with.
+  const auto anna =
+      f.auth->create_user("anna@example.dk", "Anna", "hemmeligt3", false);
+  f.stores.members->set_role("beta", anna.id, Role::owner);
+  const auto anna_cookie = f.login("anna@example.dk", "hemmeligt3");
+  KeepAliveConnection a(port);
+  CHECK(a.send_json("POST", "/api/v1/cases/beta/members",
+                    R"({"email":"vera@example.dk","role":"viewer"})",
+                    anna_cookie + f.origin())
+            .status == 404);
+  CHECK(a.send_json("POST", "/api/v1/cases/beta/members",
+                    R"({"email":"nobody@example.dk","role":"viewer"})",
+                    anna_cookie + f.origin())
+            .status == 404);
+  CHECK(c.send_json("POST", "/api/v1/cases/beta/members",
+                    R"({"email":"vera@example.dk","role":"viewer"})",
+                    root + f.origin())
+            .status == 201); // an administrator finds anyone
+}
+
+TEST_CASE("RunningServer_SecureCookie_UsesTheHostPrefix",
+          "[ruxd_api][server][socket][auth]") {
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_host_cookie");
+  reusex::ProjectDB(dir.path / "alpha.rux", /*readOnly=*/false);
+  auto stores = in_memory_auth_stores();
+  AuthOptions auth_options;
+  auth_options.argon2.iterations = 1;
+  auth_options.argon2.memory_kib = 256;
+  auth_options.argon2.lanes = 1;
+  auto auth = std::make_shared<AuthService>(stores, auth_options);
+  auth->create_user("u@example.dk", "U", "hemmeligt1", true);
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.auth = auth;
+  options.cookie_secure = CookieSecure::always;
+  RunningServer server(std::move(options));
+  KeepAliveConnection c(server.port());
+  const auto origin =
+      "Origin: http://127.0.0.1:" + std::to_string(server.port()) + "\r\n";
+  const auto r = c.send_json(
+      "POST", "/api/v1/auth/login",
+      R"({"email":"u@example.dk","password":"hemmeligt1"})", origin);
+  REQUIRE(r.status == 200);
+  CHECK(r.set_cookie.rfind(
+            "__Host-ruxd_session_" + std::to_string(server.port()) + "=", 0) ==
+        0);
+  CHECK(r.set_cookie.find("; Secure") != std::string::npos);
+  CHECK(r.set_cookie.find("Path=/") != std::string::npos);
+  CHECK(r.set_cookie.find("Domain") == std::string::npos);
+  const auto cookie =
+      "Cookie: " + r.set_cookie.substr(0, r.set_cookie.find(';')) + "\r\n";
+  CHECK(c.get("/api/v1/auth/me", cookie).status == 200);
 }

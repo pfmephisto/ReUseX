@@ -30,6 +30,12 @@ AuthService::AuthService(AuthStores stores, AuthOptions options, ClockFn clock)
   if (!stores_.users || !stores_.sessions || !stores_.tokens ||
       !stores_.members || !stores_.audit)
     throw std::invalid_argument("AuthService needs every store");
+  if (!options_.superuser_token.empty() &&
+      options_.superuser_token.size() < kMinSuperuserTokenLength)
+    throw std::invalid_argument(
+        "the superuser token (--auth-token) must be at least " +
+        std::to_string(kMinSuperuserTokenLength) +
+        " characters: it opens everything (try `openssl rand -hex 32`)");
   dummy_hash_ = hash_password(random_token(16), options_.argon2);
 }
 
@@ -38,17 +44,28 @@ Principal AuthService::authenticate(const PresentedCredentials &credentials) {
   const auto now = clock_();
 
   if (!credentials.bearer.empty()) {
+    const std::string address = rate_limit_key(credentials.client_ip);
+    // An address that keeps presenting wrong tokens waits, like a login.
+    if (limiter_.wait_address(address).count() > 0)
+      return out;
     if (!options_.superuser_token.empty() &&
         secure_equals(credentials.bearer, options_.superuser_token))
       return superuser_principal();
-    if (const auto token = stores_.tokens->find(sha256_hex(credentials.bearer)))
+    const std::string hash = sha256_hex(credentials.bearer);
+    if (const auto token = stores_.tokens->find(hash);
+        token && (!token->expires_at || *token->expires_at > now))
       if (auto user = stores_.users->find_by_id(token->user_id);
           user && !user->disabled) {
+        if (!token->last_used_at ||
+            now - *token->last_used_at >= std::chrono::minutes(1))
+          stores_.tokens->touch(token->id, now);
         out.kind = PrincipalKind::api_token;
         out.user = std::move(*user);
         out.case_scope = token->case_id;
+        out.token_hash = hash;
         return out;
       }
+    limiter_.failure_address(address);
     // A wrong Bearer does not fall through to the cookie: a script that
     // presents a token means that token.
     return out;
@@ -92,18 +109,24 @@ AuthService::LoginResult AuthService::login(std::string_view email,
   if (password.size() > kMaxPasswordLength)
     throw HttpError(400, "password too long");
 
-  if (const auto wait = limiter_.attempt(client_ip, key); wait.count() > 0) {
-    spdlog::warn("Login rate limit hit for {} from {}", key, client_ip);
+  const std::string address = rate_limit_key(client_ip);
+  if (const auto wait = limiter_.wait(address, key); wait.count() > 0) {
+    spdlog::warn("Login back-off for {} from {}: {} s", key, client_ip,
+                 wait.count());
     throw LoginRateLimited(wait);
   }
 
-  const auto user = stores_.users->find_by_email(key);
-  const auto stored =
-      user ? stores_.users->password_hash(user->id) : std::nullopt;
-  // Unknown email: the same argon2id work as a real check, then refuse.
+  // One lookup whether or not the email exists, and the same argon2id work:
+  // an unknown email is verified against a dummy hash, then refused.
+  const auto found = stores_.users->find_credentials(key);
+  const std::optional<User> user =
+      found ? std::optional<User>(found->first) : std::nullopt;
+  const std::optional<std::string> stored =
+      found ? std::optional<std::string>(found->second) : std::nullopt;
   const bool ok = verify_password(password, stored ? *stored : dummy_hash_) &&
                   stored.has_value();
   if (!ok || !user || user->disabled) {
+    limiter_.failure(address, key);
     spdlog::info("Failed login for {} from {}", key, client_ip);
     AuditEntry entry;
     entry.user_id = user ? std::optional<std::int64_t>(user->id) : std::nullopt;
@@ -117,6 +140,8 @@ AuthService::LoginResult AuthService::login(std::string_view email,
     }
     throw HttpError(401, std::string(kBadLogin));
   }
+
+  limiter_.success(key);
 
   // Parameters raised since this password was set: store a fresh hash.
   if (password_needs_rehash(*stored, options_.argon2))
@@ -188,9 +213,10 @@ void AuthService::set_disabled(std::int64_t user_id, bool disabled) {
     stores_.sessions->revoke_user(user_id);
 }
 
-std::string AuthService::create_api_token(std::int64_t user_id,
-                                          std::string_view name,
-                                          std::optional<std::string> case_id) {
+std::string
+AuthService::create_api_token(std::int64_t user_id, std::string_view name,
+                              std::optional<std::string> case_id,
+                              std::optional<std::chrono::seconds> lifetime) {
   if (name.empty() || name.size() > kMaxTokenName)
     throw HttpError(400, "a token needs a name of 1-200 characters");
   if (!stores_.users->find_by_id(user_id))
@@ -202,6 +228,9 @@ std::string AuthService::create_api_token(std::int64_t user_id,
   record.name = std::string(name);
   record.case_id = std::move(case_id);
   record.created_at = clock_();
+  const auto life = lifetime.value_or(options_.default_token_lifetime);
+  if (life.count() > 0)
+    record.expires_at = record.created_at + life;
   stores_.tokens->create(std::move(record));
   return token;
 }
@@ -232,6 +261,39 @@ void AuthService::audit(const Principal &who,
   } catch (const std::exception &e) {
     spdlog::warn("Audit write failed ({}): {}", entry.action, e.what());
   }
+}
+
+bool AuthService::still_valid(const Principal &who) const {
+  const auto now = clock_();
+  switch (who.kind) {
+  case PrincipalKind::local:
+  case PrincipalKind::superuser:
+    return true;
+  case PrincipalKind::anonymous:
+    return false;
+  case PrincipalKind::session: {
+    const auto session = stores_.sessions->find(who.session_hash);
+    if (!session || session->expires_at <= now ||
+        session->created_at + options_.sessions.max_lifetime <= now)
+      return false;
+    const auto user = stores_.users->find_by_id(session->user_id);
+    return user && !user->disabled;
+  }
+  case PrincipalKind::api_token: {
+    const auto token = stores_.tokens->find(who.token_hash);
+    if (!token || (token->expires_at && *token->expires_at <= now))
+      return false;
+    const auto user = stores_.users->find_by_id(token->user_id);
+    return user && !user->disabled;
+  }
+  }
+  return false;
+}
+
+std::size_t AuthService::prune_audit(std::chrono::seconds retention) {
+  if (retention.count() <= 0)
+    return 0;
+  return stores_.audit->prune(clock_() - retention);
 }
 
 std::size_t AuthService::purge_expired() {

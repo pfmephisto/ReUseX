@@ -326,10 +326,15 @@ include(Catch)
 # Two calls on one target are safe: catch_discover_tests derives its generated
 # file names from a hash of TEST_SPEC, so the two sets do not overwrite each
 # other. Total discovered test count is unchanged.
+# [postgres] tests (tests/unit/ruxd_pg) start an ephemeral PostgreSQL and
+# SKIP without `initdb`; they carry the ctest label `postgres` (and a `Pg`
+# name prefix), so `ctest -L postgres` runs exactly them.
 function(reusex_discover_tests target)
-    catch_discover_tests(${target} TEST_SPEC "~[gpu]")
+    catch_discover_tests(${target} TEST_SPEC "~[gpu]~[postgres]")
     catch_discover_tests(${target} TEST_SPEC "[gpu]"
                          PROPERTIES RESOURCE_LOCK reusex_gpu)
+    catch_discover_tests(${target} TEST_SPEC "[postgres]"
+                         PROPERTIES LABELS postgres)
 endfunction()
 
 reusex_discover_tests(reusex_unit_tests)

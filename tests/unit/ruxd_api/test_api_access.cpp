@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <string>
+#include <vector>
 
 using namespace ruxd::api;
 using Kind = RouteAccess::Kind;
@@ -58,6 +59,7 @@ TEST_CASE("ClassifyRoute_EveryKindOfRoute", "[ruxd_api][auth][roles]") {
 
   CHECK(classify_route("GET", "/api/v1/health").kind == Kind::public_route);
   CHECK(classify_route("GET", "/api/v1/readyz").kind == Kind::public_route);
+  CHECK(classify_route("GET", "/api/v1/livez").kind == Kind::authenticated);
   CHECK(classify_route("POST", "/api/v1/auth/login").kind ==
         Kind::public_route);
   CHECK(classify_route("GET", "/api/v1/auth/me").kind == Kind::authenticated);
@@ -163,50 +165,105 @@ TEST_CASE("DecideAccess_CaseScopedToken", "[ruxd_api][auth][roles]") {
       403);
 }
 
-TEST_CASE("LoginRateLimiter_FivePerMinutePerIpAndEmail",
+TEST_CASE("LoginRateLimiter_AccountBackoffAfterFiveFailures",
           "[ruxd_api][auth][ratelimit]") {
+  using namespace std::chrono_literals;
   LoginRateLimiter limiter;
-  const auto t0 = LoginRateLimiter::Clock::time_point{} + std::chrono::hours(1);
-  for (int i = 0; i < 5; ++i)
-    CHECK(limiter.attempt("10.0.0.1", "a@x.dk", t0).count() == 0);
-  // The sixth within the minute is refused, with the wait until a slot frees.
-  const auto wait = limiter.attempt("10.0.0.1", "a@x.dk", t0);
-  CHECK(wait.count() == 60);
-  // Case does not dodge it.
-  CHECK(limiter.attempt("10.0.0.1", "A@X.DK", t0).count() > 0);
-  // Another email from the same address, or the same email from another
-  // address, is counted separately.
-  CHECK(limiter.attempt("10.0.0.1", "b@x.dk", t0).count() == 0);
-  CHECK(limiter.attempt("10.0.0.2", "a@x.dk", t0).count() == 0);
-  // The window slides: a minute later it is open again.
-  CHECK(limiter.attempt("10.0.0.1", "a@x.dk", t0 + std::chrono::seconds(30))
-            .count() == 30);
-  CHECK(limiter.attempt("10.0.0.1", "a@x.dk", t0 + std::chrono::seconds(61))
-            .count() == 0);
+  const auto t0 = LoginRateLimiter::Clock::time_point{} + 1h;
+  const std::string a = rate_limit_key("10.0.0.1");
+  for (int i = 0; i < 5; ++i) {
+    CHECK(limiter.wait(a, "anna@x.dk", t0).count() == 0);
+    limiter.failure(a, "anna@x.dk", t0);
+  }
+  // Past five failures: the account waits base_delay, doubling per failure,
+  // from ANY address (a per-account bound an IPv6 rotation cannot dodge).
+  CHECK(limiter.wait(a, "anna@x.dk", t0).count() == 1);
+  CHECK(limiter.wait(rate_limit_key("2001:db8::7"), "ANNA@x.dk", t0).count() ==
+        1);
+  limiter.failure(a, "anna@x.dk", t0 + 1s);
+  CHECK(limiter.wait(a, "anna@x.dk", t0 + 1s).count() == 2);
+  limiter.failure(a, "anna@x.dk", t0 + 3s);
+  CHECK(limiter.wait(a, "anna@x.dk", t0 + 3s).count() == 4);
+  // Other accounts are not affected.
+  CHECK(limiter.wait(a, "bo@x.dk", t0).count() == 0);
+  // A success forgets the account's failures.
+  limiter.success("anna@x.dk");
+  CHECK(limiter.wait(a, "anna@x.dk", t0 + 3s).count() == 0);
 }
 
-TEST_CASE("LoginRateLimiter_SprayFromOneAddress_Limited",
+TEST_CASE("LoginRateLimiter_BackoffIsCappedAndForgotten",
+          "[ruxd_api][auth][ratelimit]") {
+  using namespace std::chrono_literals;
+  LoginRateLimitOptions options;
+  options.max_delay = 60s;
+  LoginRateLimiter limiter(options);
+  const auto t0 = LoginRateLimiter::Clock::time_point{} + 1h;
+  const std::string a = rate_limit_key("10.0.0.2");
+  for (int i = 0; i < 40; ++i)
+    limiter.failure(a, "c@x.dk", t0);
+  // A user locked out by someone else waits at most max_delay, never for ever.
+  CHECK(limiter.wait(a, "c@x.dk", t0).count() == 60);
+  CHECK(limiter.wait(a, "c@x.dk", t0 + 61s).count() == 0);
+  // Quiet for forget_after: clean slate.
+  limiter.failure(a, "c@x.dk", t0 + 61s);
+  CHECK(limiter.wait(a, "c@x.dk", t0 + 61s + options.forget_after).count() ==
+        0);
+}
+
+TEST_CASE("LoginRateLimiter_SprayFromOneAddressOrIpv6Slash64",
           "[ruxd_api][auth][ratelimit]") {
   LoginRateLimitOptions options;
-  options.per_ip = 10;
+  options.free_failures_per_address = 10;
   LoginRateLimiter limiter(options);
   const auto t0 = LoginRateLimiter::Clock::time_point{} + std::chrono::hours(1);
+  // Ten different addresses inside one /64, ten different accounts.
   for (int i = 0; i < 10; ++i)
-    CHECK(limiter.attempt("10.0.0.9", "user" + std::to_string(i) + "@x.dk", t0)
-              .count() == 0);
-  CHECK(limiter.attempt("10.0.0.9", "fresh@x.dk", t0).count() > 0);
-  CHECK(limiter.attempt("10.0.0.8", "fresh@x.dk", t0).count() == 0);
+    limiter.failure(rate_limit_key("2001:db8:1:2::" + std::to_string(i + 1)),
+                    "user" + std::to_string(i) + "@x.dk", t0);
+  // The /64 is one key: a fresh account from yet another address in it waits.
+  CHECK(limiter.wait(rate_limit_key("2001:db8:1:2:ffff::9"), "fresh@x.dk", t0)
+            .count() > 0);
+  // Another /64 does not.
+  CHECK(limiter.wait(rate_limit_key("2001:db8:1:3::1"), "fresh@x.dk", t0)
+            .count() == 0);
+  // Wrong bearer tokens use the address half alone.
+  for (int i = 0; i < 25; ++i)
+    limiter.failure_address(rate_limit_key("10.9.9.9"), t0);
+  CHECK(limiter.wait_address(rate_limit_key("10.9.9.9"), t0).count() > 0);
 }
 
 TEST_CASE("LoginRateLimiter_BoundedMemory", "[ruxd_api][auth][ratelimit]") {
   LoginRateLimitOptions options;
   options.max_keys = 100;
-  options.per_ip = 100000;
   LoginRateLimiter limiter(options);
   const auto t0 = LoginRateLimiter::Clock::time_point{} + std::chrono::hours(1);
-  // A flood of distinct emails is pruned rather than kept forever; the
-  // limiter keeps answering.
   for (int i = 0; i < 5000; ++i)
-    limiter.attempt("10.0.0.1", "u" + std::to_string(i) + "@x.dk", t0);
-  CHECK(limiter.attempt("10.0.0.7", "z@x.dk", t0).count() == 0);
+    limiter.failure("k" + std::to_string(i), "u" + std::to_string(i) + "@x.dk",
+                    t0);
+  CHECK(limiter.wait("fresh", "z@x.dk", t0).count() == 0);
+}
+
+TEST_CASE("ClientAddress_TrustedProxiesOnly", "[ruxd_api][auth][ratelimit]") {
+  const std::vector<std::string> proxies{"127.0.0.1", "10.0.0.0/8"};
+  // A direct client cannot claim another address.
+  CHECK(client_address("203.0.113.5", "1.2.3.4", proxies) == "203.0.113.5");
+  // Through our proxy: the right-most hop that is not one of our proxies.
+  CHECK(client_address("127.0.0.1", "1.2.3.4", proxies) == "1.2.3.4");
+  CHECK(client_address("127.0.0.1", "6.6.6.6, 1.2.3.4, 10.1.1.1", proxies) ==
+        "1.2.3.4");
+  CHECK(client_address("127.0.0.1", "", proxies) == "127.0.0.1");
+  CHECK(client_address("127.0.0.1", "garbage", proxies) == "127.0.0.1");
+  CHECK(client_address("127.0.0.1", "1.2.3.4", {}) == "127.0.0.1");
+
+  CHECK(cidr_contains("10.0.0.0/8", "10.200.3.4"));
+  CHECK_FALSE(cidr_contains("10.0.0.0/8", "11.0.0.1"));
+  CHECK(cidr_contains("2001:db8::/32", "2001:db8:ff::1"));
+  CHECK(cidr_contains("127.0.0.1", "::ffff:127.0.0.1"));
+  CHECK_FALSE(is_valid_cidr("10.0.0.0/33"));
+  CHECK_FALSE(is_valid_cidr("nope"));
+  CHECK(is_valid_cidr("::1/128"));
+
+  CHECK(rate_limit_key("2001:db8:1:2:3:4:5:6") == "v6:2001:db8:1:2::/64");
+  CHECK(rate_limit_key("::ffff:192.0.2.1") == "v4:192.0.2.1");
+  CHECK(rate_limit_key("192.0.2.1") == "v4:192.0.2.1");
 }

@@ -76,6 +76,17 @@ int run(int argc, char **argv) {
   configure_cli(cli, inv);
   CLI11_PARSE(cli, argc, argv);
   finish_invocation(cli, inv);
+  try {
+    load_secret_files(inv);
+  } catch (const std::exception &e) {
+    spdlog::error("{}", e.what());
+    return 1;
+  }
+  for (const auto &name : secrets_on_argv(argc, argv))
+    spdlog::warn("{} was given on the command line, where every user of this "
+                 "machine can read it (/proc/*/cmdline); prefer its "
+                 "environment variable or {}-file",
+                 name, name);
 
   if (inv.is_admin())
     return run_admin(std::move(inv));

@@ -15,6 +15,7 @@
 #include "api/assets.hpp"
 #include "api/case_meta.hpp"
 #include "api/cases.hpp"
+#include "api/credentials.hpp"
 #include "api/edits.hpp"
 #include "api/gsplat.hpp"
 #include "api/local_mode.hpp"
@@ -44,6 +45,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -539,6 +541,7 @@ class Server::Impl {
     options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
     session_cookie_name_ = session_cookie_name(options_.port);
+    secure_cookie_name_ = "__Host-" + session_cookie_name_;
     app_.get_middleware<SecurityMiddleware>().configure(
         options_.allowed_origins, options_.auth_token, options_.bind_address,
         options_.port, auth_ != nullptr,
@@ -600,13 +603,27 @@ class Server::Impl {
       } catch (const std::exception &e) {
         spdlog::warn("Expiring uploads failed: {}", e.what());
       }
-      if (auth_)
+      if (auth_) {
         try {
           if (const auto n = auth_->purge_expired(); n > 0)
             spdlog::debug("Purged {} expired session(s)", n);
         } catch (const std::exception &e) {
           spdlog::warn("Purging expired sessions failed: {}", e.what());
         }
+        revalidate_sockets();
+        // Audit retention, hourly.
+        const auto now = std::chrono::steady_clock::now();
+        if (now - audit_pruned_ >= std::chrono::hours(1)) {
+          audit_pruned_ = now;
+          try {
+            if (const auto n = auth_->prune_audit(options_.audit_retention);
+                n > 0)
+              spdlog::info("Pruned {} audit entr(y/ies) past retention", n);
+          } catch (const std::exception &e) {
+            spdlog::warn("Pruning the audit log failed: {}", e.what());
+          }
+        }
+      }
     });
 
     register_routes();
@@ -699,7 +716,18 @@ class Server::Impl {
   /// configured.
   /// @throws HttpError(503) while the managed model is downloading/building.
   /// @throws HttpError(500) when preparation has failed.
+  /// A client-chosen path would make the server deserialise any file it can
+  /// read as a model (review I3): in server mode the model comes only from
+  /// the server's own configuration. Local mode (one trusted person) keeps
+  /// the field.
+  void refuse_client_model_path(const std::string &requested) const {
+    if (!requested.empty() && auth_)
+      throw HttpError(400, "'model_path' is not accepted by this server: it "
+                           "uses its configured SAM3 model; omit the field");
+  }
+
   std::string resolve_model_path(const std::string &requested, bool use_cuda) {
+    refuse_client_model_path(requested);
     if (!requested.empty())
       return requested;
     if (!model_provider_)
@@ -767,7 +795,13 @@ class Server::Impl {
     const std::string authorization = req.get_header_value("Authorization");
     const std::string cookies = req.get_header_value("Cookie");
     credentials.bearer = bearer_token(authorization);
+    // Both spellings: `__Host-` when the cookie was set Secure (review M7),
+    // the plain per-port name on a loopback / plain-HTTP server.
     credentials.session_cookies = cookie_values(cookies, session_cookie_name_);
+    for (const auto value : cookie_values(cookies, secure_cookie_name_))
+      credentials.session_cookies.push_back(value);
+    const std::string client = client_of(req);
+    credentials.client_ip = client;
     try {
       gate.principal = auth_->authenticate(credentials);
       if (gate.route.kind == RouteAccess::Kind::case_route)
@@ -811,6 +845,47 @@ class Server::Impl {
     std::transform(proto.begin(), proto.end(), proto.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     return proto == "https" || !is_loopback_bind(options_.bind_address);
+  }
+
+  /// The client address of @p req: the TCP peer, or — when the peer is a
+  /// `--trusted-proxy` — the address it forwarded (X-Forwarded-For).
+  std::string client_of(const crow::request &req) const {
+    return client_address(req.remote_ip_address,
+                          req.get_header_value("X-Forwarded-For"),
+                          options_.trusted_proxies);
+  }
+
+  /// The Set-Cookie value for a session token (empty + Max-Age 0 clears).
+  /// A Secure cookie is named `__Host-ruxd_session_<port>`: browsers then
+  /// refuse it unless it is Secure, host-only and Path=/, so another
+  /// service on the same host cannot plant or shadow it over plain HTTP.
+  std::string session_set_cookie(const crow::request &req,
+                                 std::string_view token,
+                                 std::chrono::seconds max_age) const {
+    const bool secure = cookie_secure_for(req);
+    return session_cookie(secure ? secure_cookie_name_ : session_cookie_name_,
+                          token, max_age, secure);
+  }
+
+  /// The JSON for an API token: never the token or its hash.
+  static json token_json(const ApiTokenRecord &t) {
+    auto iso = [](SystemClock::time_point tp) {
+      const auto secs = std::chrono::floor<std::chrono::seconds>(tp);
+      const std::time_t c = SystemClock::to_time_t(secs);
+      std::tm utc{};
+      ::gmtime_r(&c, &utc);
+      char buf[32];
+      std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &utc);
+      return std::string(buf);
+    };
+    return json{
+        {"id", t.id},
+        {"name", t.name},
+        {"case", t.case_id ? json(*t.case_id) : json(nullptr)},
+        {"created_at", iso(t.created_at)},
+        {"expires_at", t.expires_at ? json(iso(*t.expires_at)) : json(nullptr)},
+        {"last_used_at",
+         t.last_used_at ? json(iso(*t.last_used_at)) : json(nullptr)}};
   }
 
   /// The JSON for a user (never the password hash).
@@ -1203,24 +1278,6 @@ class Server::Impl {
                 {"role", std::string(to_string(member.role))}};
   }
 
-  /// Refuse a change that would leave case @p cid without an owner.
-  void keep_an_owner(const std::string &cid, std::int64_t changing,
-                     std::optional<Role> new_role) {
-    if (new_role == Role::owner)
-      return;
-    const auto members = auth_->stores().members->members(cid);
-    const bool was_owner =
-        std::any_of(members.begin(), members.end(), [&](const Member &m) {
-          return m.user.id == changing && m.role == Role::owner;
-        });
-    const auto owners =
-        std::count_if(members.begin(), members.end(),
-                      [](const Member &m) { return m.role == Role::owner; });
-    if (was_owner && owners <= 1)
-      throw HttpError(409, "a case must keep at least one owner; make someone "
-                           "else owner first");
-  }
-
   void register_auth_routes() {
     app_.route_dynamic("/api/v1/auth/login")
         .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
@@ -1230,15 +1287,14 @@ class Server::Impl {
             const auto body = parse_body_object(req.body);
             const auto result = auth_->login(
                 string_field(body, "email", true),
-                string_field(body, "password", true), req.remote_ip_address);
+                string_field(body, "password", true), client_of(req));
             auto res =
                 json_response(200, json{{"mode", "server"},
                                         {"via", "session"},
                                         {"user", user_json(result.user)}});
-            res.set_header("Set-Cookie",
-                           session_cookie(session_cookie_name_,
-                                          result.session_token, result.max_age,
-                                          cookie_secure_for(req)));
+            res.set_header(
+                "Set-Cookie",
+                session_set_cookie(req, result.session_token, result.max_age));
             res.set_header("Cache-Control", "no-store");
             return res;
           } catch (const LoginRateLimited &e) {
@@ -1257,14 +1313,19 @@ class Server::Impl {
     app_.route_dynamic("/api/v1/auth/logout")
         .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
           return guarded([&] {
-            if (auth_)
-              auth_->logout(principal_of(req));
             crow::response res(204);
-            if (auth_)
-              res.set_header("Set-Cookie",
-                             session_cookie(session_cookie_name_, "",
-                                            std::chrono::seconds(0),
-                                            cookie_secure_for(req)));
+            if (auth_) {
+              const Principal &who = principal_of(req);
+              auth_->logout(who);
+              // Its open tabs' event sockets end with it (review I2).
+              if (who.kind == PrincipalKind::session)
+                close_sockets_if([&](const SocketCase &s) {
+                  return s.principal.session_hash == who.session_hash;
+                });
+              res.set_header(
+                  "Set-Cookie",
+                  session_set_cookie(req, "", std::chrono::seconds(0)));
+            }
             return res;
           });
         });
@@ -1280,6 +1341,73 @@ class Server::Impl {
           auto res = json_response(200, out);
           res.set_header("Cache-Control", "no-store");
           return res;
+        });
+
+    // ---- API tokens (one's own; an administrator's DELETE reaches any) ----
+    app_.route_dynamic("/api/v1/auth/tokens")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return guarded([&] {
+            require_server_mode();
+            const Principal &who = principal_of(req);
+            const auto uid = who.user_id();
+            // A token cannot mint more tokens; the superuser has no user.
+            if (!uid || who.kind != PrincipalKind::session)
+              throw HttpError(403, "API tokens are managed from a signed-in "
+                                   "session (or `ruxd admin`)");
+            if (req.method == crow::HTTPMethod::GET) {
+              json list = json::array();
+              for (const auto &t : auth_->stores().tokens->list(*uid))
+                list.push_back(token_json(t));
+              return json_response(200, json{{"tokens", std::move(list)}});
+            }
+            const auto body = parse_body_object(req.body);
+            std::optional<std::string> scope;
+            if (const auto c = string_field(body, "case", false); !c.empty()) {
+              if (!auth_->role_in(who, c))
+                throw HttpError(404, "no such case '" + c + "'");
+              scope = c;
+            }
+            std::optional<std::chrono::seconds> life;
+            if (body.contains("expires_days")) {
+              if (!body["expires_days"].is_number_integer() ||
+                  body["expires_days"].get<int>() < 0 ||
+                  body["expires_days"].get<int>() > 3650)
+                throw HttpError(400, "'expires_days' must be 0-3650 (0 = "
+                                     "never)");
+              life = std::chrono::hours(24) * body["expires_days"].get<int>();
+            }
+            const auto token = auth_->create_api_token(
+                *uid, string_field(body, "name", true), scope, life);
+            const auto stored = auth_->stores().tokens->find(sha256_hex(token));
+            json out = stored ? token_json(*stored) : json::object();
+            out["token"] = token; // Shown once; only its hash is kept.
+            auto res = json_response(201, out);
+            res.set_header("Cache-Control", "no-store");
+            return res;
+          });
+        });
+
+    app_.route_dynamic("/api/v1/auth/tokens/<string>")
+        .methods(crow::HTTPMethod::DELETE)([this](const crow::request &req,
+                                                  std::string raw_id) {
+          return guarded([&] {
+            require_server_mode();
+            const Principal &who = principal_of(req);
+            if (who.kind == PrincipalKind::api_token)
+              throw HttpError(403, "a token cannot revoke tokens");
+            std::int64_t id = 0;
+            try {
+              id = parse_id(raw_id);
+            } catch (const HttpError &) {
+              throw HttpError(404, "no such token");
+            }
+            const auto owner =
+                who.is_admin() ? std::optional<std::int64_t>() : who.user_id();
+            if (!auth_->stores().tokens->revoke(id, owner))
+              throw HttpError(404, "no such token");
+            return crow::response(204);
+          });
         });
 
     // ---- users (admin) ----
@@ -1320,11 +1448,17 @@ class Server::Impl {
                         id, string_field(body, "display_name", true));
                   if (const auto admin = bool_field(body, "is_admin"))
                     users.set_admin(id, *admin);
-                  if (const auto disabled = bool_field(body, "disabled"))
+                  const auto disabled = bool_field(body, "disabled");
+                  if (disabled)
                     auth_->set_disabled(id, *disabled);
                   if (body.contains("password"))
                     auth_->set_password(id,
                                         string_field(body, "password", true));
+                  // Ended sessions end their sockets too (review I2).
+                  if (disabled.value_or(false) || body.contains("password"))
+                    close_sockets_if([&](const SocketCase &s) {
+                      return s.principal.user_id() == id;
+                    });
                 }
                 return json_response(200, user_json(*users.find_by_id(id)));
               });
@@ -1344,11 +1478,28 @@ class Server::Impl {
                   const auto email =
                       normalize_email(string_field(body, "email", true));
                   const auto role = role_field(body);
-                  const auto user = auth_->stores().users->find_by_email(email);
+                  // Who can be found: an administrator finds anyone; an
+                  // owner only someone they already share a case with, so
+                  // adding members is no oracle for which accounts exist
+                  // (review M2). Both misses read the same.
+                  auto user = auth_->stores().users->find_by_email(email);
+                  const Principal &who = principal_of(req);
+                  if (user && !who.is_admin()) {
+                    const auto mine = who.user_id()
+                                          ? members.cases_of(*who.user_id())
+                                          : std::set<std::string>{};
+                    const auto theirs = members.cases_of(user->id);
+                    const bool shared = std::any_of(
+                        theirs.begin(), theirs.end(),
+                        [&](const std::string &c) { return mine.count(c); });
+                    if (!shared)
+                      user.reset();
+                  }
                   if (!user)
-                    throw HttpError(404, "no user has the email '" + email +
-                                             "'; an administrator creates "
-                                             "users");
+                    throw HttpError(404, "no user you can add has the email '" +
+                                             email +
+                                             "'; an administrator adds people "
+                                             "you have not worked with yet");
                   if (members.role_of(cid, user->id))
                     throw HttpError(409, "'" + email +
                                              "' is already a member; change "
@@ -1373,17 +1524,27 @@ class Server::Impl {
                   throw HttpError(404, "no such case '" + cid + "'");
                 const auto id = parse_id(raw_id);
                 auto &members = *auth_->stores().members;
-                if (!members.role_of(cid, id))
-                  throw HttpError(404,
-                                  "that user is not a member of '" + cid + "'");
+                // Check and write in one atomic step in the store (review
+                // M1): two owners demoting each other cannot both succeed.
+                auto check = [&](MemberChange change) {
+                  if (change == MemberChange::not_member)
+                    throw HttpError(404, "that user is not a member of '" +
+                                             cid + "'");
+                  if (change == MemberChange::last_owner)
+                    throw HttpError(409, "a case must keep at least one "
+                                         "owner; make someone else owner "
+                                         "first");
+                };
                 if (req.method == crow::HTTPMethod::DELETE) {
-                  keep_an_owner(cid, id, std::nullopt);
-                  members.remove(cid, id);
+                  check(members.remove_member(cid, id));
+                  // Their open tabs on this case stop hearing it (I2).
+                  close_sockets_if([&](const SocketCase &s) {
+                    return s.cid == cid && s.principal.user_id() == id;
+                  });
                   return crow::response(204);
                 }
                 const auto role = role_field(parse_body_object(req.body));
-                keep_an_owner(cid, id, role);
-                members.set_role(cid, id, role);
+                check(members.change_role(cid, id, role));
                 const auto user = auth_->stores().users->find_by_id(id);
                 return json_response(200, member_json(Member{*user, role}));
               });
@@ -1392,12 +1553,22 @@ class Server::Impl {
     // ---- readiness ----
     app_.route_dynamic("/api/v1/readyz")
         .methods(crow::HTTPMethod::GET)([this](const crow::request &) {
+          // Cached for a second: an anonymous caller must not be able to
+          // drive a database round trip per request (review M3).
           bool ready = true;
-          try {
-            ready = !options_.readiness || options_.readiness();
-          } catch (const std::exception &e) {
-            spdlog::warn("Readiness probe failed: {}", e.what());
-            ready = false;
+          {
+            std::lock_guard<std::mutex> lock(ready_mutex_);
+            const auto now = std::chrono::steady_clock::now();
+            if (now - ready_checked_ >= std::chrono::seconds(1)) {
+              try {
+                ready_ = !options_.readiness || options_.readiness();
+              } catch (const std::exception &e) {
+                spdlog::warn("Readiness probe failed: {}", e.what());
+                ready_ = false;
+              }
+              ready_checked_ = now;
+            }
+            ready = ready_;
           }
           return json_response(ready ? 200 : 503,
                                json{{"status", ready ? "ready" : "not_ready"}});
@@ -1743,15 +1914,16 @@ class Server::Impl {
                                                 std::string cid, int id) {
           return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
             return guarded([&]() -> crow::response {
+              // Parse and validate the request body first: a refused
+              // model_path is a 400 whatever the server has loaded.
+              const auto seg_req =
+                  parse_segment_frame_request(req.body, options_.segment_cuda);
+              refuse_client_model_path(seg_req.model_path);
               if (!segmenter_)
                 return error_response(503,
                                       "no SAM3 model registered; start the "
                                       "server via 'ruxd --local' and ensure a "
                                       "model is available");
-
-              // Parse and validate the request body.
-              const auto seg_req =
-                  parse_segment_frame_request(req.body, options_.segment_cuda);
 
               // Resolve the model path (managed model when omitted). May 503
               // while the managed model is downloading/building.
@@ -1869,14 +2041,14 @@ class Server::Impl {
                                                 std::string cid, int id) {
           return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
             return guarded([&]() -> crow::response {
+              const auto seg_req = parse_segment_panorama_request(
+                  req.body, options_.segment_cuda);
+              refuse_client_model_path(seg_req.model_path);
               if (!panorama_segmenter_)
                 return error_response(
                     503, "no SAM3 panorama segmenter registered; start the "
                          "server via 'ruxd --local' and ensure a model is "
                          "available");
-
-              const auto seg_req = parse_segment_panorama_request(
-                  req.body, options_.segment_cuda);
 
               // Resolve the model path (managed model when omitted). May 503
               // while the managed model is downloading/building.
@@ -2523,12 +2695,13 @@ class Server::Impl {
             return;
           }
           // Handed to onopen, which owns it from there.
-          *userdata = new std::string(*cid);
+          *userdata = new SocketCase{*cid, nullptr, gate.principal};
         })
         .onopen([this](crow::websocket::connection &conn) {
-          std::unique_ptr<std::string> cid(
-              static_cast<std::string *>(conn.userdata()));
+          std::unique_ptr<SocketCase> accepted(
+              static_cast<SocketCase *>(conn.userdata()));
           conn.userdata(nullptr);
+          const std::string *cid = accepted ? &accepted->cid : nullptr;
           std::shared_ptr<ProjectContext> ctx;
           try {
             ctx = cid ? registry_->acquire(*cid) : nullptr;
@@ -2547,8 +2720,9 @@ class Server::Impl {
             // handler can ever be the one that destroys a context (review
             // N1: a deleted case's WAL anchor closing on an IO thread after
             // its files had moved).
-            std::lock_guard<std::mutex> lock(sockets_mutex_);
-            sockets_[&conn] = SocketCase{ctx->id(), ctx->subscribers()};
+            std::lock_guard lock(sockets_mutex_);
+            sockets_[&conn] =
+                SocketCase{ctx->id(), ctx->subscribers(), accepted->principal};
           }
           ctx->subscribe(&conn, [&conn](const std::string &payload) {
             conn.send_text(payload);
@@ -2590,9 +2764,66 @@ class Server::Impl {
     uploaders_.erase(id);
   }
 
+  /// Close every events socket @p pred picks. Held under sockets_mutex_,
+  /// which keeps each connection alive (its close handler takes the same
+  /// lock before Crow frees it); close() only queues the close frame.
+  template <typename Pred> std::size_t close_sockets_if(Pred &&pred) {
+    std::size_t closed = 0;
+    std::lock_guard lock(sockets_mutex_);
+    std::vector<crow::websocket::connection *> picked;
+    for (auto &[conn, entry] : sockets_)
+      if (pred(entry)) {
+        entry.hub->unsubscribe(conn);
+        picked.push_back(conn);
+      }
+    // Still under the lock (each connection stays alive), but no longer
+    // iterating the table: an inline close handler erases from it.
+    for (auto *conn : picked)
+      if (sockets_.count(conn) > 0) {
+        conn->close("access ended");
+        ++closed;
+      }
+    return closed;
+  }
+
+  /// Re-check every socket's principal and membership (the sweeper's beat):
+  /// catches what no request announces — an expired session, a user
+  /// disabled with `ruxd admin`, a revoked token.
+  void revalidate_sockets() {
+    if (!auth_)
+      return;
+    std::vector<std::pair<std::string, Principal>> open;
+    {
+      std::lock_guard lock(sockets_mutex_);
+      for (const auto &[conn, entry] : sockets_)
+        open.emplace_back(entry.cid, entry.principal);
+    }
+    std::set<std::pair<std::string, std::string>> gone;
+    for (const auto &[cid, who] : open) {
+      bool ok = false;
+      try {
+        ok = auth_->still_valid(who) && auth_->role_in(who, cid).has_value();
+      } catch (const std::exception &e) {
+        spdlog::warn("Re-checking a socket failed: {}", e.what());
+        continue; // A database hiccup closes nothing.
+      }
+      if (!ok)
+        gone.emplace(cid, who.session_hash + "|" + who.token_hash + "|" +
+                              std::to_string(who.user.id));
+    }
+    if (gone.empty())
+      return;
+    const auto n = close_sockets_if([&](const SocketCase &s) {
+      return gone.count({s.cid, s.principal.session_hash + "|" +
+                                    s.principal.token_hash + "|" +
+                                    std::to_string(s.principal.user.id)}) > 0;
+    });
+    spdlog::info("Closed {} events socket(s) whose access ended", n);
+  }
+
   /// The subscriber hub of the case a socket subscribed to.
   std::shared_ptr<SubscriberHub> socket_hub(crow::websocket::connection &conn) {
-    std::lock_guard<std::mutex> lock(sockets_mutex_);
+    std::lock_guard lock(sockets_mutex_);
     auto it = sockets_.find(&conn);
     return it == sockets_.end() ? nullptr : it->second.hub;
   }
@@ -2603,7 +2834,7 @@ class Server::Impl {
   void drop_socket(crow::websocket::connection &conn) {
     SocketCase entry;
     {
-      std::lock_guard<std::mutex> lock(sockets_mutex_);
+      std::lock_guard lock(sockets_mutex_);
       auto it = sockets_.find(&conn);
       if (it == sockets_.end())
         return;
@@ -2720,6 +2951,11 @@ class Server::Impl {
   /// Server mode; nullptr in local mode.
   std::shared_ptr<AuthService> auth_;
   std::string session_cookie_name_;
+  std::string secure_cookie_name_;
+  std::mutex ready_mutex_;
+  std::chrono::steady_clock::time_point ready_checked_{};
+  bool ready_ = false;
+  std::chrono::steady_clock::time_point audit_pruned_{};
   /// Upload id -> who started it (uploader_key).
   std::mutex uploaders_mutex_;
   std::unordered_map<std::string, std::string> uploaders_;
@@ -2744,12 +2980,17 @@ class Server::Impl {
     bool acquired_;
   };
 
-  std::mutex sockets_mutex_;
+  /// Recursive: closing a socket from a request handler can run Crow's close
+  /// handler inline (asio::dispatch on that io thread), which re-enters
+  /// drop_socket.
+  std::recursive_mutex sockets_mutex_;
   /// What an open WebSocket subscribed to: the case id and its subscriber
   /// hub — deliberately not the context (review N1).
   struct SocketCase {
     std::string cid;
     std::shared_ptr<SubscriberHub> hub;
+    /// Who opened it, re-checked on the sweep and when their access ends.
+    Principal principal;
   };
   /// Open WebSocket -> the case it subscribed to.
   std::unordered_map<crow::websocket::connection *, SocketCase> sockets_;

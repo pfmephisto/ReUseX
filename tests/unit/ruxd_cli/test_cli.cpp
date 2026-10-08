@@ -13,7 +13,11 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <string>
+#include <vector>
+
+#include "../../support/temp_path.hpp"
 
 namespace {
 
@@ -149,4 +153,32 @@ TEST_CASE("RuxdCli_CaseOptions_ReachTheServer", "[ruxd][cli]") {
   SECTION("job workers must be at least one") {
     CHECK_THROWS(parse("--local sager --job-workers 0"));
   }
+}
+
+TEST_CASE("RuxdCli_TrustedProxyRetentionAndSecretFiles", "[ruxd][cli]") {
+  clear_port_env();
+  auto inv = parse("--trusted-proxy 127.0.0.1 --trusted-proxy 10.0.0.0/8 "
+                   "--audit-retention-days 30");
+  REQUIRE(inv.local.server.trusted_proxies.size() == 2);
+  CHECK(inv.local.server.audit_retention == std::chrono::hours(24 * 30));
+  CHECK_THROWS(parse("--trusted-proxy not-an-address"));
+  CHECK_THROWS(parse("--trusted-proxy 10.0.0.0/40"));
+
+  // Secrets from files win over (and keep them off) the command line.
+  reusex::test_support::TempDir dir("ruxd_cli_secrets");
+  const auto token = dir.path / "token";
+  const auto dsn = dir.path / "dsn";
+  std::ofstream(token) << "  0123456789abcdef0123456789abcdef\n";
+  std::ofstream(dsn) << "postgresql:///ruxd\n";
+  inv = parse("--auth-token-file " + token.string() + " --pg-url-file " +
+              dsn.string());
+  ruxd::load_secret_files(inv);
+  CHECK(inv.config.auth_token == "0123456789abcdef0123456789abcdef");
+  CHECK(inv.config.pg_url == "postgresql:///ruxd");
+
+  // Secrets passed on argv are spotted (run() warns about them).
+  const char *argv[] = {"ruxd",           "--pg-url", "x",
+                        "--auth-token=y", "--port",   "1"};
+  const auto found = ruxd::secrets_on_argv(6, const_cast<char **>(argv));
+  CHECK(found == std::vector<std::string>{"--pg-url", "--auth-token"});
 }

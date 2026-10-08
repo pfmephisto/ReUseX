@@ -44,15 +44,18 @@ CREATE TABLE cases (
 );
 
 -- API tokens for scripts and CI: hashed like sessions, optionally limited to
--- one case.
+-- one case, expiring (NULL = never), revocable by deleting the row.
 CREATE TABLE api_tokens (
-    id         bigserial PRIMARY KEY,
-    token_hash text        NOT NULL UNIQUE,
-    user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    name       text        NOT NULL,
-    case_id    bigint      REFERENCES cases (id) ON DELETE CASCADE,
-    created_at timestamptz NOT NULL DEFAULT now()
+    id           bigserial PRIMARY KEY,
+    token_hash   text        NOT NULL UNIQUE,
+    user_id      bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    name         text        NOT NULL,
+    case_id      bigint      REFERENCES cases (id) ON DELETE CASCADE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    expires_at   timestamptz,
+    last_used_at timestamptz
 );
+CREATE INDEX api_tokens_user_idx ON api_tokens (user_id);
 
 CREATE TABLE case_members (
     case_id bigint NOT NULL REFERENCES cases (id) ON DELETE CASCADE,

@@ -54,7 +54,12 @@ struct AuthOptions {
   std::string superuser_token;
   /// Shortest password accepted when one is set.
   std::size_t min_password_length = 8;
+  /// Lifetime of a new API token when none is given (0 = never expires).
+  std::chrono::seconds default_token_lifetime{std::chrono::hours(24 * 90)};
 };
+
+/// Shortest superuser token server mode accepts: it opens everything.
+inline constexpr std::size_t kMinSuperuserTokenLength = 32;
 
 /// What a request presented. Either may be empty.
 struct PresentedCredentials {
@@ -62,6 +67,8 @@ struct PresentedCredentials {
   std::string_view bearer;
   /// Every value of the session cookie (a browser may send more than one).
   std::vector<std::string_view> session_cookies;
+  /// The client's address (client_address()), for the wrong-token back-off.
+  std::string_view client_ip;
 };
 
 /// A login refused by the rate limiter: 429, with the wait for Retry-After.
@@ -81,7 +88,8 @@ class AuthService {
     public:
   using ClockFn = std::function<SystemClock::time_point()>;
 
-  /// @throws std::invalid_argument when a store is missing.
+  /// @throws std::invalid_argument when a store is missing, or the
+  ///         superuser token is shorter than kMinSuperuserTokenLength.
   AuthService(AuthStores stores, AuthOptions options = {},
               ClockFn clock = SystemClock::now);
 
@@ -90,6 +98,8 @@ class AuthService {
 
   /// Who @p credentials belong to; anonymous when nothing valid was
   /// presented. A valid session is renewed (sliding expiry) as a side effect.
+  /// Wrong Bearer tokens count against the client address (back-off, as for
+  /// failed logins); while it waits, every Bearer token is refused unread.
   Principal authenticate(const PresentedCredentials &credentials);
 
   struct LoginResult {
@@ -119,9 +129,17 @@ class AuthService {
   /// Disable (ending every session) or re-enable a user.
   void set_disabled(std::int64_t user_id, bool disabled);
 
-  /// Create an API token for @p user_id. @return the token — shown once.
-  std::string create_api_token(std::int64_t user_id, std::string_view name,
-                               std::optional<std::string> case_id);
+  /// Create an API token for @p user_id, expiring after @p lifetime
+  /// (nullopt: the default; 0: never). @return the token — shown once.
+  std::string
+  create_api_token(std::int64_t user_id, std::string_view name,
+                   std::optional<std::string> case_id,
+                   std::optional<std::chrono::seconds> lifetime = std::nullopt);
+
+  /// Whether @p who still stands — its session or token still valid, its
+  /// user still enabled. For long-lived connections (the events socket),
+  /// re-checked on the registry's sweep.
+  bool still_valid(const Principal &who) const;
 
   /// The role @p who has in @p case_id: owner for admins, the stored role
   /// for a member, nullopt otherwise (also for a token scoped elsewhere).
@@ -134,6 +152,9 @@ class AuthService {
 
   /// Drop expired sessions (called on the registry's sweep). @return count.
   std::size_t purge_expired();
+
+  /// Delete audit entries older than @p retention. @return count.
+  std::size_t prune_audit(std::chrono::seconds retention);
 
     private:
   void check_password_policy(std::string_view password) const;

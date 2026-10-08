@@ -27,12 +27,15 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QGraphicsView>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 
 #include <cstdio>
+#include <optional>
+#include <string>
 
 namespace rux::qt::gallery {
 namespace {
@@ -401,6 +404,40 @@ QWidget *make_pipeline_run(const PageContext &ctx) {
   return shell;
 }
 
+/// Runs `planes` and cancels it as soon as the worker has started it: the
+/// shot shows the cancelled run, and stderr says how the job ended. A check
+/// of JobRunner's cancel as the Qt client drives it.
+QWidget *make_pipeline_cancel(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::pipeline);
+  PipelineWorkspace *p = shell->pipeline();
+  p->select_stage(reusex::pipeline::JobStage::planes);
+  if (!p->run())
+    return shell;
+  const auto last_status = [p]() -> std::optional<reusex::pipeline::JobStatus> {
+    if (auto runner = p->runner_handle().lock()) {
+      const auto jobs = runner->jobs();
+      if (!jobs.empty())
+        return jobs.back().status;
+    }
+    return std::nullopt;
+  };
+  QElapsedTimer t;
+  t.start();
+  while (last_status() != reusex::pipeline::JobStatus::running &&
+         p->is_running() && t.elapsed() < 60000) {
+    QApplication::processEvents(QEventLoop::AllEvents);
+    QThread::msleep(1);
+  }
+  p->cancel_running();
+  settle();
+  const auto status = last_status();
+  std::fprintf(
+      stderr, "pipeline-cancel: job ended %s\n",
+      status ? std::string(reusex::pipeline::to_string(*status)).c_str() : "?");
+  return shell;
+}
+
 QWidget *make_log(const PageContext &ctx) {
   auto *shell = make_shell(ctx, Open::project);
   shell->show_page(Workspace::log);
@@ -490,6 +527,10 @@ void register_shell_pages() {
   register_page({"pipeline-run",
                  "Pipeline: kører create planes (skriver til projektkopien)",
                  make_pipeline_run});
+  register_page({"pipeline-cancel",
+                 "Pipeline: create planes afbrudt midt i kørslen (skriver til "
+                 "projektkopien)",
+                 make_pipeline_cancel});
   register_page({"log", "Log: pipeline-loggen med en valgt kørsel", make_log});
   register_page(
       {"log-filter", "Log: filtreret på tekst og status", make_log_filter});

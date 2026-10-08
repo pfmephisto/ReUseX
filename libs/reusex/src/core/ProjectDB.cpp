@@ -7993,6 +7993,166 @@ ProjectDB::pipeline_log(int limit) const {
   return impl_->getPipelineLog(limit);
 }
 
+// --- Raw table browsing (read-only) ---
+
+namespace {
+
+/// "name" with embedded quotes doubled — an SQL identifier literal.
+std::string quote_identifier(std::string_view name) {
+  std::string out = "\"";
+  for (char c : name) {
+    if (c == '"')
+      out += '"';
+    out += c;
+  }
+  out += '"';
+  return out;
+}
+
+} // namespace
+
+std::vector<ProjectDB::TableInfo> ProjectDB::list_tables() const {
+  std::vector<TableInfo> out;
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name;",
+        "list_tables");
+    StmtGuard g(s);
+    int rc;
+    while ((rc = sqlite3_step(s)) == SQLITE_ROW)
+      out.push_back({column_text(s, 0), 0});
+    if (rc != SQLITE_DONE)
+      throw std::runtime_error(std::string("list_tables: ") +
+                               sqlite3_errmsg(impl_->db));
+  }
+  for (auto &t : out) {
+    const std::string sql = "SELECT COUNT(*) FROM " + quote_identifier(t.name);
+    sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "list_tables");
+    StmtGuard g(s);
+    if (sqlite3_step(s) != SQLITE_ROW)
+      throw std::runtime_error("list_tables: cannot count " + t.name + ": " +
+                               sqlite3_errmsg(impl_->db));
+    t.row_count = sqlite3_column_int64(s, 0);
+  }
+  return out;
+}
+
+std::vector<ProjectDB::TableColumn>
+ProjectDB::table_columns(std::string_view table) const {
+  const auto tables = list_tables();
+  if (std::none_of(tables.begin(), tables.end(),
+                   [&](const TableInfo &t) { return t.name == table; }))
+    throw std::invalid_argument("table_columns: no table '" +
+                                std::string(table) + "'");
+  const std::string sql = "PRAGMA table_info(" + quote_identifier(table) + ");";
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_columns");
+  StmtGuard g(s);
+  std::vector<TableColumn> out;
+  int rc;
+  // cid | name | type | notnull | dflt_value | pk
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    TableColumn c;
+    c.name = column_text(s, 1);
+    c.declared_type = column_text(s, 2);
+    c.not_null = sqlite3_column_int(s, 3) != 0;
+    c.primary_key = sqlite3_column_int(s, 5) != 0;
+    out.push_back(std::move(c));
+  }
+  if (rc != SQLITE_DONE)
+    throw std::runtime_error(std::string("table_columns: ") +
+                             sqlite3_errmsg(impl_->db));
+  return out;
+}
+
+std::vector<std::vector<ProjectDB::TableCell>>
+ProjectDB::table_rows(std::string_view table, std::int64_t offset,
+                      std::int64_t limit, std::size_t text_limit) const {
+  if (offset < 0 || limit < 0)
+    throw std::invalid_argument("table_rows: offset and limit must be >= 0");
+  const auto columns = table_columns(table); // validates the name
+  std::vector<std::vector<TableCell>> rows;
+  if (limit == 0 || columns.empty())
+    return rows;
+
+  const std::string from = quote_identifier(table);
+  // Order: rowid when the table has one, else its primary key — a stable
+  // order, so consecutive pages neither skip nor repeat rows.
+  std::string order;
+  {
+    sqlite3_stmt *probe = nullptr;
+    const std::string sql = "SELECT rowid FROM " + from + " LIMIT 0;";
+    if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &probe, nullptr) ==
+        SQLITE_OK) {
+      order = " ORDER BY rowid";
+    } else {
+      std::string keys;
+      for (const auto &c : columns)
+        if (c.primary_key)
+          keys += (keys.empty() ? "" : ", ") + quote_identifier(c.name);
+      if (!keys.empty())
+        order = " ORDER BY " + keys;
+    }
+    sqlite3_finalize(probe);
+  }
+
+  // Per column: its type, a bounded value (blob head / text prefix / number)
+  // and its full size. length() of a blob does not read the blob's pages.
+  const std::string n = std::to_string(std::max<std::size_t>(text_limit, 1));
+  std::string select;
+  for (const auto &c : columns) {
+    const std::string q = quote_identifier(c.name);
+    if (!select.empty())
+      select += ", ";
+    select += "typeof(" + q + "), CASE typeof(" + q + ") WHEN 'blob' THEN " +
+              "substr(" + q + ", 1, 16) WHEN 'text' THEN substr(" + q +
+              ", 1, " + n + ") ELSE " + q + " END, CASE typeof(" + q +
+              ") WHEN 'text' THEN length(CAST(" + q + " AS BLOB)) ELSE " +
+              "length(" + q + ") END";
+  }
+  const std::string sql = "SELECT " + select + " FROM " + from + order +
+                          " LIMIT " + std::to_string(limit) + " OFFSET " +
+                          std::to_string(offset) + ";";
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_rows");
+  StmtGuard g(s);
+  int rc;
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    std::vector<TableCell> row;
+    row.reserve(columns.size());
+    for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
+      const int base = 3 * i;
+      const std::string type = column_text(s, base);
+      TableCell cell;
+      if (type == "integer") {
+        cell.kind = TableCell::Kind::integer;
+        cell.integer = sqlite3_column_int64(s, base + 1);
+      } else if (type == "real") {
+        cell.kind = TableCell::Kind::real;
+        cell.real = sqlite3_column_double(s, base + 1);
+      } else if (type == "text" || type == "blob") {
+        cell.kind =
+            type == "text" ? TableCell::Kind::text : TableCell::Kind::blob;
+        const auto *p =
+            static_cast<const char *>(sqlite3_column_blob(s, base + 1));
+        const int bytes = sqlite3_column_bytes(s, base + 1);
+        if (p && bytes > 0)
+          cell.text.assign(p, static_cast<std::size_t>(bytes));
+        cell.size =
+            static_cast<std::uint64_t>(sqlite3_column_int64(s, base + 2));
+        cell.truncated =
+            cell.kind == TableCell::Kind::text && cell.size > cell.text.size();
+      }
+      row.push_back(std::move(cell));
+    }
+    rows.push_back(std::move(row));
+  }
+  if (rc != SQLITE_DONE)
+    throw std::runtime_error(std::string("table_rows: ") +
+                             sqlite3_errmsg(impl_->db));
+  return rows;
+}
+
 // --- Pose Graph ---
 
 void ProjectDB::save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges) {

@@ -647,6 +647,59 @@ class ProjectDB {
 
   std::vector<PipelineLogEntry> pipeline_log(int limit = 0) const;
 
+  // --- Raw table browsing (read-only) ---
+  //
+  // A generic, read-only window onto every table of the file, for a database
+  // viewer (the Qt client's table view, `rux get`-style tooling). Typed
+  // accessors above remain the way to *use* the data; these exist to *show*
+  // what the file contains, including tables no accessor covers.
+  //
+  // Blob cells never carry their bytes: only their size and the first few
+  // bytes (enough to sniff PNG / JPEG / PLY), so paging through
+  // `sensor_frames` costs kilobytes, not the images. Long text is truncated
+  // to `text_limit` bytes with its full size reported.
+
+  /// One user table and its row count. `sqlite_*` internals are excluded.
+  struct TableInfo {
+    std::string name;
+    std::int64_t row_count = 0;
+  };
+
+  /// One column of a table, as `PRAGMA table_info` reports it.
+  struct TableColumn {
+    std::string name;
+    std::string declared_type; ///< e.g. "INTEGER", "BLOB"; may be empty
+    bool primary_key = false;
+    bool not_null = false;
+  };
+
+  /// One cell of table_rows().
+  struct TableCell {
+    enum class Kind { null, integer, real, text, blob };
+    Kind kind = Kind::null;
+    std::int64_t integer = 0;
+    double real = 0.0;
+    std::string text;       ///< text (possibly truncated), or blob head bytes
+    std::uint64_t size = 0; ///< full byte size of text or blob
+    bool truncated = false; ///< text shorter than `size`
+  };
+
+  /// Every user table, sorted by name, with its row count.
+  std::vector<TableInfo> list_tables() const;
+
+  /// The columns of @p table, in declaration order.
+  /// @throws std::invalid_argument when @p table is not a user table.
+  std::vector<TableColumn> table_columns(std::string_view table) const;
+
+  /// Rows [@p offset, @p offset + @p limit) of @p table in rowid order (or
+  /// primary-key order for a WITHOUT ROWID table), one TableCell per column of
+  /// table_columns(). Blob cells carry at most 16 head bytes in `text`.
+  /// @throws std::invalid_argument when @p table is not a user table or
+  ///         @p offset / @p limit is negative.
+  std::vector<std::vector<TableCell>>
+  table_rows(std::string_view table, std::int64_t offset, std::int64_t limit,
+             std::size_t text_limit = 256) const;
+
   // --- Project Summary ---
 
   struct ProjectSummary {

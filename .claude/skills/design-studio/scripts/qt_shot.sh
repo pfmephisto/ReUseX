@@ -10,8 +10,8 @@
 # PNG with QT_QPA_PLATFORM=offscreen (no display needed; 3D panes render
 # through VTK's EGL offscreen window). Styles are read live from the source
 # tree (--dev), so a tokens.css or app.qss edit needs NO rebuild: just shoot
-# again. FAILS (exit 3) if any token is missing — a missing token is magenta
-# in the PNG and an error, never a silent fallback.
+# again. FAILS (exit 3) if any token or bundled font family is missing — a
+# missing token is magenta in the PNG and an error, never a silent fallback.
 #
 # Usage: qt_shot.sh [options]
 #   --page NAME      page to shoot (repeatable; default: components)
@@ -21,7 +21,8 @@
 #   --scale N        device pixel ratio (default: 2 — review shots)
 #   --project FILE   project to read (a COPY is made per shot). Default: the
 #                    office_corridor fixture, prepared once with a 2 cm cloud
-#                    and planes so the 3D page has something to draw.
+#                    and planes so the 3D page has something to draw (builds
+#                    rux first if needed; a failed preparation is never cached).
 #   --out DIR        where PNGs go (default: shots/qt)
 #   --gl             render the real QVTKOpenGLNativeWidget under xvfb-run
 #   --embedded       use the stylesheet snapshot compiled into the binary
@@ -47,6 +48,7 @@ OUT="shots/qt"
 GL=0
 EMBEDDED=0
 BUILD=1
+NO_BUILD=0
 BUILD_DIR="$ROOT/build"
 
 while [[ $# -gt 0 ]]; do
@@ -60,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --gl) GL=1; shift ;;
     --embedded) EMBEDDED=1; shift ;;
-    --no-build) BUILD=0; shift ;;
+    --no-build) BUILD=0; NO_BUILD=1; shift ;;
     --build-dir) BUILD_DIR="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 0 ;;
     *) echo "qt_shot.sh: unknown option $1" >&2; exit 2 ;;
@@ -97,28 +99,56 @@ t_build=$EPOCHREALTIME
 
 mkdir -p "$OUT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/qt_shot.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+PREP_TMP=""
+cleanup() {
+  rm -rf "$WORK"
+  [[ -n "$PREP_TMP" ]] && rm -f "$PREP_TMP" "$PREP_TMP-wal" "$PREP_TMP-shm"
+  return 0
+}
+trap cleanup EXIT
 
-# The default project: a prepared copy of the tracked fixture. Never the
-# tracked file itself — ProjectDB migrates on open and leaves -wal/-shm.
+# The default project: a prepared copy of the tracked fixture (which has no
+# point cloud). Never the tracked file itself — ProjectDB migrates on open and
+# leaves -wal/-shm. Only a SUCCESSFULLY prepared copy is cached; anything else
+# fails loudly, so a cloudless fixture can never be cached by accident.
 if [[ -z "$PROJECT" ]]; then
   CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/reusex/qt-shot"
   FIX="$ROOT/tests/fixtures/scans/office_corridor.rux"
   PREP="$CACHE/office_corridor-$(sha1sum "$FIX" | cut -c1-12).rux"
   if [[ ! -f "$PREP" ]]; then
     mkdir -p "$CACHE"
-    cp "$FIX" "$PREP.tmp"
     RUX="$BUILD_DIR/apps/rux/rux"
-    if [[ -x "$RUX" ]]; then
-      echo "qt_shot.sh: preparing fixture (2 cm cloud + planes) once …" >&2
-      in_dev "$RUX" -p "$PREP.tmp" create clouds -g 0.02 --sampling-factor 2 >/dev/null 2>&1
-      in_dev "$RUX" -p "$PREP.tmp" create planes >/dev/null 2>&1
-      rm -f "$PREP.tmp-wal" "$PREP.tmp-shm"
-      mv "$PREP.tmp" "$PREP"
-    else
-      echo "qt_shot.sh: WARN $RUX not built; the fixture has no cloud, so 3D pages show their empty state" >&2
-      mv "$PREP.tmp" "$PREP"
+    if [[ ! -x "$RUX" ]]; then
+      if [[ $NO_BUILD -eq 1 ]]; then
+        echo "qt_shot.sh: FAIL the fixture needs a one-time preparation with rux, which is not built." >&2
+        echo "  run: nix develop -c cmake --build $BUILD_DIR --target rux" >&2
+        exit 1
+      fi
+      echo "qt_shot.sh: building rux once to prepare the fixture (minutes on a cold build) …" >&2
+      in_dev cmake --build "$BUILD_DIR" --target rux >"$BUILD_DIR/qt_shot-rux-build.log" 2>&1 || {
+        tail -30 "$BUILD_DIR/qt_shot-rux-build.log" >&2
+        echo "qt_shot.sh: FAIL building rux (log: $BUILD_DIR/qt_shot-rux-build.log)" >&2
+        echo "  run: nix develop -c cmake --build $BUILD_DIR --target rux" >&2
+        exit 1
+      }
     fi
+    # A unique temp name: two first runs at once must not share one file.
+    PREP_TMP="$(mktemp "$CACHE/prepare.XXXXXX")"
+    LOG="$CACHE/prepare.log"
+    : >"$LOG"
+    echo "qt_shot.sh: preparing fixture once (2 cm cloud + planes) …" >&2
+    cp "$FIX" "$PREP_TMP"
+    for step in "create clouds -g 0.02 --sampling-factor 2" "create planes"; do
+      # shellcheck disable=SC2086 # $step is a word list on purpose
+      if ! in_dev "$RUX" -p "$PREP_TMP" $step >>"$LOG" 2>&1; then
+        tail -30 "$LOG" >&2
+        echo "qt_shot.sh: FAIL preparing the fixture: rux $step (log: $LOG)" >&2
+        exit 1
+      fi
+    done
+    rm -f "$PREP_TMP-wal" "$PREP_TMP-shm"
+    mv -f "$PREP_TMP" "$PREP" # atomic: a reader sees all or nothing
+    PREP_TMP=""
   fi
   PROJECT="$PREP"
 fi
@@ -161,9 +191,9 @@ for page in "${PAGES[@]}"; do
     else
       env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen "$GALLERY" "${args[@]}" >"$log" 2>&1 || true
     fi
-    if grep -q "MISSING token" "$log"; then
-      grep "MISSING token" "$log" | sort -u >&2
-      echo "qt_shot.sh: FAIL $png — missing tokens (magenta in the image)" >&2
+    if grep -q "MISSING" "$log"; then
+      grep "MISSING" "$log" | sort -u >&2
+      echo "qt_shot.sh: FAIL $png — missing tokens or fonts (magenta / fallback faces in the image)" >&2
       status=3
     elif [[ ! -s "$png" ]]; then
       cat "$log" >&2

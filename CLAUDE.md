@@ -106,12 +106,13 @@ cmake --build build
 
 | Option | Default | Defined in | Effect |
 |---|---|---|---|
-| `WITH_CUDA` | `ON` | `CMakeLists.txt:25` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
-| `USE_CCACHE` | `ON` | `CMakeLists.txt:66` | Use ccache when available |
+| `WITH_CUDA` | `ON` | `CMakeLists.txt:38` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
+| `USE_CCACHE` | `ON` | `CMakeLists.txt:79` | Use ccache when available |
 | `ENABLE_COVERAGE` | `OFF` | `CMakeLists.txt:103` | Code coverage instrumentation |
-| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:129` | Adds `bindings/python` |
-| `BUILD_TESTS` | `ON` | `CMakeLists.txt:137` | Adds `tests/` and `enable_testing()` |
-| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:146`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:137` | Adds `bindings/python` |
+| `BUILD_TESTS` | `ON` | `CMakeLists.txt:145` | Adds `tests/` and `enable_testing()` |
+| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:154`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `BUILD_QT_CLIENT` | `ON` | `CMakeLists.txt:128` | Native Qt client `apps/rux/qt` (`rux_qt_core`, `rux_qt_lib`, `rux-qt-gallery`) and `tests/unit/rux_qt`; needs Qt6 OpenGLWidgets + VTK GUISupportQt |
 | `GUI_ENABLED` | `OFF` | `libs/reusex/cmake/Dependencies.cmake:207` | CGAL Qt6 GUI components |
 | `ML_BACKENDS` | `AUTO` | `libs/reusex/cmake/Dependencies.cmake:49` | Cache string, not a bool: `AUTO`, `NONE`, or a list like `TensorRT;LibTorch;ONNX;OpenVINO` |
 | `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
@@ -782,7 +783,7 @@ rux -vvv -p scan.rux create planes
 
 Python bindings live in `bindings/python/` (pybind11 + scikit-build-core,
 package name `reusex`). `BUILD_PYTHON_BINDINGS` defaults to **ON** in
-`CMakeLists.txt:129`, so they are part of a default build — they are **not**
+`CMakeLists.txt:137`, so they are part of a default build — they are **not**
 disabled.
 
 Current scope is **read-only `.rux` inspection**, implemented in

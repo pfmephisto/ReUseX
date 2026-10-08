@@ -33,6 +33,9 @@ apps/rux/qt/
 | `rux_qt_lib` | Qt6 Widgets/OpenGLWidgets, VTK GUISupportQt, `reusex_core`, `reusex_visualize` (private) | the Qt layer; never the `reusex` umbrella, so no libtorch/TensorRT — the gallery links in seconds |
 | `rux-qt-gallery` | `rux_qt_lib` | renders any page to PNG headless |
 
+All three (and `tests/unit/rux_qt`) are gated by `-DBUILD_QT_CLIENT=ON`
+(default), for a configure whose VTK lacks Qt support.
+
 AUTOMOC/AUTORCC are set **per target** (they are off globally). Public headers
 with `Q_OBJECT` are listed as sources, because AUTOMOC only looks for headers
 next to a `.cpp`. Sources are globbed (`src/*.cpp`, `gallery/*.cpp`).
@@ -61,20 +64,28 @@ Then **Read every PNG** and critique (checklist §Qt). Measured on this box
 `qt_shot.sh` only builds when an `apps/rux/qt` C++/CMake/qrc/ttf file is newer
 than the binary, so a pure style iteration never pays for the dev shell. For
 live tweaking on a display: `build/apps/rux/qt/rux-qt-gallery --dev --page
-components` — `QFileSystemWatcher` re-applies the stylesheet on save (editors
-that replace the file are re-watched) and the gallery rebuilds the page, so
-values read in code refresh too.
+components` (hot reload is also on by default in a Debug build) —
+`QFileSystemWatcher` re-applies the stylesheet on save and the gallery
+rebuilds the page, so values read in code refresh too. Editors that replace
+the file are re-watched; one that deletes and recreates it gets up to 5 s:
+the previous theme stays on screen meanwhile, never an empty magenta one.
 
 **Fixture:** by default `qt_shot.sh` prepares a copy of
 `tests/fixtures/scans/office_corridor.rux` once (`rux create clouds -g 0.02
 --sampling-factor 2` + `create planes`; the tracked fixture has no cloud) in
 `~/.cache/reusex/qt-shot/`, keyed on the fixture's hash, and copies it again
 for every shot. It never opens the tracked file. `--project` takes your own
-copy. Needs `build/apps/rux/rux` for the one-time preparation; without it the
-3D page shows its empty state.
+copy. The one-time preparation needs `build/apps/rux/rux`: `qt_shot.sh`
+builds it if missing (or, with `--no-build`, fails and prints the command).
+Only a successful preparation is cached; a failure prints the tail of
+`~/.cache/reusex/qt-shot/prepare.log` and leaves nothing behind.
 
 **Failure is loud:** an unknown token renders **magenta**, is logged as
-`MISSING token --x`, makes the gallery exit 3 and `qt_shot.sh` fail. Other
+`MISSING token --x`, makes the gallery exit 3 and `qt_shot.sh` fail. A
+bundled font family that did not register (`MISSING font family …`) fails the
+same way. In CI, `AppQss_EveryVarReference_ResolvesAgainstRealTokens` and
+`QtSources_EveryTokenStringLiteral_ExistsInRealTokens` (light ctest) catch a
+design-side rename that `app.qss` or a `theme().color("--…")` still uses. Other
 exit codes: 2 bad flags, 4 project/page not found, 5 PNG not written.
 `RUX_QT_DUMP_QSS=<file>` writes the resolved stylesheet for debugging.
 
@@ -144,6 +155,11 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
 - **qrc is XML**: no `--` inside a comment.
 - **Numbers** are formatted Danish (`format_count` -> `39.723`), mono
   (`JetBrains Mono`), right-aligned — same as the web's `da-DK` figures.
+  Mono is for figures and code (`Ctrl+K`, `cloud`) only, never prose.
+- **Caps**: eyebrows over a region (PROJEKT, INSPEKTØR, LAG, nav groups) use
+  `--tracking-wide`; every other caps label — panel titles, field labels,
+  table headers — `--tracking-caps`, 2xs/xs bold. A table header gets its
+  tracking on the `QHeaderView` font in code.
 - Installed binaries need Qt's platform plugins: `default.nix` uses
   `dontWrapQtApps = true`; the launched app (Q1) must be wrapped.
 

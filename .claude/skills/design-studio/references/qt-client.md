@@ -3,8 +3,8 @@
 The second surface of the one design system. Status: **in progress** (Stream
 Q of `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
 Q0 — this loop, the theme loader, the gallery and two demo pages — Q1 —
-the app shell plain `rux` opens — and Q2 — the Database workspace — are
-done; 3D / pose graph / Pipeline (Q3) build on them.
+the app shell plain `rux` opens — Q2 — the Database workspace — and Q3 —
+3D, Posegraf, Pipeline and Log — are done.
 
 ## 1. Where things live
 
@@ -18,7 +18,14 @@ apps/rux/qt/
 │   ├── fonts.hpp             bundled Archivo / Oswald / JetBrains Mono
 │   ├── widgets.hpp           CapsLabel, Pill, Panel, StatCard, NavRail,
 │   │                         NavItem, LabelLegend, Swatch, PropertyList
-│   ├── ViewportView.hpp      3D pane: EGL snapshot or QVTKOpenGLNativeWidget
+│   ├── SceneView.hpp         3D canvas: QVTKOpenGLNativeWidget or EGL
+│   │                         offscreen image; LOD swap; hardware picking
+│   ├── Viewer3DWorkspace.hpp Q3: layers, colour-by + legend, cut, presets
+│   ├── PoseGraphWorkspace.hpp Q3: QGraphicsView of frames and edges
+│   ├── PipelineWorkspace.hpp Q3: stage form, JobRunner, log tail, CLI line
+│   ├── pipeline_ui.hpp       Danish stage/field names, JSON -> rux line
+│   ├── cli_command.hpp       Qt-free: "Kopiér som rux-kommando"
+│   ├── workspace_logic.hpp   Qt-free: log filter, graph hit tests, log tap
 │   ├── pages.hpp             page registry (name -> factory(PageContext))
 │   ├── fuzzy.hpp recent.hpp  Qt-free: palette ranking, recent list,
 │   │   launch.hpp            what plain `rux` does, open-error text (Danish)
@@ -27,7 +34,7 @@ apps/rux/qt/
 │   ├── AppShell.hpp          title bar, nav rail, stack, Inspector
 │   ├── StartPage.hpp         open / drop / recent / summary / error cards
 │   ├── CommandPalette.hpp    Ctrl+K overlay
-│   ├── workspaces.hpp        page order + Q3 placeholders
+│   ├── workspaces.hpp        page order, names, palette aliases
 │   ├── DatabaseWorkspace.hpp Q2: ProjectTree + stack + pending banner
 │   ├── FrameBrowser.hpp      A/B sides, ImagePane, filmstrip, PairStrip
 │   ├── FrameImageLoader.hpp  off-thread decode (own read-only ProjectDBs)
@@ -54,6 +61,17 @@ gallery waits for `FrameImageLoader::busy()` and
 `background_work_in_flight()` to reach 0 (twice) before it grabs.
 `RUX_QT_PAGE=database rux -p <copy> --quit-after-ms N` smokes the
 workspace in the real binary.
+
+The Q3 pages: `3d`, `3d-pick` (rooms + legend + a picked point),
+`3d-plan` (planes, frustums, plan view), `3d-labels`, `posegraf` (staged
+loop closures, A/B), `posegraf-click` (an edge click lands on Database),
+`log`, `log-filter` — shoot these with `--project <copy of NewOffice>` —
+and `pipeline`, `pipeline-run` (runs `create planes` on the copy; the
+default office_corridor fixture is right for it). `viewport` is now an
+alias of `3d`. Pages that need off-thread work done first (a pick, a run)
+pump the event loop until `background_work_in_flight()` is 0.
+`RUX_QT_PAGE=3d|posegraf|pipeline|log rux -p <copy> --quit-after-ms N`
+smokes them in the real binary (under xvfb for the GL widget).
 
 The app shell's gallery pages: `start`, `start-readonly`, `start-empty`,
 `start-error`, `shell-empty`, `shell-project`, `palette-open` (query "pro"),
@@ -182,11 +200,11 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   `LC_NUMERIC` back to "C" right after the QApplication, and library code
   uses `reusex/utils/parse_number.hpp`. Never add a `stod`/`strtod`.
 - **QVTKOpenGLNativeWidget is blank under `QT_QPA_PLATFORM=offscreen`** (no GL
-  context) and `minimalegl` core-dumps. Screenshot mode therefore renders 3D
-  through `reusex::visualize::render_view()` — VTK's EGL offscreen window —
-  into the pane; `--gl` runs the real widget under `xvfb-run` (whose exit code
-  is 1 on success: judge by the PNG). The two modes frame the scene
-  differently until Q3 extracts `populate_scene()`.
+  context) and `minimalegl` core-dumps. Screenshot mode therefore renders the
+  same vtkRenderer into VTK's EGL offscreen window and shows the image in the
+  pane (`SceneView`); `--gl` runs the real widget under `xvfb-run` (whose exit
+  code is 1 on success: judge by the PNG). Both modes share the scene and the
+  camera, so they frame identically.
 - **Static library resources**: `Q_INIT_RESOURCE(rux_qt)` must run (it does, in
   `ensure_bundled_fonts()`), or the linker drops the fonts and the snapshot.
 - **Fonts**: bundle static TTFs. fontsource's woff2 registers Archivo 400 as
@@ -229,6 +247,24 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   open a read-only one per thread. Planes coloured by the theme (depth,
   confidence, labels) are decoded as Indexed8 and get their colour table at
   paint time, so a theme switch needs no re-decode.
+- **3D draws through `visualize::populate_scene()`** (the `rux render`
+  builder) into a vtkRenderer built on a worker thread, then moves the actors
+  to the view's renderer on the GUI thread. Never construct the scene
+  inline: render and app must agree.
+- **Picking**: use `vtkHardwareSelector` (it renders ids, so it respects
+  the cut plane's clipping); `vtkPointPicker` is geometric and returns the
+  ceiling a plan view has clipped away.
+- **Frame on what is visible**: `place_preset_camera()` fits the bounds it
+  is given; pass bounds clamped to the cut, and re-frame on resize until the
+  user moves the camera (a page laid out after the first frame is otherwise
+  framed for the wrong aspect).
+- **QListWidget + setItemWidget clips** a row wider than its hint: rows of
+  checkable QPushButtons (with `setMinimumHeight` from the layout) are
+  simpler and style cleanly.
+- **Spin boxes**: `setButtonSymbols(NoButtons)` — Fusion's arrows under our
+  QSS render as two dots. Set a Danish `QLocale` on them.
+- **Floats in a command line**: `format_number(float)` — widening a float
+  to double first prints `0.07000000029802322`.
 - **Only the view on screen drives the inspector**: a frame finishing its
   decode behind a table must not replace the selected row.
 - A path in a narrow column: `ElidedLabel` (Qt::ElideMiddle keeps the file

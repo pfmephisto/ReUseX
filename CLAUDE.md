@@ -239,7 +239,8 @@ ReUseX/
 │   │   │                           #   mushroom, exif, export_scene
 │   │   ├── vision/                 # ML models, backends, datasets (tensor_rt/, onnx/,
 │   │   │                           #   libtorch/, osd/, common/)
-│   │   ├── visualize/              # viewport layout + headless render_view (VTK)
+│   │   ├── visualize/              # scene builder (populate_scene), headless
+│   │   │                           #   render_view, viewport layout (VTK)
 │   │   ├── utils/                  # math, cv, tolerances, fmt_formatter
 │   │   ├── types/                  # point_types.hpp, eigen_types.hpp
 │   │   └── types.hpp               # Umbrella re-exporting types/*
@@ -250,7 +251,8 @@ ReUseX/
 │   ├── include/ + src/             # Subcommands, grouped in subdirs
 │   └── qt/                         # Native Qt client (in progress): rux_qt_core,
 │                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss;
-│                                   #   shell (Q1) + Database workspace (Q2)
+│                                   #   shell (Q1), Database (Q2), 3D, Posegraf,
+│                                   #   Pipeline, Log (Q3)
 ├── apps/ruxd/                      # HTTP service worker (ruxd)
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
@@ -303,6 +305,14 @@ The shell lives in `rux_qt_lib` (`AppShell`, `ProjectSession`,
 `rux::run` a `GuiLauncher` (`rux_app.hpp`), so `rux_lib` and both test
 binaries carry no Qt client code. Hidden dev flag:
 `rux -p x.rux --quit-after-ms N`.
+The Qt client's 3D workspace and `rux render` share one scene builder,
+`visualize::populate_scene()` (`visualize/scene.hpp`); its Pipeline workspace
+runs stages in-process through `pipeline::JobRunner` with rux_lib's
+`make_gui_stage_executor()` (handed over in `GuiLaunch`), and "Kopiér som
+rux-kommando" (`rux_qt/cli_command.hpp`) is round-trip tested against the real
+CLI (`tests/unit/rux_app/test_cli_command_roundtrip.cpp`, via
+`rux::set_stage_params_sink`). `RUX_QT_PAGE=database|3d|posegraf|pipeline|log`
+lands the smoke run on that page.
 `rux-qt-gallery` (`apps/rux/qt`) renders pages of the native Qt client
 headless to PNG for design review; its theme is generated at run time from
 `apps/rux/frontend/src/tokens.css` (the web GUI's tokens). The loop and its
@@ -489,7 +499,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `info` | — (project summary) | `src/info.cpp` |
 | `log` | — (pipeline execution history) | `src/log.cpp` |
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
-| `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
+| `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`; layers incl. `frustums`, `panoramas`; label layers on the `--label-*` token scale) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 | `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to serve it beyond localhost, with no authentication) | `src/gui.cpp` |
 

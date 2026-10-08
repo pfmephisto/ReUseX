@@ -190,6 +190,24 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **Native Qt client, phase Q3: 3D, Posegraf, Pipeline, Log**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). The client's remaining workspaces. **3D** draws with
+  `visualize::populate_scene()`, extracted from `render_view()` so `rux
+  render` and the app share one scene builder (render output unchanged
+  except label colours): layers, "Farv efter" any label cloud with a
+  `--label-*` legend, frustums, panoramas, a cut plane, presets framed on
+  what is below the cut, point picking, and a coarse LOD twin (bit-reversed
+  Morton prefix, else a stride) while the camera moves. Label layers in
+  `rux render` now use the design tokens' Okabe-Ito scale with the web's
+  `(label - 1) % size` rule, so render, web and Qt legends agree; `--layers`
+  gains `frustums` and `panoramas`. **Posegraf** draws the frames and edges
+  in 2D and drives the Database's A/B selection. **Pipeline** runs any
+  stage in-process on `pipeline::JobRunner` from a form generated from
+  `stage_parameters()`, with progress, cancel and the log tail. **Log**
+  filters the pipeline log. Every run carries **"Kopiér som
+  rux-kommando"**: the exact CLI line, round-trip tested through the real
+  CLI11 setup.
 - **2026-10-08** — **Native Qt client, phase Q2: the Database workspace**
   ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream Q). RTABMap's DatabaseViewer, made calm: a project tree with

@@ -550,6 +550,11 @@ double parallel_scale_for(double across, double up, double aspect,
 const LabelPalette &default_label_palette() {
   // tokens.css --label-0..7 and --label-unlabeled (Okabe-Ito); pinned to the
   // file by tests/unit/visualize/test_scene.cpp.
+  // --label-invalid is PROVISIONAL and, unlike the rest of the scale, now
+  // varies per theme (final review finding 4): a dim neutral in dark mode, a
+  // muted one in light. This theme-unaware default mirrors the DARK value,
+  // since headless `rux render` (the only consumer with no theme concept)
+  // always draws on the near-black --color-canvas that both themes share.
   static const LabelPalette palette{{{0xe6, 0x9f, 0x00},
                                      {0x56, 0xb4, 0xe9},
                                      {0x00, 0x9e, 0x73},
@@ -559,7 +564,7 @@ const LabelPalette &default_label_palette() {
                                      {0xcc, 0x79, 0xa7},
                                      {0x99, 0x99, 0x99}},
                                     {0x4a, 0x50, 0x5c},
-                                    {0xe9, 0xe9, 0xe7}};
+                                    {0x2c, 0x3a, 0x48}};
   return palette;
 }
 

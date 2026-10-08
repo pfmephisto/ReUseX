@@ -110,10 +110,18 @@ TEST_CASE("LabelPalette_Default_MatchesTheDesignTokens",
     }
     const auto inv = rux::qt::parse_color(tokens.at("--label-invalid"));
     REQUIRE(inv);
-    CHECK(inv->r == palette.invalid[0]);
-    CHECK(inv->g == palette.invalid[1]);
-    CHECK(inv->b == palette.invalid[2]);
-    // Not a class colour: it must not be confused with one.
+    // Unlike the rest of the scale, --label-invalid is PROVISIONAL and now
+    // varies per theme (final review finding 4): dim in dark, muted in
+    // light. default_label_palette() is theme-unaware (headless `rux
+    // render` has no theme concept) and mirrors the dark value, since that
+    // is the one that actually sits near the near-black canvas both themes
+    // share — so only the dark iteration pins it here.
+    if (mode == rux::qt::ThemeMode::dark) {
+      CHECK(inv->r == palette.invalid[0]);
+      CHECK(inv->g == palette.invalid[1]);
+      CHECK(inv->b == palette.invalid[2]);
+    }
+    // Not a class colour in either theme: it must not be confused with one.
     for (const auto &c : palette.colors)
       CHECK_FALSE((c[0] == inv->r && c[1] == inv->g && c[2] == inv->b));
     const auto u = rux::qt::parse_color(tokens.at("--label-unlabeled"));

@@ -110,12 +110,17 @@ TEST_CASE("WrapShellCommand_BreaksBetweenFlagsAndStillPastes",
   CHECK(split_shell_words(joined) == split_shell_words(line));
   CHECK(wrap_shell_command(line, 1000) == line);
 
-  // A path longer than a line is cut with bare continuations, and still
-  // joins back into the same words.
+  // A path longer than a line is never cut mid-word (a bare continuation
+  // inside "project.rux" would paste back as a different filename, e.g.
+  // "offi\ce_corridor.rux" — final review finding 9): it is placed on its
+  // own line and allowed to overflow the width instead, and still joins
+  // back into the same words.
   const std::string long_line =
       "rux -p /tmp/a-very-long-directory-name/and-another-one/project.rux "
       "create planes --angle-threshold 20";
   const std::string lw = wrap_shell_command(long_line, 24);
+  CHECK(lw.find("/tmp/a-very-long-directory-name/and-another-one/"
+                "project.rux") != std::string::npos);
   std::string lj;
   for (std::size_t i = 0; i < lw.size(); ++i) {
     if (lw[i] == '\\' && i + 1 < lw.size() && lw[i + 1] == '\n') {
@@ -125,13 +130,6 @@ TEST_CASE("WrapShellCommand_BreaksBetweenFlagsAndStillPastes",
     lj += lw[i];
   }
   CHECK(split_shell_words(lj) == split_shell_words(long_line));
-  std::size_t widest = 0, start = 0;
-  for (std::size_t i = 0; i <= lw.size(); ++i)
-    if (i == lw.size() || lw[i] == '\n') {
-      widest = std::max(widest, i - start);
-      start = i + 1;
-    }
-  CHECK(widest <= 24);
 }
 
 TEST_CASE("FormatNumber_IsShortestAndLocaleFree", "[rux_qt][cli]") {
@@ -193,4 +191,23 @@ TEST_CASE("LogTap_DeliversToListenersUntilRemoved", "[rux_qt][log]") {
   remove_log_listener(token);
   publish_log(2, "after");
   CHECK(got == std::vector<std::string>{"2:planes: 49 planes"});
+}
+
+TEST_CASE("LogTailAccepts_WarnAndAboveFromAnyThread", "[rux_qt][log]") {
+  // trace (0) / debug (1): dropped regardless of thread.
+  CHECK_FALSE(log_tail_accepts(0, true));
+  CHECK_FALSE(log_tail_accepts(0, false));
+  CHECK_FALSE(log_tail_accepts(1, true));
+  CHECK_FALSE(log_tail_accepts(1, false));
+  // info (2): only the job's own thread — an OMP/TBB worker's info line is
+  // not the job's narrative.
+  CHECK(log_tail_accepts(2, true));
+  CHECK_FALSE(log_tail_accepts(2, false));
+  // warn (3) and above: kept from any thread, since STANDARDS §5 requires a
+  // warning reach the user even when it is logged from a fan-out worker
+  // (e.g. segment_instances' OMP-thread cancellation warning).
+  CHECK(log_tail_accepts(3, true));
+  CHECK(log_tail_accepts(3, false));
+  CHECK(log_tail_accepts(4, false));
+  CHECK(log_tail_accepts(5, false));
 }

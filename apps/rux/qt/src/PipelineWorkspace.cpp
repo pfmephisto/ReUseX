@@ -320,15 +320,20 @@ PipelineWorkspace::PipelineWorkspace(ProjectSession &session,
   std::weak_ptr<LogBuffer> weak = log_;
   log_token_ = add_log_listener([weak](int level, std::string_view msg) {
     auto buf = weak.lock();
-    if (!buf || !buf->capture.load() || level < 2) // info and up
+    if (!buf || !buf->capture.load())
+      return;
+    std::lock_guard lock(buf->mutex);
+    // The job's own worker thread is learnt from its `started` event (a 3D
+    // load logging meanwhile is not the job's). log_tail_accepts() keeps
+    // info to that thread but lets warn+ through from anywhere, since a
+    // stage that fans out with OMP/TBB (e.g. segment_instances) logs its
+    // cancellation warning from whichever worker is the fan-out's master —
+    // dropping it would conflict with STANDARDS §5.
+    const bool on_job_thread = buf->job_thread != std::thread::id{} &&
+                               std::this_thread::get_id() == buf->job_thread;
+    if (!log_tail_accepts(level, on_job_thread))
       return;
     static const char *tags[] = {"T", "D", "I", "W", "E", "C", ""};
-    std::lock_guard lock(buf->mutex);
-    // Only the job's own lines: the runner's worker thread, learnt from its
-    // `started` event (a 3D load logging meanwhile is not the job's).
-    if (buf->job_thread == std::thread::id{} ||
-        std::this_thread::get_id() != buf->job_thread)
-      return;
     buf->lines << QString("%1  %2")
                       .arg(tags[std::clamp(level, 0, 6)])
                       .arg(QString::fromUtf8(msg.data(),

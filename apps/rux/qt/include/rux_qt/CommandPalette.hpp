@@ -51,8 +51,6 @@ class CommandPalette : public QWidget {
   void close_palette();
   bool is_open() const { return isVisible(); }
 
-  /// The visible rows' titles, in order (headers excluded) — for tests.
-  QStringList visible_titles() const;
   QString query() const;
 
     signals:

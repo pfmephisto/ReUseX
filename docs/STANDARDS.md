@@ -256,6 +256,17 @@ writes labels MUST follow it; any deviation is a bug.
   message that names the missing/mismatched thing.
 - `assert()` is for programmer invariants only — never the sole guard against
   bad data (it vanishes in Release builds).
+- **No locale-dependent number parsing in library code.** `std::stod`,
+  `std::stof` and `strtod` follow the process's `LC_NUMERIC`, and any
+  `QApplication` calls `setlocale(LC_ALL, "")`: under `da_DK` `std::stod`
+  reads "0.75" as 0 and a `strtod` loop stops dead at the '.'. This broke the
+  Qt client twice (Q2 review: wrong sensor intrinsics and a fake ICP result,
+  both from a library `strtod`, not from Qt). Use `reusex::utils::to_double` /
+  `to_float` / `parse_number<T>` (`utils/parse_number.hpp`, built on
+  `std::from_chars`, which never consults the locale) for every text -> number
+  conversion in library code (`SensorIntrinsics`, `materialepas`,
+  `arkitscenes`, `glass_filter`, the TensorRT `Dataset`, …). A `std::stod`/
+  `strtod` in `libs/reusex/` is a bug, not a style preference.
 
 ## 6. Determinism & reproducibility
 

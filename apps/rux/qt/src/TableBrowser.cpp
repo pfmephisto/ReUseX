@@ -142,10 +142,6 @@ void DbTableModel::fetch(qint64 count) {
   endInsertRows();
 }
 
-void DbTableModel::ensure_loaded(qint64 row) {
-  fetch(paging_.count_to_reach(row));
-}
-
 int DbTableModel::rowCount(const QModelIndex &parent) const {
   return parent.isValid() ? 0 : static_cast<int>(rows_.size());
 }
@@ -266,13 +262,16 @@ Selection DbTableModel::row_selection(int row) const {
   }
 
   // Lead with the primary key ("node_id 1177"), not the position.
-  QString key;
+  // row_key_title() joins every primary-key column for a composite key
+  // (cloud_chunks' cloud_id+chunk_index, instance_materials'
+  // material_guid+key, …) — stopping at the first would show the same title
+  // for every chunk of the same cloud.
+  std::vector<std::pair<std::string, std::string>> key_columns;
   for (std::size_t c = 0; c < columns_.size(); ++c)
-    if (columns_[c].primary_key) {
-      key =
-          QString("%1 %2").arg(qs(columns_[c].name), display(cells[c], int(c)));
-      break;
-    }
+    if (columns_[c].primary_key)
+      key_columns.emplace_back(columns_[c].name,
+                               display(cells[c], int(c)).toStdString());
+  const QString key = qs(row_key_title(key_columns));
   s.kind = "Række";
   s.title =
       key.isEmpty() ? QString("Række %1").arg(format_count(row + 1)) : key;
@@ -814,8 +813,6 @@ void PipelineLogView::sync_filter_controls() {
       buttons[i]->setChecked(true);
   }
 }
-
-int PipelineLogView::visible_rows() const { return proxy_->rowCount(); }
 
 void PipelineLogView::select_row(int row) {
   if (row >= 0 && row < proxy_->rowCount())

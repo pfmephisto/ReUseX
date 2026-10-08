@@ -45,8 +45,6 @@ class DbTableModel : public QAbstractTableModel {
   const std::vector<reusex::ProjectDB::TableColumn> &columns() const {
     return columns_;
   }
-  /// Load rows until @p row is in memory (for "select row with id …").
-  void ensure_loaded(qint64 row);
   /// The row as an inspector selection.
   Selection row_selection(int row) const;
   /// First loaded-or-loadable row whose column @p column equals @p value.
@@ -150,8 +148,6 @@ class PipelineLogView : public QWidget {
   void select_row(int row);
   /// Apply a filter (the gallery; the bar's controls follow).
   void set_filter(const LogFilter &filter);
-  /// Visible rows after filtering.
-  int visible_rows() const;
 
     signals:
   void selection_changed(const rux::qt::Selection &selection);

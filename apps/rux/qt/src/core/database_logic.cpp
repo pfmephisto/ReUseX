@@ -320,6 +320,19 @@ std::string format_decimal_da(double v, int decimals) {
   return s;
 }
 
+std::string row_key_title(
+    const std::vector<std::pair<std::string, std::string>> &key_columns) {
+  std::string out;
+  for (const auto &[name, value] : key_columns) {
+    if (!out.empty())
+      out += " · ";
+    out += name;
+    out += ' ';
+    out += value;
+  }
+  return out;
+}
+
 std::string format_bytes_da(std::uint64_t bytes) {
   if (bytes < 1000)
     return std::to_string(bytes) + " B";

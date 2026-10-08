@@ -503,7 +503,7 @@ StageResult run_mesh(ProjectDB &db, const StageContext & /*ctx*/,
     return StageResult::invalid(e.what());
   }
   const std::string &output_name = parsed.output_name;
-  const geometry::MeshOptions &options = parsed.options;
+  geometry::MeshOptions &options = parsed.options;
 
   auto cloud = db.point_cloud_xyzrgb("cloud");
   auto normals = db.point_cloud_normal("normals");
@@ -511,6 +511,11 @@ StageResult run_mesh(ProjectDB &db, const StageContext & /*ctx*/,
   auto plane_labels = db.point_cloud_label("planes");
   auto plane_centroids = db.point_cloud_xyz("plane_centroids");
   auto plane_normals = db.point_cloud_normal("plane_normals");
+
+  // Same "filter" parameter every other stage reads (resolve_filter above):
+  // `rux create mesh -f ...` and a GUI/Qt run restrict to the same points.
+  if (auto problem = resolve_filter(params, db, cloud->size(), options.filter))
+    return StageResult::invalid(*problem);
 
   auto [planes, centroids, inliers] =
       reusex::io::getPlanes(plane_labels, plane_normals, plane_centroids);

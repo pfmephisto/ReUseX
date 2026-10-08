@@ -151,15 +151,24 @@ fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
 Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
-`utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
-`fixtures/`. Catch2 v3.
+`utils`, `vision`, `visualize`, plus `pipeline`, `reconstruction`,
+`segmentation`, `slam`, `rux` (`rux_core_lib`'s app logic — path parsing,
+filter validation, stage prerequisites — short of a subcommand or the
+viewer), `rux_app` (CLI subcommands, needs `rux_lib`; incl. "Kopiér som
+rux-kommando"'s CLI round-trip), `rux_gui` (the web GUI server, `rux_gui_lib`)
+and `rux_qt` (the native Qt client's Qt-free logic, `rux_qt_core`)),
+`integration/`, `benchmarks/`, `support/`, `fixtures/`. Catch2 v3.
 
 Unit tests link into **two** executables (`tests/CMakeLists.txt`):
 `reusex_unit_tests` for most modules, and `reusex_unit_tests_vision` for
-`unit/vision`, `unit/ruxd`, `unit/visualize` and `unit/gsplat/cuda`, which
-need libtorch / TensorRT / `ruxd_lib` / the PCL-Qt viewer. Test names and
-`ctest -R` are unaffected by the split. Put a new test in a heavy directory
-only if it really needs those dependencies (#268).
+`unit/vision`, `unit/ruxd`, `unit/rux_app`, `unit/visualize` and
+`unit/gsplat/cuda`, which need libtorch / TensorRT / `rux_lib` / `ruxd_lib` /
+the PCL-Qt viewer. `reusex_unit_tests` (the light binary) links `rux_qt_core`
+unconditionally whenever `BUILD_QT_CLIENT` builds the Qt client at all
+(`apps/rux/qt/CMakeLists.txt`), so `unit/rux_qt` always runs there and costs
+nothing extra on a build without Qt. Test names and `ctest -R` are unaffected
+by the split. Put a new test in a heavy directory only if it really needs
+those dependencies (#268).
 
 `unit/gsplat/` splits inside the directory (#332): `unit/gsplat/cuda/` needs
 torch or the rasterizer and is dropped from a build without
@@ -458,6 +467,20 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `-1` in the API. The full contract, including the in-memory `CloudL`
   convention, is [`docs/STANDARDS.md` §3](docs/STANDARDS.md#3-label--identity-contract);
   helpers live in `core/label_semantics.hpp`
+- **`probe()`**: a static, `noexcept` check of whether a path is a ReUseX
+  project — opens sqlite read-only/immutable (no `-wal`/`-shm` created,
+  works in a read-only directory), checks the tables `validate_schema()`
+  requires and reads the schema version, all without constructing a full
+  `ProjectDB`. Returns `ProbeResult{is_project, schema_version, error}`. Lets
+  a GUI vet a foreign or empty sqlite file before a read-write open would
+  stamp ReUseX tables onto it.
+- **Raw table browsing** (the Qt client's Database workspace and `rux get`):
+  `list_tables()` (every user table, sorted, with its row count),
+  `table_columns()` (`PRAGMA table_info` per column), `table_rows(table,
+  offset, limit, text_limit = 256)` (paged rows in rowid/PK order, one
+  `TableCell` per column — a blob cell never reads its full bytes, only up to
+  `text_limit` head bytes plus the real size). All three throw
+  `std::invalid_argument` for a non-user table.
 
 Other core pieces: `logging.hpp`, `stages.hpp` (`Stage` enum),
 `validate.hpp` (`check_stage_inputs`, backing `rux validate --stage`),

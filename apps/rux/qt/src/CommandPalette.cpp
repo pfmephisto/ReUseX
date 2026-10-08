@@ -290,14 +290,6 @@ void CommandPalette::close_palette() {
   emit closed();
 }
 
-QStringList CommandPalette::visible_titles() const {
-  QStringList out;
-  for (int i = 0; i < list_->count(); ++i)
-    if (!list_->item(i)->data(kIsHeader).toBool())
-      out << list_->item(i)->text();
-  return out;
-}
-
 void CommandPalette::refilter() {
   list_->clear();
   std::vector<PaletteCandidate> cands;

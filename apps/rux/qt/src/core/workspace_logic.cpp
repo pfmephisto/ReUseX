@@ -169,4 +169,12 @@ void publish_log(int level, std::string_view message) {
     fn(level, message);
 }
 
+bool log_tail_accepts(int level, bool on_job_thread) {
+  if (level < 2) // trace, debug: never (info and up only)
+    return false;
+  if (level < 3) // info: only the job's own thread
+    return on_job_thread;
+  return true; // warn and above: any thread
+}
+
 } // namespace rux::qt

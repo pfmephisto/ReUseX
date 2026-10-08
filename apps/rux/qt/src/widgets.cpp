@@ -5,10 +5,15 @@
 #include <rux_qt/cli_command.hpp>
 #include <rux_qt/widgets.hpp>
 
+#include <QAction>
+#include <QApplication>
 #include <QButtonGroup>
+#include <QClipboard>
+#include <QContextMenuEvent>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLocale>
+#include <QMenu>
 #include <QPainter>
 #include <QStyleOption>
 #include <QVBoxLayout>
@@ -280,6 +285,16 @@ QSize ElidedLabel::minimumSizeHint() const {
 }
 
 QSize ElidedLabel::sizeHint() const { return QLabel::sizeHint(); }
+
+void ElidedLabel::contextMenuEvent(QContextMenuEvent *e) {
+  if (full_.isEmpty())
+    return;
+  QMenu menu(this);
+  QAction *copy = menu.addAction("Kopiér værdi");
+  connect(copy, &QAction::triggered, this,
+          [text = full_] { QApplication::clipboard()->setText(text); });
+  menu.exec(e->globalPos());
+}
 
 void ElidedLabel::paintEvent(QPaintEvent *) {
   QPainter p(this);

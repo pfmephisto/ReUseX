@@ -85,4 +85,14 @@ void remove_log_listener(std::size_t token);
 /// call this).
 void publish_log(int level, std::string_view message);
 
+/// Whether the Pipeline workspace's log tail keeps a line at @p level logged
+/// from the job's own thread (@p on_job_thread) or another one. trace/debug
+/// are dropped outright (not a running-job concern); info is restricted to
+/// the job's own thread, since a stage that fans out with OMP/TBB has worker
+/// threads whose chatter is not the job's narrative. warn and above are kept
+/// from every thread: STANDARDS §5 requires a warning reach the user, and a
+/// stage such as segment_instances logs its cancellation warning from
+/// whichever OMP thread happens to be the fan-out's master.
+bool log_tail_accepts(int level, bool on_job_thread);
+
 } // namespace rux::qt

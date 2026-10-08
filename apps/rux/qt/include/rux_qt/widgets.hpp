@@ -18,6 +18,7 @@
 #include <QVector>
 
 class QButtonGroup;
+class QContextMenuEvent;
 class QGridLayout;
 class QHBoxLayout;
 class QVBoxLayout;
@@ -133,6 +134,12 @@ class ElidedLabel : public QLabel {
 
     protected:
   void paintEvent(QPaintEvent *) override;
+  /// A manually painted elided label has no Qt text-selection cursor to drag
+  /// (the paintEvent draws elided text directly; QLabel's own selectable-text
+  /// machinery never sees it), so the full, unelided value is reachable
+  /// through a one-item context menu instead ("Kopiér værdi" — the inspector
+  /// and property-list values final review finding 10 asks for).
+  void contextMenuEvent(QContextMenuEvent *) override;
 
     private:
   QString full_;

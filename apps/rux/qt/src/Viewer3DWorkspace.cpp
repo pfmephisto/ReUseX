@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <set>
 #include <thread>
 
 namespace rux::qt {
@@ -802,6 +803,16 @@ void Viewer3DWorkspace::update_legend() {
     entries.push_back({"Uden mærkat", "--label-unlabeled", pct(unlabeled)});
   if (invalid > 0)
     entries.push_back({"Ugyldig mærkat (−1)", "--label-invalid", pct(invalid)});
+  // Only `nslots` colours exist (label_palette_slot() wraps at
+  // (label - 1) % nslots, on the raw semantic label value — not on how many
+  // distinct classes are present), so two shown classes can land on the same
+  // slot even with few classes, if their label values happen to collide mod
+  // nslots. Detected empirically on what is actually shown, rather than
+  // guessed from a class count (finding 9: document it, the cheap option,
+  // rather than invent a pattern/index system for what is already a
+  // design-owed token).
+  std::set<int> seen_slots;
+  bool slot_collision = false;
   for (const auto &[label, n] : st.counts) {
     if (label == reusex::core::kUnlabeled ||
         reusex::core::is_out_of_contract_label(label))
@@ -815,6 +826,10 @@ void Viewer3DWorkspace::update_legend() {
     const QString name = nm != st.names.end()
                              ? qs(nm->second)
                              : QString(choice->item).arg(label);
+    const int slot =
+        vis::label_palette_slot(label, static_cast<std::size_t>(nslots));
+    if (!seen_slots.insert(slot).second)
+      slot_collision = true;
     entries.push_back({name, label_swatch_token(label, nslots), pct(n)});
   }
   l->addWidget(new LabelLegend(entries));
@@ -825,6 +840,14 @@ void Viewer3DWorkspace::update_legend() {
             .arg(format_count(static_cast<qulonglong>(rest_points))));
     more->setObjectName("layerHint");
     l->addWidget(more);
+  }
+  if (slot_collision) {
+    auto *note =
+        new QLabel(QString("Kun %1 farver — to viste klasser deler en farve.")
+                       .arg(nslots));
+    note->setObjectName("layerHint");
+    note->setWordWrap(true);
+    l->addWidget(note);
   }
 }
 

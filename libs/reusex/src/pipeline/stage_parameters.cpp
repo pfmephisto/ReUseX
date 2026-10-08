@@ -252,6 +252,9 @@ const std::vector<ParameterDescriptor> &mesh_parameters() {
                 "Engage the sectioned solve only when the cell complex has "
                 "at least this many cells.",
                 static_cast<long long>(d.sectioned_threshold), 1.0, 1000000.0),
+        optional_of(ParameterType::string, "filter", "Point filter",
+                    "Filter expression restricting which points are meshed. "
+                    "Empty means the whole cloud."),
     };
   }();
   return table;

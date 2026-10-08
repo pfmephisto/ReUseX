@@ -388,6 +388,18 @@ TEST_CASE("FormatDecimal_UsesADanishComma", "[rux_qt][database][format]") {
   CHECK(format_decimal_da(-0.0001, 2) == "0,00");
 }
 
+TEST_CASE("RowKeyTitle_JoinsEveryKeyColumn", "[rux_qt][database]") {
+  CHECK(row_key_title({}).empty());
+  CHECK(row_key_title({{"node_id", "1177"}}) == "node_id 1177");
+  // A composite key (cloud_chunks' cloud_id+chunk_index): every column, not
+  // just the first — otherwise every chunk of the same cloud would show the
+  // same title (final review finding 10).
+  CHECK(row_key_title({{"cloud_id", "42"}, {"chunk_index", "3"}}) ==
+        "cloud_id 42 · chunk_index 3");
+  CHECK(row_key_title({{"material_guid", "abc"}, {"key", "u-value"}}) ==
+        "material_guid abc · key u-value");
+}
+
 // ----------------------------------------------------------- write errors --
 
 TEST_CASE("WriteErrors_AreClassifiedWithDanishMessages",

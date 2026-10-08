@@ -223,25 +223,11 @@ std::string wrap_shell_command(std::string_view line, std::size_t columns) {
   std::string out;
   std::size_t col = 0;
   const std::size_t cont = 2; // " \\" at a line end
-  // A group that cannot fit even on a line of its own, with no quotes in it
-  // (a long path): cut it with a bare backslash-newline, which a shell
-  // joins with nothing in between — so no indent on those lines.
-  auto emit_long = [&](const std::string &g) {
-    const std::size_t width = columns > cont + 1 ? columns - cont : 1;
-    std::size_t at = 0;
-    while (g.size() - at + col > columns) {
-      const std::size_t take = width > col ? width - col : 1;
-      out += g.substr(at, take);
-      out += "\\\n";
-      at += take;
-      col = 0;
-    }
-    out += g.substr(at);
-    col += g.size() - at;
-  };
-  auto splittable = [](const std::string &g) {
-    return g.find_first_of("'\"\\") == std::string::npos;
-  };
+  // A group never breaks mid-word: a bare backslash-newline inside a path
+  // reads back as a different path (`office_corridor.rux` -> a literal
+  // "offi\ce_corridor.rux" if cut between 'i' and 'c'), so a group that does
+  // not fit even on a line of its own is placed on its own line and allowed
+  // to overflow `columns` rather than being cut.
   for (std::size_t i = 0; i < groups.size(); ++i) {
     const std::string &g = groups[i];
     if (col != 0 && col + 1 + g.size() + cont > columns) {
@@ -251,12 +237,8 @@ std::string wrap_shell_command(std::string_view line, std::size_t columns) {
       out += ' ';
       col += 1;
     }
-    if (col + g.size() + cont > columns && splittable(g))
-      emit_long(g);
-    else {
-      out += g;
-      col += g.size();
-    }
+    out += g;
+    col += g.size();
   }
   return out;
 }

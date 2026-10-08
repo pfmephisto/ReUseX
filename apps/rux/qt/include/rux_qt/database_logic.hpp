@@ -226,6 +226,16 @@ PoseDelta pose_delta(const std::array<double, 16> &a,
 /// A decimal number with a Danish comma and @p decimals digits.
 std::string format_decimal_da(double v, int decimals);
 
+/// A table row's title from its primary-key column(s): "node_id 1177" for a
+/// single-column key, or every key column joined with " · " for a composite
+/// one (cloud_chunks' cloud_id+chunk_index, instance_materials'
+/// material_guid+key, …) — using only the first column would show the same
+/// title for every chunk of the same cloud. @p key_columns is
+/// {column name, displayed value} for each primary-key column, in column
+/// order; empty when the table has none (the caller falls back to "Row N").
+std::string row_key_title(
+    const std::vector<std::pair<std::string, std::string>> &key_columns);
+
 // --------------------------------------------------------- write errors --
 
 enum class WriteErrorKind { read_only, locked, other };

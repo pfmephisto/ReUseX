@@ -47,8 +47,10 @@ namespace ruxd::api {
 /// and take a new prefix when you do.
 inline constexpr std::string_view kApiVersion = "1.0.0";
 inline constexpr std::string_view kApiPrefix = "/api/v1";
-/// Identifies which implementation of the contract is answering.
-inline constexpr std::string_view kImplementation = "rux-gui";
+/// Identifies which implementation of the contract is answering. "rux-gui"
+/// until the API moved into ruxd (2026-10-08); the contract's enum keeps it
+/// so an older server still validates.
+inline constexpr std::string_view kImplementation = "ruxd";
 
 // --- paging ---------------------------------------------------------------
 //

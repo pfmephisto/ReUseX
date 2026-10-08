@@ -18,7 +18,7 @@ export interface TitleBarProps {
   schemaVersion?: number;
   /** ReUseX build version of the server. */
   version?: string;
-  /** Which backend is answering — `rux-gui` today, `ruxd` in Phase 6. */
+  /** Which backend is answering — `ruxd` (an older server says `rux-gui`). */
   implementation?: string;
   connection: ConnectionStatus;
   activeJobCount: number;

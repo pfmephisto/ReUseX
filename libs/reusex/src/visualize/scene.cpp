@@ -995,7 +995,11 @@ void place_preset_camera(vtkRenderer *renderer, const CameraFraming &framing,
         "place_explicit_camera");
   }
 
-  renderer->ResetCamera();
+  // Fit @p bounds, not the renderer's visible props: a viewer frames the cut
+  // part of the scene (and hidden LOD twins must not count either).
+  double box[6] = {bounds.min[0], bounds.max[0], bounds.min[1],
+                   bounds.max[1], bounds.min[2], bounds.max[2]};
+  renderer->ResetCamera(box);
   cam->Zoom(1.0 / framing.margin); // margin is validated positive
   renderer->ResetCameraClippingRange();
 }

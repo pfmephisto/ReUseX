@@ -99,7 +99,7 @@ a `workstream: *` label so alignment can be queried with
 | Workstream | Label | Anchor | Intent (one line) |
 |---|---|---|---|
 | SLAM / reconstruction quality | `workstream: slam-quality` | #221, #225 | Reach ~10 mm plane flatness via an owned global pose-optimization stage (plane landmarks + GNC), measured against fixture scans — not by tuning RTABMap forever |
-| GUI application | `workstream: gui` | #265 | `ruxd` serving a designed web frontend — `ruxd --local` serves many cases today (`/api/v1/cases/{cid}`), multi-user next over the same API contract; a native Qt client (plain `rux`) alongside; visual language authored in Claude Design, behaviour owned by the repo |
+| GUI application | `workstream: gui` | #265 | `ruxd` serving a designed web frontend — `ruxd --local` for one person, and a multi-user server (logins, roles per case, Postgres) over the same API contract (`/api/v1/cases/{cid}`); a native Qt client (plain `rux`) alongside; visual language authored in Claude Design, behaviour owned by the repo |
 | Gaussian splatting | `workstream: gsplat` | #240 | Native C++/CUDA 3DGS trained from `ProjectDB` — point-cloud-seeded Gaussians, sensor frames and sliced 360 panoramas as views, Apache-licensed gsplat kernels under a GPL trainer |
 | 360 integration | `workstream: 360-integration` | #236 | Turn panoramas into wide-baseline pose-graph constraints; a panorama that sees many temporally-distant frames supplies exactly the loop closures the plane-landmark back-end cannot. Mechanism landed and tested (`rux optimize --use-panoramas`); **blocked on matcher quality** — cross-camera ORB resections are too weak to help, see [`research/panorama-loop-closure.md`](research/panorama-loop-closure.md) |
 | Agent-driven modeling | `workstream: agent-modeling` | #267 | Evaluate an agent + MCP gateway + Blender path to a simplified, tagged building model as a complement to the geometric pipeline; requires headless rendering so the agent has eyes |
@@ -189,6 +189,37 @@ changelog — that history is the point of keeping it in the repo.
 ---
 
 ## Direction changelog
+
+- **2026-10-08** — **GUI: ruxd becomes a multi-user server** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream S, phase S3). `ruxd` without `--local` now serves the same frontend
+  and API to many people:
+  - **Postgres** holds users, sessions, API tokens, cases, case members, jobs
+    and an audit log (`apps/ruxd/migrations/NNN_*.sql`, embedded, applied at
+    start in `schema_migrations` under an advisory lock). Case **files** stay
+    in `--data-dir`; the `cases` table points at them. `ruxd --local` keeps its
+    in-memory stores and `.ruxd/cases.json`.
+  - **Logins**: argon2id passwords (OpenSSL 3 `EVP_KDF`), cookie sessions
+    stored only as SHA-256 (HttpOnly, SameSite=Strict, Secure unless on
+    loopback; 12 h sliding, 14 days absolute), logout revokes, 5 logins per
+    minute per IP and email. Scripts use `rxt_…` API tokens (optionally one
+    case); `--auth-token` is a superuser token. `ruxd admin` creates the
+    first administrator and manages users; passwords never on argv.
+  - **Roles per case**: viewer (GET only), editor (all but deleting the case
+    and managing members), owner (all); administrators everything. A case you
+    are not a member of is a 404. Mutations are audited.
+  - The S2 blocker is closed: the access decision runs in a **patched Crow
+    header phase**, before a request body is read.
+  - Frontend: a login page, a user menu, and a case **Indstillinger →
+    Medlemmer** panel. Local mode never shows the login page.
+  - The old service stub (`/`, `/livez`, `/health`, `/segment/planes`,
+    `/openapi.json`, BearerAuthMiddleware) is gone; `/api/v1/readyz` checks
+    Postgres.
+  - Still open: viewers still *see* edit controls (the server refuses them
+    with 403; hiding them per role is a frontend follow-up); uploads are not
+    yet opened with `SQLITE_DBCONFIG_DEFENSIVE` / `PRAGMA quick_check`; behind
+    a proxy the per-IP login limit is shared (no trusted-proxy setting); no
+    web UI for user administration beyond the `/users` API; Redis and S3 are
+    unused. Deferred as before: S3 snapshots and multi-instance locks.
 
 - **2026-10-08** — **GUI: one ruxd serves many cases** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream S, phase S2). A ruxd process is no longer bound to one project:

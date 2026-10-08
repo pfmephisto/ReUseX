@@ -43,13 +43,103 @@ every `.rux` it is given is a **case**, and every project route lives under
 case list and uploads (`/cases`, `/uploads`), `/health`, `/endpoints` and
 `/models/sam3/status`. Cases open lazily and close when idle
 (`ProjectRegistry`); jobs of every case share one worker pool
-(`--job-workers`, default 1, one running job per case). Users and sessions
-(phase S3) change who may call a route, not the routes.
+(`--job-workers`, default 1, one running job per case). Without `--local`,
+ruxd is the multi-user server (phase S3): the same routes, plus users,
+sessions, API tokens and case membership in Postgres — they change who may
+call a route, not the routes. See *Server mode* below.
 Nothing in the contract assumes the client and server share a filesystem, and
 job identifiers are opaque server-generated strings, so a queued/remote
 implementation slots in without frontend changes.
 
-## Security model
+## Server mode: users, roles and deployment
+
+`ruxd` without `--local` serves the same frontend and API to many people
+(spec `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`,
+phase S3):
+
+- **Postgres** (`--pg-url` / `DATABASE_URL`) holds users, sessions, API
+  tokens, cases, case members, jobs and an audit log. The schema lives in
+  `apps/ruxd/migrations/NNN_*.sql`, is embedded in the binary, and is applied
+  at start (and by `ruxd admin`) in a `schema_migrations` table, each
+  migration in its own transaction, under an advisory lock.
+- **Case files** live in `--data-dir`, one directory per case
+  (`<data-dir>/<slug>/project.rux`); the `cases` table points at them.
+  Uploads and created cases land there; deleted ones move to
+  `<data-dir>/.ruxd/trash/`. `ruxd admin register-case --path <file.rux>`
+  serves an existing file where it is (never moved or deleted by the server).
+  Local mode's `.ruxd/cases.json` is not used.
+- **Roles per case**: *viewer* (GET only), *editor* (everything but deleting
+  the case and managing members), *owner* (everything). An administrator may
+  do everything everywhere and manages users. A case you are not a member of
+  answers **404**, exactly like one that does not exist. The creator of a case
+  is its owner; a case always keeps one owner. Every successful mutation is
+  written to `audit_log`.
+- **Sessions**: `POST /api/v1/auth/login` sets the `ruxd_session_<port>`
+  cookie — a random 32-byte token, stored server-side only as its SHA-256 —
+  HttpOnly, SameSite=Strict, and `Secure` unless the server binds loopback
+  (`--cookie-secure auto|always|never`; `auto` also sets it when a proxy sends
+  `X-Forwarded-Proto: https`). It expires 12 h after its last use (renewed at
+  most every 5 min) and 14 days after login regardless; logout deletes it.
+  Passwords are argon2id (OpenSSL 3 `EVP_KDF`, RFC 9106 parameters, in PHC
+  form). Logins are limited to 5 per minute per client IP and email (30 per IP).
+- **Scripts** use `Authorization: Bearer rxt_…` API tokens
+  (`ruxd admin create-token`, optionally `--case <cid>`), hashed like sessions.
+  `--auth-token` is a superuser Bearer token for bootstrap and operations.
+- **The access decision runs before the body is read**: Crow is patched
+  (`overlays/patches/crow-header-check.patch`) with a header-phase hook, so an
+  unauthenticated or forbidden upload is answered — and its connection closed
+  — without its body being buffered. A signed-in browser's mutation must also
+  carry an allowed `Origin`.
+- `GET /api/v1/readyz` answers 200 when Postgres is reachable (503 otherwise),
+  for a load balancer or container health check.
+
+### First run
+
+```bash
+export DATABASE_URL=postgresql://ruxd@db.internal/ruxd
+ruxd admin create-user --email anna@firma.dk --name "Anna" --admin   # prompts for the password
+ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080
+# then, as Anna, add people in the case's Indstillinger → Medlemmer;
+# accounts are made by an administrator:
+ruxd admin create-user --email bo@firma.dk --name "Bo"               # or: … < password.txt
+ruxd admin create-token --email ci@firma.dk --name nightly --case kontor   # prints rxt_… once
+```
+
+### TLS via a reverse proxy
+
+ruxd speaks plain HTTP; put TLS in front of it. With the proxy on the same
+host, bind ruxd to loopback and name the public origin, so its Host and the
+browser's `Origin` are accepted:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name ruxd.firma.dk;
+  client_max_body_size 80m;                 # upload chunks are ≤ 64 MiB
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_http_version 1.1;                 # the events WebSocket
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+```
+
+```bash
+ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080 \
+     --allow-origin https://ruxd.firma.dk
+```
+
+The session cookie is then `Secure` (`X-Forwarded-Proto: https`). Behind a
+proxy every login comes from the proxy's address, so the per-IP part of the
+rate limit is shared by everyone; the per-email part still holds. Serving a
+non-loopback bind over plain HTTP is not supported: the cookie is `Secure`
+and a browser will not send it back (`--cookie-secure never` only for a
+closed test network).
+
+## Security model (local mode)
 
 On loopback, `ruxd --local` has **no authentication**, and its `POST /jobs`
 endpoint executes pipeline stages. Three controls keep that from being
@@ -91,10 +181,10 @@ The contract nevertheless **declares** a `bearerAuth` security scheme, while
 leaving the document-level requirement as `security: []`. That pair is a
 deliberate statement rather than an oversight: the empty list says every
 operation here needs no credential, and a generated client honours it by
-sending none. `ruxd --local --auth-token` already accepts that scheme, and the
-multi-user server will too; declaring the scheme now means that deployment
-overrides one document-level field instead of forcing every client to be
-regenerated against a differently-shaped spec.
+sending none. `ruxd --local --auth-token` accepts that scheme, and so does the
+multi-user server (API tokens and the superuser token), which additionally
+accepts the `sessionCookie` scheme; which operations need which is described
+per tag rather than by per-operation `security` blocks.
 
 ### The frontend must be same-origin
 
@@ -434,5 +524,5 @@ curl -s localhost:8420/api/v1/cases/<cid>/project | jq
 curl -s localhost:8420/api/v1/gsplats | jq
 ```
 
-See `ruxd --help` ("Local mode") for the asset directory, bind address, token
-and browser flags.
+See `ruxd --help` ("Web GUI") for the asset directory, bind address, token
+and browser flags, and *Server mode* above for the multi-user server.

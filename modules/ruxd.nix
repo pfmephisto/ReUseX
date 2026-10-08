@@ -82,6 +82,17 @@ in {
       description = "Extra environment variables passed to the service.";
     };
 
+    dataDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/ruxd";
+      description = ''
+        Where case files are stored, one directory per case (--data-dir).
+        The default is the service's systemd StateDirectory. Users, sessions
+        and the case catalogue live in Postgres (DATABASE_URL); create the
+        first administrator with `ruxd admin create-user --email … --admin`.
+      '';
+    };
+
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -100,6 +111,7 @@ in {
         {
           RUXD_PORT = toString cfg.port;
           RUXD_THREADS = toString cfg.threads;
+          RUXD_DATA_DIR = cfg.dataDir;
           REDIS_URL = cfg.redisUrl;
           AWS_REGION = cfg.s3.region;
         }
@@ -120,6 +132,9 @@ in {
           PrivateTmp = true;
           ProtectControlGroups = true;
           ProtectKernelTunables = true;
+        }
+        // lib.optionalAttrs (cfg.dataDir == "/var/lib/ruxd") {
+          StateDirectory = "ruxd";
         }
         // lib.optionalAttrs (cfg.environmentFile != null) {
           EnvironmentFile = cfg.environmentFile;

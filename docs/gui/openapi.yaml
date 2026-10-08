@@ -49,15 +49,26 @@ security: []
 # The empty list is a real statement, not an omission: it says "this operation
 # needs no credential", and a generated client honours it by sending none.
 # `components.securitySchemes.bearerAuth` is nevertheless declared, because
-# `ruxd --local --auth-token` already accepts it, and the multi-user server
-# will too. A remote deployment overrides this document's top-level `security`
-# with `[{bearerAuth: []}]`; the operations themselves do not change, so
-# Phase 6 is a client *configuration* change rather than a regenerate-
-# everything event.
+# `ruxd --local --auth-token` accepts it, and so does the multi-user server
+# (`ruxd` without --local, phase S3), which also accepts `sessionCookie`. There
+# every operation but `/health`, `/readyz`, `/endpoints` and `/auth/login`
+# needs one of the two; every `/cases/{cid}/…` operation also needs membership
+# of that case (a non-member gets 404, as for a missing case), GET needs any
+# role, other methods `editor` or `owner`, deleting the case and changing its
+# members `owner`; `/users` needs an administrator. A client of a remote
+# deployment overrides this document's top-level `security` with
+# `[{sessionCookie: []}, {bearerAuth: []}]`; the operations themselves do not
+# change.
 
 tags:
   - name: meta
     description: Service health and self-description
+  - name: auth
+    description: Signing in and out (server mode); who a request is (both modes)
+  - name: users
+    description: User accounts (server mode, administrators only)
+  - name: members
+    description: Who may see and change a case, and how (server mode)
   - name: cases
     description: The server's cases (one `.rux` each) — list, create, upload, rename, delete
   - name: project
@@ -257,6 +268,324 @@ paths:
           description: |
             A job of the case is queued or running, a request still holds it,
             or the case lives outside the data dir (a served file).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /readyz:
+    get:
+      tags: [meta]
+      operationId: getReadiness
+      summary: "Readiness probe: the server's backends are reachable"
+      description: |
+        Server mode: Postgres answers `SELECT 1` on a fresh connection. Local
+        mode has no backends and is always ready. Needs no credential.
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [ready] } }
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [not_ready] } }
+
+  # ---------------------------------------------------------------- auth ----
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in; sets the session cookie
+      description: |
+        Server mode. Sets `ruxd_session_<port>` (HttpOnly, SameSite=Strict,
+        Secure unless the server binds loopback, Max-Age the session's
+        absolute lifetime). Rate limited: 5 attempts per minute per client IP
+        and email, 30 per IP. An unknown email, a wrong password and a
+        disabled account give the same 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthMe" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Local mode has no login
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Too many attempts; wait `Retry-After` seconds
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out; ends the session
+      description: Deletes the session server-side and clears the cookie.
+      responses:
+        "204": { description: Signed out }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Who this request is signed in as
+      description: |
+        Server mode: the session's (or token's) user, or 401. Local mode: the
+        implicit user `local` (an administrator who owns every case), so a
+        client never shows a login page there.
+      responses:
+        "200":
+          description: The signed-in principal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthMe" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # --------------------------------------------------------------- users ----
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: Every user (administrators)
+      responses:
+        "200":
+          description: The users, by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Local mode has no users
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Create a user (administrators)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                display_name: { type: string, maxLength: 200 }
+                password: { type: string, minLength: 8 }
+                is_admin: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: The email is taken (or local mode)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /users/{uid}:
+    parameters:
+      - name: uid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: One user (administrators)
+      responses:
+        "200":
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Rename, promote, disable or reset the password of a user (administrators)
+      description: Disabling or a new password ends every session of the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, maxLength: 200 }
+                is_admin: { type: boolean }
+                disabled: { type: boolean }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ------------------------------------------------------------- members ----
+  /cases/{cid}/members:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+    get:
+      tags: [members]
+      operationId: listCaseMembers
+      summary: "A case's members"
+      description: Any member may read the list. Administrators need no membership.
+      responses:
+        "200":
+          description: The members, by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items: { $ref: "#/components/schemas/CaseMember" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [members]
+      operationId: addCaseMember
+      summary: Add a member to a case by email (owners)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string }
+                role: { $ref: "#/components/schemas/CaseRole" }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CaseMember" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such case, or no user has that email
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already a member (change the role instead)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /cases/{cid}/members/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+      - name: uid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    patch:
+      tags: [members]
+      operationId: updateCaseMember
+      summary: "Change a member's role (owners)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/CaseRole" }
+      responses:
+        "200":
+          description: Changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CaseMember" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The case would be left without an owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [members]
+      operationId: removeCaseMember
+      summary: Remove a member from a case (owners)
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The case would be left without an owner
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -4202,6 +4531,16 @@ paths:
 components:
 
   securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ruxd_session_<port>
+      description: |
+        Server mode: the login session set by `POST /auth/login` — a random
+        32-byte token, stored server-side only as its SHA-256. Named per port
+        (the literal name is `ruxd_session_` + the server's port). A
+        cookie-authenticated request that changes something must carry an
+        allowed `Origin` (403 otherwise).
     bearerAuth:
       type: http
       scheme: bearer
@@ -4214,9 +4553,12 @@ components:
         `security: []` in force — sending a token to it is harmless and
         ignored. Started with `--bind <non-loopback> --auth-token <t>`, it
         requires the token on every request (this scheme, the `ruxd_token_<port>`
-        cookie, or `?token=`). The multi-user server is then a change of
-        *which* security requirement applies, not a change to the operations
-        themselves.
+        cookie, or `?token=`).
+
+        **Server mode** accepts two kinds of Bearer token: an API token
+        (`rxt_…`, from `ruxd admin create-token`, acting as its user and
+        optionally limited to one case) and the `--auth-token` superuser
+        token. Neither needs an `Origin`.
 
   parameters:
     CaseId:
@@ -4284,6 +4626,24 @@ components:
       schema: { type: string }
 
   responses:
+    Unauthorized:
+      description: |
+        Server mode: no valid session cookie or Bearer token (sign in first).
+        Local mode with `--auth-token`: the token is missing or wrong.
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        Signed in, but this role may not do this (a viewer's write, an
+        editor deleting the case or changing members, a non-administrator on
+        `/users`), or a signed-in browser request that changes something came
+        without an allowed `Origin`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     UnexpectedError:
       description: |
         Any failure that is not specific to this operation. Three can come back
@@ -4418,6 +4778,13 @@ components:
           type: boolean
           description: The case lives in the server's data dir, so it may be deleted.
         open: { type: boolean, description: The server has it open right now. }
+        role:
+          description: |
+            The caller's role in this case (server mode; an administrator is
+            `owner` everywhere). Local mode's implicit user is `owner`.
+          oneOf:
+            - type: "null"
+            - { $ref: "#/components/schemas/CaseRole" }
         summary:
           description: |
             The card's figures, read with a short read-only connection and
@@ -4442,6 +4809,53 @@ components:
                   oneOf:
                     - type: "null"
                     - { $ref: "#/components/schemas/SurveyFractions" }
+
+    CaseRole:
+      type: string
+      enum: [viewer, editor, owner]
+      description: |
+        viewer: GET only. editor: everything in the case but deleting it and
+        managing members. owner: everything.
+
+    User:
+      type: object
+      required: [id, email, display_name, is_admin, disabled, created_at]
+      properties:
+        id: { type: integer, description: "0 for local mode's and the superuser's synthetic user." }
+        email: { type: string, description: Lower-cased; the login. }
+        display_name: { type: string }
+        is_admin: { type: boolean }
+        disabled: { type: boolean }
+        created_at: { type: string, description: "ISO-8601 UTC; empty for a synthetic user." }
+
+    AuthMe:
+      type: object
+      required: [mode, via, user]
+      properties:
+        mode:
+          type: string
+          enum: [local, server]
+          description: "`local`: `ruxd --local`, no login."
+        via:
+          type: string
+          enum: [local, session, token, superuser]
+        user: { $ref: "#/components/schemas/User" }
+        case_scope:
+          type: string
+          description: An API token limited to this case.
+
+    CaseMember:
+      type: object
+      required: [user, role]
+      properties:
+        user:
+          type: object
+          required: [id, email, display_name]
+          properties:
+            id: { type: integer }
+            email: { type: string }
+            display_name: { type: string }
+        role: { $ref: "#/components/schemas/CaseRole" }
 
     CaseList:
       type: object

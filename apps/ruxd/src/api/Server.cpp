@@ -628,7 +628,7 @@ class Server::Impl {
     else
       app_.multithreaded();
 
-    spdlog::info("ruxd --local listening on {}", url());
+    spdlog::info("ruxd listening on {}{}", url(), auth_ ? "" : " (local mode)");
     if (has_assets())
       spdlog::info("Serving frontend assets from {}",
                    options_.asset_dir.string());
@@ -648,7 +648,7 @@ class Server::Impl {
       launch_browser(url());
 
     serving.wait();
-    spdlog::info("ruxd --local shutting down");
+    spdlog::info("ruxd shutting down");
     return 0;
   }
 

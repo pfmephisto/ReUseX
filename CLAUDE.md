@@ -149,7 +149,7 @@ because temp-file helpers derived names from object addresses; that was
 fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`, `ruxd_cli`,
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`, `ruxd_cli`, `ruxd_pg`,
 `utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
 `fixtures/`. Catch2 v3.
 
@@ -488,12 +488,27 @@ Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 
 There is **no `rux gui`** any more: the web GUI is served by `ruxd`.
 
-`ruxd` (`apps/ruxd/`) is a separate HTTP service worker binary with its own
-flags (`--port`, `--threads`, `--pg-url`, `--pg-pool-size`,
-`--pg-acquire-timeout-ms`, `--redis-url`, `--s3-*`, `--auth-token`). Postgres
-query paths lease from a fixed-size connection pool
-(`apps/ruxd/include/connection_pool.hpp`) whose capacity defaults to the worker
-thread count; `/readyz` deliberately keeps its own short-lived connection.
+`ruxd` (`apps/ruxd/`) serves the web GUI in two modes: `ruxd --local` for one
+person (below), and, without `--local`, the **multi-user server** (phase S3):
+users, sessions, API tokens, cases, case membership, jobs and an audit log in
+Postgres (`--pg-url`/`DATABASE_URL`, schema in `apps/ruxd/migrations/NNN_*.sql`,
+embedded at build time and applied at start under an advisory lock), case
+files in `--data-dir` (`<data-dir>/<slug>/project.rux`). Logins are cookie
+sessions (`ruxd_session_<port>`, HttpOnly, SameSite=Strict, Secure unless on
+loopback; only the token's SHA-256 is stored; argon2id passwords via OpenSSL 3
+`EVP_KDF`); scripts use `Authorization: Bearer rxt_…` API tokens; `--auth-token`
+is a superuser token. Roles per case: viewer (GET only), editor (all but
+deleting the case and managing members), owner (all); admins everything; a
+non-member gets 404. The access decision (`api/access.hpp`, `AuthService`)
+runs in a patched Crow header phase, before a request body is read.
+`ruxd admin create-user|set-password|list-users|disable-user|create-token|
+register-case` manages it; passwords come from a prompt or stdin, never argv.
+The Postgres stores are `ruxd_pg_lib` (`apps/ruxd/src/pg/`, light; tests in
+`tests/unit/ruxd_pg/`, tagged `[postgres]`, start an ephemeral cluster with
+`initdb` — in the devshell — and skip without it). Deployment (first admin,
+TLS via a reverse proxy, the Secure cookie): `docs/gui/README.md`. Other
+flags: `--port`, `--threads`, `--pg-pool-size`, `--pg-acquire-timeout-ms`,
+`--cookie-secure`; `--redis-url`/`--s3-*` are accepted but unused yet.
 
 `ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
 WebSocket contract in `docs/gui/openapi.yaml`, with no Postgres, Redis or S3.
@@ -526,17 +541,17 @@ sets the cookie and 303-redirects to the URL without it); the page's own
 origin is then allowed for mutations. Every request's Host header must name
 the server (DNS-rebinding guard: loopback names on a loopback bind). Crow's
 request log goes through spdlog (`-vv`) with query strings redacted.
-Local-mode flags require `--local`.
-Other local-mode flags: `--allow-origin`, `--assets`, `--open-browser`,
-`--[no-]segment-cuda`, `--sam3-model`, `--models-dir`, `--sam3-manifest-url`.
+The web GUI's flags serve both modes; only `--open-browser` requires `--local`.
+Others: `--allow-origin`, `--assets`, `--[no-]segment-cuda`, `--sam3-model`,
+`--models-dir`, `--sam3-manifest-url`.
 The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`
 (namespace `ruxd::api`), which links only `reusex_core` + `reusex_pipeline` so
 its tests (`tests/unit/ruxd_api/`) stay in the light binary. The heavy pieces
 it needs — SAM3 segmenters, managed-model provider, renderer, ICP, the
 `optimize` stage — are built in `ruxd_lib` (`src/injected.cpp`, `src/icp.cpp`)
-and injected by `src/local.cpp`. Users, sessions and Postgres-backed cases and
-jobs are phase S3 of
-`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`.
+and injected by `src/local.cpp` (`serve_web`, shared by `src/server.cpp`).
+Crow is also patched with a header-phase check (`app.header_check`), and
+`Server.cpp` refuses to compile without both patch sentinels.
 
 ## Development Patterns
 

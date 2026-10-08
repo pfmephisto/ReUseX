@@ -14,7 +14,7 @@ import { cardDate, cardSubline, caseStats, caseStatus, OPEN_ANOTHER_COMMAND } fr
 import styles from './SagerPage.module.css';
 
 /**
- * Sager — the case list (R1). `rux gui` serves one project, so the list is
+ * Sager — the case list (R1). `ruxd --local` serves one project, so the list is
  * that project's card, plus how to open another. The grid is the
  * prototype's, so a longer list from a multi-case server drops in without a
  * layout change.

@@ -137,7 +137,8 @@ int main(int argc, char **argv) {
   // --- Auth ---
   cli.add_option("--auth-token", cfg.auth_token,
                  "Bearer token required for authenticated routes "
-                 "(empty = auth disabled)")
+                 "(empty = auth disabled). With --local: the access token "
+                 "every request must present; required beyond loopback")
       ->envname("RUXD_AUTH_TOKEN");
 
   // --- Local mode (the web GUI for one project; formerly `rux gui`) ---
@@ -184,19 +185,14 @@ int main(int argc, char **argv) {
       ->group(local_group);
 
   cli.footer(R"footer(
-LOCAL MODE:
-  ruxd --local scan.rux                 # web GUI on http://127.0.0.1:8420
-  ruxd --local scan.rux --open-browser  # ...and open it
-  ruxd --local ./case --port 9000       # the one .rux in ./case
-  ruxd --local scan.rux --bind 0.0.0.0 --auth-token "$(openssl rand -hex 16)"
-                                        # reachable on the LAN; open
-                                        # http://<host>:8420/?token=<token>
-
-  Local mode has no users and no login. On loopback (the default) it has no
-  authentication at all, so anything on this machine can read and change the
-  project and run pipeline stages. A --bind beyond loopback is refused without
-  --auth-token. Cross-origin requests are refused unless they come from
-  loopback or an origin named with --allow-origin.
+Local mode (the web GUI for one project, formerly `rux gui`):
+  ruxd --local scan.rux
+  ruxd --local scan.rux --port 9000 --open-browser
+  ruxd --local scan.rux --bind 0.0.0.0 --auth-token <token>
+Then open http://127.0.0.1:8420 (or http://<host>:<port>/?token=<token>).
+On loopback, local mode has no authentication: anything on this machine can
+read and change the project and run pipeline stages. A --bind beyond loopback
+is refused without --auth-token.
 )footer");
 
   // Verbosity: -v, -vv, -vvv raise both spdlog and the ReUseX library logger

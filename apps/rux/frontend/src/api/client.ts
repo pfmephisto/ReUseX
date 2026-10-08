@@ -13,8 +13,8 @@
  * around in calling code:
  *
  *  1. **Same-origin only.** The default base URL is a relative `/api/v1`. In
- *     development, Vite's `server.proxy` forwards it to `rux gui`, so the
- *     browser never makes a cross-origin request. `rux gui` cannot answer a
+ *     development, Vite's `server.proxy` forwards it to `ruxd --local`, so the
+ *     browser never makes a cross-origin request. `ruxd --local` cannot answer a
  *     CORS preflight (Crow 1.3 replies to `OPTIONS` before it has parsed the
  *     request headers), so any JSON-bodied cross-origin call would fail.
  *  2. **Mutating routes carry `Content-Type: application/json`.** The server

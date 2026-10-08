@@ -37,7 +37,7 @@ import { ViewportPage } from '../routes/ViewportPage';
 /**
  * Route table.
  *
- * Paths stay extensionless on purpose: `rux gui`'s SPA fallback only rewrites
+ * Paths stay extensionless on purpose: `ruxd --local`'s SPA fallback only rewrites
  * extensionless requests to `index.html`, so that a missing `/assets/app.js`
  * still 404s instead of silently returning HTML. A route containing a dot would
  * break on reload.

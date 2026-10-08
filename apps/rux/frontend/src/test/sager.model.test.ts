@@ -81,7 +81,7 @@ describe('card text', () => {
 
 describe('commands (R1)', () => {
   it('says how to open another case', () => {
-    expect(OPEN_ANOTHER_COMMAND).toBe('rux -p <fil>.rux gui');
+    expect(OPEN_ANOTHER_COMMAND).toBe('ruxd --local <fil>.rux');
   });
 
   it('sager no longer exports the phone command (On-site moved to the mobile app)', () => {

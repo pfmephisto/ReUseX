@@ -40,8 +40,9 @@ buildNpmPackage {
   # phase would look for a `bin`/`main` entry point that does not exist.
   dontNpmInstall = true;
 
-  # `rux gui` resolves its asset directory as: --assets, then $RUX_GUI_ASSETS,
-  # then <install prefix>/share/reusex/gui (see apps/rux/src/gui/assets.cpp).
+  # `ruxd --local` resolves its asset directory as: --assets, then
+  # $RUX_GUI_ASSETS, then <install prefix>/share/reusex/gui (see
+  # apps/ruxd/src/api/assets.cpp).
   # index.html must therefore sit at the root of that directory.
   installPhase = ''
     runHook preInstall
@@ -53,7 +54,7 @@ buildNpmPackage {
   '';
 
   meta = {
-    description = "Static React/Vite bundle served by `rux gui` (ReUseX web frontend)";
+    description = "Static React/Vite bundle served by `ruxd --local` (ReUseX web frontend)";
     homepage = "https://github.com/pfmephisto/ReUseX";
     license = lib.licenses.gpl3Plus;
     maintainers = [];

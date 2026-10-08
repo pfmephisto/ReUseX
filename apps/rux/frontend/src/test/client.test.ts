@@ -7,7 +7,7 @@
  *
  * The transport is injected, so nothing here needs a server, a socket or a
  * network: a stub `fetch` records the request it was handed and replies with a
- * payload recorded from a real `rux gui` (see `fixtures.ts`). What is being
+ * payload recorded from a real server (`rux gui` at the time; see `fixtures.ts`). What is being
  * pinned is the seam between the client and the contract — envelope unwrapping,
  * URL construction, the mutating-route content type, and the error mapping.
  */
@@ -303,7 +303,7 @@ describe('mutating routes', () => {
 
     expect(calls[0].url).toBe('/api/v1/jobs');
     expect(calls[0].method).toBe('POST');
-    // Without this header `rux gui` answers 415 — it is what a forged
+    // Without this header `ruxd --local` answers 415 — it is what a forged
     // "simple request" cannot set.
     expect(calls[0].headers?.['Content-Type']).toBe('application/json');
     expect(JSON.parse(calls[0].body ?? '')).toEqual({

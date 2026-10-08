@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Sager as data: the one card `rux gui` can show (R1) and the command that
+ * Sager as data: the one card `ruxd --local` can show (R1) and the command that
  * opens another case. Every figure is read off a server response; this module
  * only words it.
  */
@@ -83,5 +83,5 @@ export function cardDate(p: ProjectInfo | undefined): string {
   return date ? `Registreret ${danishDate(date)}` : '—';
 }
 
-/** How to open another case: `rux gui` serves the project it was started with. */
-export const OPEN_ANOTHER_COMMAND = 'rux -p <fil>.rux gui';
+/** How to open another case: `ruxd --local` serves the project it was started with. */
+export const OPEN_ANOTHER_COMMAND = 'ruxd --local <fil>.rux';

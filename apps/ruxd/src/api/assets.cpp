@@ -75,7 +75,7 @@ resolve_asset_dir(const std::filesystem::path &override_dir) {
       return std::filesystem::weakly_canonical(candidate, ec);
   }
 
-  // Installed layout: bin/rux next to share/reusex/gui/.
+  // Installed layout: bin/ruxd next to share/reusex/gui/.
   const auto bin = executable_dir();
   if (!bin.empty()) {
     const auto candidate = bin.parent_path() / "share" / "reusex" / "gui";

@@ -11,6 +11,7 @@
 #include <rux_qt/widgets.hpp>
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/visualize/scene.hpp>
 
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -495,9 +496,16 @@ Selection DatabaseWorkspace::cloud_selection(const QString &name) const {
                             SelectionRow::Style::value});
           break;
         }
-        l.rows.push_back({qs(label), QString::number(id),
-                          SelectionRow::Style::name,
-                          QString("--label-%1").arg(id % nslots)});
+        l.rows.push_back(
+            {qs(label), QString::number(id), SelectionRow::Style::name,
+             // The 3D view's and the web's slot rule.
+             [&] {
+               const int slot = reusex::visualize::label_palette_slot(
+                   static_cast<std::uint32_t>(id),
+                   static_cast<std::size_t>(nslots));
+               return slot < 0 ? QString("--label-unlabeled")
+                               : QString("--label-%1").arg(slot);
+             }()});
       }
       s.sections.push_back(l);
     }

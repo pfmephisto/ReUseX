@@ -1,0 +1,113 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// The 3D workspace (Stream Q, Q3): RTABMap's 3D view, calmer. A layer panel
+// on the left (points coloured by stored RGB or by any label cloud, with a
+// --label-* legend; mesh; building components; camera frustums; panoramas;
+// a cut plane), the canvas in the centre with view presets over it, and a
+// picked point described to the inspector.
+//
+// The scene comes from visualize::populate_scene() — the builder `rux render`
+// uses — one layer at a time, built off the GUI thread with its own
+// read-only ProjectDB and handed over when done. Nothing loads until the
+// page is first shown (activate()): a 1.2-million-point cloud is not read
+// just because a project was opened.
+
+#include <rux_qt/selection.hpp>
+
+#include <reusex/visualize/render_view.hpp>
+
+#include <QMap>
+#include <QString>
+#include <QWidget>
+
+#include <map>
+#include <memory>
+#include <optional>
+
+class QCheckBox;
+class QComboBox;
+class QDoubleSpinBox;
+class QLabel;
+class QPushButton;
+class QVBoxLayout;
+
+namespace rux::qt {
+
+class ProjectSession;
+class SceneView;
+
+class Viewer3DWorkspace : public QWidget {
+  Q_OBJECT
+    public:
+  Viewer3DWorkspace(ProjectSession &session, bool interactive,
+                    QWidget *parent = nullptr);
+  ~Viewer3DWorkspace() override;
+
+  /// The page is on screen: load what is not loaded yet.
+  void activate();
+  const Selection &selection() const { return selection_; }
+
+  /// Colour the points by stored RGB ("cloud") or a label cloud
+  /// ("planes", "rooms", "instances", "labels").
+  void set_colour_by(const QString &layer);
+  void set_layer_visible(reusex::visualize::Layer layer, bool on);
+  void set_view(reusex::visualize::ViewPreset view);
+  void set_cut(bool on, std::optional<double> height = std::nullopt);
+  /// Pick the point under @p pos of the canvas (as a click there does).
+  bool pick_at(const QPoint &pos);
+  SceneView *view() const { return view_; }
+
+    signals:
+  void selection_changed(const rux::qt::Selection &selection);
+
+    private:
+  struct LayerState;
+  struct BuildResult;
+  void reset();
+  void rebuild_panel();
+  void ensure_layer(reusex::visualize::Layer layer);
+  void layer_built(std::shared_ptr<BuildResult> result);
+  void apply_visibility();
+  void apply_cut();
+  void frame_camera();
+  void update_legend();
+  void update_status();
+  void pick(const QPoint &pos);
+  bool has_data(reusex::visualize::Layer layer) const;
+  QString colour_cloud() const;
+
+  ProjectSession &session_;
+  bool interactive_ = false;
+  bool active_ = false;
+  unsigned generation_ = 0;
+  SceneView *view_ = nullptr;
+
+  QWidget *panel_ = nullptr;
+  QVBoxLayout *panel_layout_ = nullptr;
+  QComboBox *colour_ = nullptr;
+  QCheckBox *cut_on_ = nullptr;
+  QDoubleSpinBox *cut_height_ = nullptr;
+  QWidget *legend_ = nullptr;
+  QMap<int, QCheckBox *> layer_boxes_;
+  QWidget *presets_ = nullptr;
+  QLabel *status_ = nullptr;
+  QLabel *mode_ = nullptr;
+
+  std::map<int, std::unique_ptr<LayerState>> layers_;
+  QMap<int, bool> visible_;
+  reusex::visualize::ViewPreset preset_ = reusex::visualize::ViewPreset::orbit;
+  bool camera_placed_ = false;
+  /// The user moved the camera: a resize no longer re-frames it.
+  bool camera_moved_ = false;
+  bool cut_ = true;
+  std::optional<double> cut_height_m_;
+  double cut_z_ = 0.0;
+  bool cut_from_planes_ = false;
+  Selection selection_;
+  void *marker_ = nullptr; // vtkActor of the picked point
+};
+
+} // namespace rux::qt

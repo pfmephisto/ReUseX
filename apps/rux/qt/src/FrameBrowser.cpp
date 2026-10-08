@@ -904,6 +904,7 @@ void FrameBrowser::sync_side(bool side_b) {
   }
   strip_->set_pair(pair_.a_id(), pair_.b_id());
   film_model_->set_marks(pair_.a_id(), pair_.b_id());
+  emit pair_changed(pair_.a_id(), pair_.b_id());
   if (!side_b && index >= 0)
     film_->scrollTo(film_model_->index(index),
                     QAbstractItemView::EnsureVisible);

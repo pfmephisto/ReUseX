@@ -16,6 +16,8 @@
 #include <rux_qt/selection.hpp>
 #include <rux_qt/workspaces.hpp>
 
+#include <reusex/pipeline/stages.hpp>
+
 #include <QFrame>
 #include <QWidget>
 
@@ -28,17 +30,30 @@ namespace rux::qt {
 
 class DatabaseWorkspace;
 class Inspector;
+class PipelineLogView;
+class PipelineWorkspace;
+class PoseGraphWorkspace;
+class Viewer3DWorkspace;
 class NavRail;
 class ProjectSession;
 class RecentProjects;
 class StartPage;
 class Pill;
 
+/// What differs between the real app and a gallery shot.
+struct ShellOptions {
+  /// The 3D workspace uses a real QVTKOpenGLNativeWidget (needs a display);
+  /// otherwise it renders offscreen into an image (screenshots).
+  bool interactive_3d = false;
+  /// Runs the Pipeline workspace's stages; empty = the library default.
+  reusex::pipeline::StageExecutor stage_executor;
+};
+
 class AppShell : public QWidget {
   Q_OBJECT
     public:
   AppShell(ProjectSession &session, RecentProjects &recent,
-           QWidget *parent = nullptr);
+           ShellOptions options = {}, QWidget *parent = nullptr);
 
   void show_page(Workspace w);
   Workspace current_page() const;
@@ -55,6 +70,10 @@ class AppShell : public QWidget {
   void open_project(const QString &path, bool read_only = false);
 
   DatabaseWorkspace *database() const { return database_; }
+  Viewer3DWorkspace *viewer() const { return viewer_; }
+  PoseGraphWorkspace *posegraph() const { return posegraph_; }
+  PipelineWorkspace *pipeline() const { return pipeline_; }
+  PipelineLogView *log() const { return log_; }
   /// Unsaved pose-graph edits: ask whether to save, discard or cancel
   /// before @p action (Danish infinitive: "lukke projektet"). True when it is
   /// fine to go on — nothing pending, saved, or discarded.
@@ -78,6 +97,8 @@ class AppShell : public QWidget {
   void build_actions();
   void sync_project();
   void refresh_product_label();
+  /// The selection the inspector shows for page @p w.
+  Selection page_selection(Workspace w) const;
 
   ProjectSession &session_;
   RecentProjects &recent_;
@@ -92,8 +113,13 @@ class AppShell : public QWidget {
   NavRail *rail_ = nullptr;
   QStackedWidget *stack_ = nullptr;
   StartPage *start_ = nullptr;
-  QVector<WorkspacePlaceholder *> placeholders_;
   DatabaseWorkspace *database_ = nullptr;
+  Viewer3DWorkspace *viewer_ = nullptr;
+  PoseGraphWorkspace *posegraph_ = nullptr;
+  PipelineWorkspace *pipeline_ = nullptr;
+  PipelineLogView *log_ = nullptr;
+  Selection log_selection_;
+  QString log_command_;
   Inspector *inspector_ = nullptr;
   CommandPalette *palette_ = nullptr;
 

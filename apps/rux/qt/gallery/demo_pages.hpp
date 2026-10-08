@@ -21,6 +21,8 @@ QWidget *demo_frame(const PageContext &ctx, int active, QWidget *content,
 
 QWidget *make_components_page(const PageContext &ctx);
 QWidget *make_viewport_page(const PageContext &ctx);
+/// The real shell on its 3D page (shell_pages.cpp).
+QWidget *make_shell_3d(const PageContext &ctx);
 
 /// Register every demo page with the page registry.
 void register_demo_pages();

@@ -47,6 +47,9 @@ struct PaletteState {
   bool inspector_visible = true;
   bool dark_theme = true;
   std::vector<RecentEntry> recent;
+  /// The `rux` line of what is on screen (the Pipeline form, a selected log
+  /// run); empty = `rux -p <project> info`.
+  std::string cli_command;
 };
 
 /// Every page, the actions that apply in @p s, and the recent projects.

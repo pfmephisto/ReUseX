@@ -8,6 +8,8 @@
 #include <rux_qt/app.hpp>
 #include <rux_qt/fonts.hpp>
 
+#include <reusex/core/logging.hpp>
+
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFileInfo>
@@ -32,9 +34,10 @@ constexpr const char *kInspectorKey = "mainWindow/inspector";
 /// and the settings it remembers between runs.
 class MainWindow : public QMainWindow {
     public:
-  MainWindow(ProjectSession &session, RecentProjects &recent) {
+  MainWindow(ProjectSession &session, RecentProjects &recent,
+             ShellOptions options) {
     setObjectName("mainWindow");
-    shell_ = new AppShell(session, recent, this);
+    shell_ = new AppShell(session, recent, std::move(options), this);
     setCentralWidget(shell_);
     setWindowTitle("ReUseX");
     setMinimumSize(theme().px("--layout-nav-width") * 4,
@@ -107,6 +110,10 @@ int run_app(int argc, char **argv, const AppOptions &options) {
   QApplication::setApplicationDisplayName("ReUseX");
 
   ensure_bundled_fonts();
+  // The Pipeline workspace tails a running stage's info lines through the
+  // log tap; rux starts the library at warn (its terminal level stays so).
+  if (reusex::core::get_log_level() > reusex::core::LogLevel::info)
+    reusex::core::set_log_level(reusex::core::LogLevel::info);
   QSettings settings;
   const ThemeMode mode = settings.value(kThemeKey, "dark").toString() == "light"
                              ? ThemeMode::light
@@ -124,7 +131,10 @@ int run_app(int argc, char **argv, const AppOptions &options) {
 
   ProjectSession session;
   RecentProjects *recent = RecentProjects::from_settings(&app);
-  MainWindow window(session, *recent);
+  ShellOptions shell_options;
+  shell_options.interactive_3d = true;
+  shell_options.stage_executor = options.stage_executor;
+  MainWindow window(session, *recent, shell_options);
 
   QObject::connect(window.shell(), &AppShell::toggle_theme_requested, &app,
                    [source] {
@@ -155,12 +165,18 @@ int run_app(int argc, char **argv, const AppOptions &options) {
   window.show();
   if (!options.project.isEmpty())
     window.shell()->open_project(options.project);
-  // Smoke tests: RUX_QT_PAGE=database lands on the Database workspace once
-  // the project is open, so `--quit-after-ms` exercises it for real.
-  if (qEnvironmentVariable("RUX_QT_PAGE") == "database")
-    QObject::connect(&session, &ProjectSession::opened, &window, [&window] {
-      window.shell()->show_page(Workspace::database);
-    });
+  // Smoke tests: RUX_QT_PAGE=database|3d|posegraf|pipeline|log lands on
+  // that workspace once the project is open, so `--quit-after-ms` exercises
+  // it for real.
+  const QString smoke_page = qEnvironmentVariable("RUX_QT_PAGE").toLower();
+  const QStringList smoke_pages = {"start",    "database", "3d",
+                                   "posegraf", "pipeline", "log"};
+  if (const int page = static_cast<int>(smoke_pages.indexOf(smoke_page));
+      page > 0)
+    QObject::connect(&session, &ProjectSession::opened, &window,
+                     [&window, page] {
+                       window.shell()->show_page(static_cast<Workspace>(page));
+                     });
 
   if (report) {
     std::fprintf(stderr, "rux: main window shown (%dx%d, platform %s)\n",

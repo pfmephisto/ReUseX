@@ -3,10 +3,15 @@
 
 #include <rux_qt/AppShell.hpp>
 #include <rux_qt/DatabaseWorkspace.hpp>
+#include <rux_qt/FrameBrowser.hpp>
+#include <rux_qt/PipelineWorkspace.hpp>
+#include <rux_qt/PoseGraphWorkspace.hpp>
 #include <rux_qt/ProjectSession.hpp>
 #include <rux_qt/RecentProjects.hpp>
 #include <rux_qt/StartPage.hpp>
+#include <rux_qt/TableBrowser.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/Viewer3DWorkspace.hpp>
 #include <rux_qt/palette_table.hpp>
 #include <rux_qt/widgets.hpp>
 
@@ -123,7 +128,7 @@ QPushButton *chrome_button(const QString &text, const QString &kbd = {}) {
 // ---------------------------------------------------------------- AppShell --
 
 AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
-                   QWidget *parent)
+                   ShellOptions options, QWidget *parent)
     : QWidget(parent), session_(session), recent_(recent) {
   setObjectName("appRoot");
   setAcceptDrops(true);
@@ -175,20 +180,19 @@ AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
   stack_->setObjectName("workspaceStack");
   start_ = new StartPage(session_, recent_);
   stack_->addWidget(start_);
-  for (int i = 1; i < kWorkspaceCount; ++i) {
-    if (static_cast<Workspace>(i) == Workspace::database) {
-      database_ = new DatabaseWorkspace(session_);
-      connect(database_, &DatabaseWorkspace::browse_requested, this,
-              &AppShell::browse);
-      stack_->addWidget(database_);
-      continue;
-    }
-    auto *p = new WorkspacePlaceholder(infos[i]);
-    connect(p, &WorkspacePlaceholder::browse_requested, this,
-            &AppShell::browse);
-    placeholders_ << p;
-    stack_->addWidget(p);
-  }
+  database_ = new DatabaseWorkspace(session_);
+  connect(database_, &DatabaseWorkspace::browse_requested, this,
+          &AppShell::browse);
+  stack_->addWidget(database_);
+  viewer_ = new Viewer3DWorkspace(session_, options.interactive_3d);
+  stack_->addWidget(viewer_);
+  posegraph_ = new PoseGraphWorkspace(session_, database_->editor());
+  stack_->addWidget(posegraph_);
+  pipeline_ = new PipelineWorkspace(session_, options.stage_executor);
+  stack_->addWidget(pipeline_);
+  log_ = new PipelineLogView(session_, /*filters=*/true);
+  log_->setObjectName("logWorkspace");
+  stack_->addWidget(log_);
   body->addWidget(stack_, 1);
 
   // ---- inspector
@@ -207,6 +211,51 @@ AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
             if (current_page() == Workspace::database)
               inspector_->set_selection(sel);
           });
+  auto follow = [this](Workspace page) {
+    return [this, page](const Selection &sel) {
+      if (current_page() == page)
+        inspector_->set_selection(sel);
+    };
+  };
+  connect(viewer_, &Viewer3DWorkspace::selection_changed, this,
+          follow(Workspace::viewer3d));
+  connect(posegraph_, &PoseGraphWorkspace::selection_changed, this,
+          follow(Workspace::posegraph));
+  connect(pipeline_, &PipelineWorkspace::selection_changed, this,
+          follow(Workspace::pipeline));
+  connect(log_, &PipelineLogView::selection_changed, this,
+          [this](const Selection &sel) {
+            log_selection_ = sel;
+            if (current_page() == Workspace::log)
+              inspector_->set_selection(sel);
+          });
+  // Posegraf -> Database: a node is frame A (B with Shift), an edge both.
+  connect(posegraph_, &PoseGraphWorkspace::frame_requested, this,
+          [this](int id, bool as_b) {
+            if (as_b)
+              database_->frames()->set_b(id);
+            else
+              database_->frames()->set_a(id);
+            database_->open_item(ProjectTree::Kind::frames);
+            show_page(Workspace::database);
+          });
+  connect(posegraph_, &PoseGraphWorkspace::pair_requested, this,
+          [this](int a, int b) {
+            database_->frames()->set_a(a);
+            database_->frames()->set_b(b);
+            database_->open_item(ProjectTree::Kind::frames);
+            show_page(Workspace::database);
+          });
+  connect(database_->frames(), &FrameBrowser::pair_changed, posegraph_,
+          &PoseGraphWorkspace::set_pair);
+  // A pipeline run changed the project: re-read it, unless that would drop
+  // pose-graph edits nobody has saved (then F5 does it when they are).
+  connect(pipeline_, &PipelineWorkspace::project_changed, this, [this] {
+    if (database_->pending_edits() == 0 && !database_->is_saving())
+      session_.reload();
+  });
+  connect(&session_, &ProjectSession::opened, log_, &PipelineLogView::reload);
+  connect(&session_, &ProjectSession::closed, log_, &PipelineLogView::reload);
   connect(start_, &StartPage::browse_requested, this, &AppShell::browse);
   connect(start_, &StartPage::open_requested, this, &AppShell::open_project);
   connect(start_, &StartPage::navigate_requested, this,
@@ -323,6 +372,14 @@ QVector<Command> AppShell::commands() {
   st.dark_theme = theme().mode() == ThemeMode::dark;
   for (const auto &e : recent_.entries())
     st.recent.push_back({e.path.toStdString(), e.missing});
+  // "Kopiér som rux-kommando" copies what is on screen: the Pipeline form,
+  // or the selected run in the Log.
+  if (current_page() == Workspace::pipeline && session_.is_open())
+    st.cli_command = pipeline_->command().text;
+  else if (current_page() == Workspace::log)
+    for (const auto &sec : log_selection_.sections)
+      if (sec.title == "Som rux-kommando")
+        st.cli_command = sec.block.toStdString();
 
   const QHash<QString, QAction *> actions = {
       {"open", open_action_},   {"reload", reload_action_},
@@ -364,8 +421,30 @@ void AppShell::show_page(Workspace w) {
   const int i = static_cast<int>(w);
   rail_->set_current(i);
   stack_->setCurrentIndex(i);
-  inspector_->set_selection(w == Workspace::database ? database_->selection()
-                                                     : Selection{});
+  // Pages load lazily: a million-point cloud is read when 3D is first shown.
+  if (w == Workspace::viewer3d)
+    viewer_->activate();
+  else if (w == Workspace::posegraph)
+    posegraph_->activate();
+  inspector_->set_selection(page_selection(w));
+}
+
+Selection AppShell::page_selection(Workspace w) const {
+  switch (w) {
+  case Workspace::database:
+    return database_->selection();
+  case Workspace::viewer3d:
+    return viewer_->selection();
+  case Workspace::posegraph:
+    return posegraph_->selection();
+  case Workspace::pipeline:
+    return pipeline_->selection();
+  case Workspace::log:
+    return log_selection_;
+  case Workspace::start:
+    break;
+  }
+  return {};
 }
 
 bool AppShell::resolve_pending_edits(const QString &action) {
@@ -511,15 +590,6 @@ void AppShell::sync_project() {
                        : QString());
   rail_->item(static_cast<int>(Workspace::viewer3d))
       ->set_count(open ? QString::number(s.clouds.size()) : QString());
-
-  const QString status =
-      open ? QString("%1 er åbent · %2 billeder · %3 punktskyer")
-                 .arg(name, format_count(static_cast<qulonglong>(
-                                s.sensor_frames.total_count)))
-                 .arg(s.clouds.size())
-           : QString();
-  for (auto *p : placeholders_)
-    p->set_project_open(open, status);
 
   close_action_->setEnabled(open);
   reload_action_->setEnabled(open || state == ProjectSession::State::failed);

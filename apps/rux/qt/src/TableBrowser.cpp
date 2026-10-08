@@ -4,15 +4,21 @@
 #include <rux_qt/ProjectSession.hpp>
 #include <rux_qt/TableBrowser.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/pipeline_ui.hpp>
 #include <rux_qt/widgets.hpp>
 
+#include <QApplication>
+#include <QClipboard>
+#include <QComboBox>
 #include <QDateTime>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QLineEdit>
 #include <QLocale>
 #include <QPainter>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QTableView>
 #include <QTimeZone>
@@ -586,7 +592,23 @@ QVariant PipelineLogModel::headerData(int section, Qt::Orientation o,
 // ------------------------------------------------------------ PipelineLogView
 // --
 
-PipelineLogView::PipelineLogView(ProjectSession &session, QWidget *parent)
+void LogFilterProxy::set_filter(LogFilter filter) {
+  filter_ = std::move(filter);
+  invalidateFilter();
+}
+
+bool LogFilterProxy::filterAcceptsRow(int row, const QModelIndex &) const {
+  const auto *m = static_cast<const PipelineLogModel *>(sourceModel());
+  if (!m || row >= m->rowCount())
+    return false;
+  const auto &e = m->entry(row);
+  return log_row_matches(
+      {e.stage, e.status, !e.finished_at.empty(), e.error_msg, e.parameters},
+      filter_);
+}
+
+PipelineLogView::PipelineLogView(ProjectSession &session, bool filters,
+                                 QWidget *parent)
     : QWidget(parent), session_(session) {
   setObjectName("pipelineLog");
   const Theme &t = theme();
@@ -603,6 +625,12 @@ PipelineLogView::PipelineLogView(ProjectSession &session, QWidget *parent)
   meta_ = new QLabel;
   meta_->setObjectName("toolbarMeta");
   bl->addWidget(meta_, 1);
+  copy_ = new QPushButton(NavItem::escape_mnemonic("Kopiér som rux-kommando"));
+  copy_->setProperty("kind", "secondary");
+  copy_->setCursor(Qt::PointingHandCursor);
+  copy_->setEnabled(false);
+  copy_->setToolTip("Vælg en kørsel af et trin, rux kan gentage");
+  bl->addWidget(copy_);
   auto *cli = new QLabel("rux log");
   cli->setObjectName("codeChip");
   cli->setToolTip("Samme log i terminalen");
@@ -610,10 +638,67 @@ PipelineLogView::PipelineLogView(ProjectSession &session, QWidget *parent)
   bl->addWidget(cli);
   v->addWidget(bar);
 
+  if (filters) {
+    auto *fbar = new QFrame;
+    fbar->setObjectName("filterBar");
+    auto *fl = new QHBoxLayout(fbar);
+    fl->setContentsMargins(t.px("--space-4"), t.px("--space-2"),
+                           t.px("--space-4"), t.px("--space-2"));
+    fl->setSpacing(t.px("--space-3"));
+    fl->addWidget(new CapsLabel("Trin", "fieldLabel"));
+    stage_ = new QComboBox;
+    stage_->setObjectName("logStage");
+    fl->addWidget(stage_);
+    fl->addWidget(new CapsLabel("Status", "fieldLabel"));
+    status_ = new QFrame;
+    status_->setObjectName("segmented");
+    auto *sl = new QHBoxLayout(status_);
+    sl->setContentsMargins(0, 0, 0, 0);
+    sl->setSpacing(0);
+    const char *names[] = {"Alle", "Gennemført", "Fejlet", "Ikke afsluttet"};
+    for (int i = 0; i < 4; ++i) {
+      auto *b = new QPushButton(NavItem::escape_mnemonic(names[i]));
+      b->setObjectName("segment");
+      b->setCheckable(true);
+      b->setAutoExclusive(true);
+      b->setChecked(i == 0);
+      b->setCursor(Qt::PointingHandCursor);
+      b->setProperty("position", i == 0 ? "first" : i == 3 ? "last" : "middle");
+      sl->addWidget(b);
+      connect(b, &QPushButton::clicked, this, [this, i] {
+        LogFilter f = proxy_->filter();
+        f.status = static_cast<LogStatusFilter>(i);
+        proxy_->set_filter(f);
+        update_meta();
+      });
+    }
+    fl->addWidget(status_);
+    search_ = new QLineEdit;
+    search_->setObjectName("logSearch");
+    search_->setPlaceholderText("Søg i trin, fejl og parametre");
+    search_->setClearButtonEnabled(true);
+    fl->addWidget(search_, 1);
+    v->addWidget(fbar);
+    connect(stage_, &QComboBox::currentIndexChanged, this, [this](int) {
+      LogFilter f = proxy_->filter();
+      f.stage = stage_->currentData().toString().toStdString();
+      proxy_->set_filter(f);
+      update_meta();
+    });
+    connect(search_, &QLineEdit::textChanged, this, [this](const QString &q) {
+      LogFilter f = proxy_->filter();
+      f.text = q.toStdString();
+      proxy_->set_filter(f);
+      update_meta();
+    });
+  }
+
   model_ = new PipelineLogModel(this);
+  proxy_ = new LogFilterProxy(this);
+  proxy_->setSourceModel(model_);
   view_ = new QTableView;
   style_table(view_);
-  view_->setModel(model_);
+  view_->setModel(proxy_);
   view_->setItemDelegateForColumn(PipelineLogModel::status,
                                   new StatusPillDelegate(view_));
   auto *h = setup_header(view_, /*caps=*/true);
@@ -628,9 +713,21 @@ PipelineLogView::PipelineLogView(ProjectSession &session, QWidget *parent)
 
   connect(view_->selectionModel(), &QItemSelectionModel::currentRowChanged,
           this, [this](const QModelIndex &cur) {
-            if (cur.isValid())
-              emit selection_changed(entry_selection(cur.row()));
+            if (!cur.isValid())
+              return;
+            const int src = proxy_->mapToSource(cur).row();
+            const Selection sel = entry_selection(src);
+            copy_->setEnabled(!command_.isEmpty());
+            copy_->setToolTip(command_.isEmpty()
+                                  ? QString("Dette trin har ingen rux-kommando "
+                                            "her")
+                                  : command_);
+            emit selection_changed(sel);
           });
+  connect(copy_, &QPushButton::clicked, this, [this] {
+    if (!command_.isEmpty())
+      QApplication::clipboard()->setText(command_);
+  });
 }
 
 void PipelineLogView::reload() {
@@ -643,25 +740,85 @@ void PipelineLogView::reload() {
                           .arg(QString::fromUtf8(e.what())));
     }
   }
+  if (stage_) {
+    std::vector<LogRow> rows;
+    for (const auto &e : entries)
+      rows.push_back({e.stage, e.status, !e.finished_at.empty(), {}, {}});
+    const QSignalBlocker block(stage_);
+    const QString current = stage_->currentData().toString();
+    stage_->clear();
+    stage_->addItem("Alle trin", QString());
+    for (const auto &st : log_stages(rows))
+      stage_->addItem(QString::fromStdString(st), QString::fromStdString(st));
+    const int i = stage_->findData(current);
+    stage_->setCurrentIndex(i < 0 ? 0 : i);
+  }
+  model_->set_entries(std::move(entries));
+  proxy_->invalidate();
+  copy_->setEnabled(false);
+  command_.clear();
+  update_meta();
+}
+
+void PipelineLogView::update_meta() {
   int ok = 0, failed = 0, open = 0;
-  for (const auto &e : entries) {
+  for (int r = 0; r < model_->rowCount(); ++r) {
+    const auto &e = model_->entry(r);
     ok += e.status == "success";
     failed += e.status == "failed";
     open += e.status == "running" && e.finished_at.empty();
   }
-  model_->set_entries(std::move(entries));
-  meta_->setText(QString("%1 kørsler · %2 gennemført · %3 fejlet · %4 ikke "
-                         "afsluttet")
-                     .arg(model_->rowCount())
-                     .arg(ok)
-                     .arg(failed)
-                     .arg(open));
-  view_->setVisible(model_->rowCount() > 0);
-  empty_->setVisible(model_->rowCount() == 0);
+  QString m = QString("%1 kørsler · %2 gennemført · %3 fejlet · %4 ikke "
+                      "afsluttet")
+                  .arg(model_->rowCount())
+                  .arg(ok)
+                  .arg(failed)
+                  .arg(open);
+  if (proxy_->rowCount() != model_->rowCount())
+    m = QString("%1 af %2 vist · ")
+            .arg(proxy_->rowCount())
+            .arg(model_->rowCount()) +
+        m;
+  meta_->setText(m);
+  const bool any = model_->rowCount() > 0;
+  const bool shown = proxy_->rowCount() > 0;
+  if (any && !shown)
+    empty_->setText("Ingen kørsler passer til filteret.");
+  else if (!any)
+    empty_->setText("Intet er kørt på projektet endnu.");
+  view_->setVisible(shown);
+  empty_->setVisible(!shown);
 }
 
+void PipelineLogView::set_filter(const LogFilter &filter) {
+  proxy_->set_filter(filter);
+  sync_filter_controls();
+  update_meta();
+}
+
+void PipelineLogView::sync_filter_controls() {
+  const LogFilter &f = proxy_->filter();
+  if (stage_) {
+    const QSignalBlocker b(stage_);
+    const int i = stage_->findData(QString::fromStdString(f.stage));
+    stage_->setCurrentIndex(i < 0 ? 0 : i);
+  }
+  if (search_) {
+    const QSignalBlocker b(search_);
+    search_->setText(QString::fromStdString(f.text));
+  }
+  if (status_) {
+    const auto buttons = status_->findChildren<QPushButton *>("segment");
+    const int i = static_cast<int>(f.status);
+    if (i >= 0 && i < buttons.size())
+      buttons[i]->setChecked(true);
+  }
+}
+
+int PipelineLogView::visible_rows() const { return proxy_->rowCount(); }
+
 void PipelineLogView::select_row(int row) {
-  if (row >= 0 && row < model_->rowCount())
+  if (row >= 0 && row < proxy_->rowCount())
     view_->selectRow(row);
 }
 
@@ -690,6 +847,17 @@ Selection PipelineLogView::entry_selection(int row) const {
     params = QString::fromUtf8(doc.toJson(QJsonDocument::Indented)).trimmed();
   s.sections.push_back(
       {"Parametre", {}, params.isEmpty() ? QString("Ingen") : params});
+  // The same run from the terminal, when it is a stage rux can repeat.
+  QString &cmd = command_;
+  cmd.clear();
+  if (const auto stage = stage_from_log_name(e.stage)) {
+    const CliCommand c =
+        cli_for_parameters(*stage, qs(e.parameters), session_.path());
+    if (c.supported) {
+      cmd = QString::fromStdString(c.text);
+      s.sections.push_back({"Som rux-kommando", {}, cmd});
+    }
+  }
   return s;
 }
 

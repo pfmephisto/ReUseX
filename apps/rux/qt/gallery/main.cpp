@@ -17,6 +17,9 @@
 #include <rux_qt/fonts.hpp>
 #include <rux_qt/gallery_args.hpp>
 #include <rux_qt/pages.hpp>
+#include <rux_qt/workspace_logic.hpp>
+
+#include <reusex/core/logging.hpp>
 
 #include <reusex/core/ProjectDB.hpp>
 
@@ -91,6 +94,16 @@ int main(int argc, char **argv) {
   // locale stays "C" (the Qt docs recommend exactly this).
   std::setlocale(LC_NUMERIC, "C");
   QApplication::setApplicationName("rux-qt-gallery");
+  // What rux's own log handler does for the app: library lines reach the
+  // log tap (the Pipeline workspace's tail). Warnings also go to stderr.
+  reusex::core::set_log_level(reusex::core::LogLevel::info);
+  reusex::core::set_log_handler(
+      [](reusex::core::LogLevel level, std::string_view message) {
+        publish_log(static_cast<int>(level), message);
+        if (level >= reusex::core::LogLevel::warn)
+          std::fprintf(stderr, "rux-qt-gallery: %.*s\n",
+                       static_cast<int>(message.size()), message.data());
+      });
 
   // Hot reload in --dev mode and in every Debug build (the spec's "debug or
   // --dev"); a Release build reads the embedded snapshot unless --dev.

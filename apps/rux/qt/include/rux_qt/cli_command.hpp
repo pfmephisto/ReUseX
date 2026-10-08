@@ -62,5 +62,8 @@ std::vector<std::string> split_shell_words(std::string_view line);
 
 /// Shortest decimal text that reads back as @p value ("0.05", "25", "1e-06").
 std::string format_number(double value);
+/// The same for a float: the shortest text that reads back as the FLOAT
+/// ("0.07", not the 0.07000000029802322 its double widening would print).
+std::string format_number(float value);
 
 } // namespace rux::qt

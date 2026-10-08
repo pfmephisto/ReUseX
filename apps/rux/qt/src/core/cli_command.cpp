@@ -44,7 +44,7 @@ const std::vector<StageSpec> &stage_specs() {
        {{"angle_threshold", "--angle-threshold", {}, {}},
         {"plane_dist_threshold", "--plane-dist-threshold", {}, {}},
         {"min_inliers", "--min-cluster-size", {}, {}},
-        {"radius", "--radius", {}, {}},
+        {"radius", "--radius", {}, {}}, // token-lint: allow (a CLI flag)
         {"interval_0", "--interval-0", {}, {}},
         {"interval_factor", "--interval-factor", {}, {}},
         {"adaptive", {}, {}, "--no-adaptive"},
@@ -111,6 +111,14 @@ bool safe_char(char c) {
 } // namespace
 
 std::string format_number(double value) {
+  if (!std::isfinite(value))
+    return "0";
+  std::array<char, 64> buf{};
+  const auto r = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+  return std::string(buf.data(), r.ptr);
+}
+
+std::string format_number(float value) {
   if (!std::isfinite(value))
     return "0";
   std::array<char, 64> buf{};

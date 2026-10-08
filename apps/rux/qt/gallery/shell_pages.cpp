@@ -11,16 +11,24 @@
 #include <rux_qt/DatabaseWorkspace.hpp>
 #include <rux_qt/EdgeEditor.hpp>
 #include <rux_qt/FrameBrowser.hpp>
+#include <rux_qt/PipelineWorkspace.hpp>
+#include <rux_qt/PoseGraphWorkspace.hpp>
 #include <rux_qt/ProjectSession.hpp>
 #include <rux_qt/RecentProjects.hpp>
+#include <rux_qt/SceneView.hpp>
 #include <rux_qt/TableBrowser.hpp>
+#include <rux_qt/Viewer3DWorkspace.hpp>
+#include <rux_qt/background.hpp>
 
 #include <QAbstractButton>
+#include <QApplication>
 #include <QButtonGroup>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QThread>
 
 namespace rux::qt::gallery {
 namespace {
@@ -41,7 +49,9 @@ enum class Open { none, project, read_only, junk };
 AppShell *make_shell(const PageContext &ctx, Open open) {
   auto *session = new ProjectSession;
   auto *recent = new RecentProjects(demo_recent(ctx));
-  auto *shell = new AppShell(*session, *recent);
+  ShellOptions options;
+  options.interactive_3d = ctx.interactive_3d;
+  auto *shell = new AppShell(*session, *recent, options);
   session->setParent(shell);
   recent->setParent(shell);
   if (open == Open::project && !ctx.project_path.isEmpty()) {
@@ -88,6 +98,16 @@ QWidget *make_shell_project(const PageContext &ctx) {
   shell->show_page(Workspace::viewer3d);
   return shell;
 }
+
+} // namespace
+
+QWidget *make_shell_3d(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::viewer3d);
+  return shell;
+}
+
+namespace {
 
 // ---- Database workspace (Q2)
 
@@ -192,6 +212,143 @@ QWidget *make_db_cloud(const PageContext &ctx) {
   return shell;
 }
 
+// ---- 3D, Posegraf, Pipeline, Log (Q3)
+
+/// Run the event loop until the off-thread work a page started has landed
+/// (bounded), so a page can act on its result — pick a point once the cloud
+/// is in, wait for a pipeline run.
+void settle(int timeout_ms = 120000) {
+  QElapsedTimer t;
+  t.start();
+  int idle = 0;
+  while (idle < 3 && t.elapsed() < timeout_ms) {
+    QApplication::processEvents(QEventLoop::AllEvents);
+    QThread::msleep(10);
+    idle = background_work_in_flight() == 0 ? idle + 1 : 0;
+  }
+  QApplication::processEvents(QEventLoop::AllEvents);
+}
+
+/// The shell sized like the shot, so a pick lands where it will be drawn.
+AppShell *sized(AppShell *shell) {
+  shell->resize(1440, 900);
+  return shell;
+}
+
+AppShell *make_3d(const PageContext &ctx, const QString &colour = "cloud") {
+  auto *shell = sized(make_shell(ctx, Open::project));
+  shell->viewer()->set_colour_by(colour);
+  shell->show_page(Workspace::viewer3d);
+  return shell;
+}
+
+QWidget *make_3d_page(const PageContext &ctx) { return make_3d(ctx); }
+
+/// Rooms with their legend, and a picked point in the inspector.
+QWidget *make_3d_pick(const PageContext &ctx) {
+  auto *shell = make_3d(ctx, "rooms");
+  // Pick once the cloud is drawn at its final size: the first render that
+  // has something under the centre of the canvas.
+  SceneView *v = shell->viewer()->view();
+  auto conn = std::make_shared<QMetaObject::Connection>();
+  *conn = QObject::connect(v, &SceneView::rendered, shell, [shell, v, conn] {
+    if (shell->viewer()->pick_at(QPoint(v->width() / 2, v->height() / 2)))
+      QObject::disconnect(*conn);
+  });
+  return shell;
+}
+
+/// A floor plan coloured by plane, with camera frustums and panoramas.
+QWidget *make_3d_plan(const PageContext &ctx) {
+  auto *shell = make_3d(ctx, "planes");
+  shell->viewer()->set_layer_visible(reusex::visualize::Layer::frustums, true);
+  shell->viewer()->set_view(reusex::visualize::ViewPreset::plan);
+  return shell;
+}
+
+QWidget *make_3d_labels(const PageContext &ctx) {
+  auto *shell = make_3d(ctx, "labels");
+  shell->viewer()->set_view(reusex::visualize::ViewPreset::top);
+  shell->viewer()->set_cut(false);
+  return shell;
+}
+
+/// The graph with A and B marked and a few staged loop closures.
+AppShell *make_pg(const PageContext &ctx) {
+  auto *shell = sized(make_shell(ctx, Open::project));
+  FrameBrowser *f = shell->database()->frames();
+  if (!f->pair().empty()) {
+    const auto &ids = f->pair().ids();
+    const auto at = [&](double t) {
+      return ids[std::min(ids.size() - 1,
+                          static_cast<std::size_t>(t * ids.size()))];
+    };
+    auto &ed = shell->database()->editor();
+    ed.add({{at(0.05), at(0.62), "loop_closure"}, 0.0, 400.0});
+    ed.add({{at(0.30), at(0.81), "loop_closure"}, 0.0, 400.0});
+    ed.add({{at(0.45), at(0.97), "loop_closure"}, 0.0, 400.0});
+    f->set_a(at(0.30));
+    f->set_b(at(0.81));
+  }
+  shell->show_page(Workspace::posegraph);
+  return shell;
+}
+
+QWidget *make_posegraf(const PageContext &ctx) { return make_pg(ctx); }
+
+/// A click on a staged edge: the Database opens with A and B on its ends.
+QWidget *make_posegraf_click(const PageContext &ctx) {
+  auto *shell = make_pg(ctx);
+  settle();
+  const auto &ops = shell->database()->editor().edits().ops();
+  if (!ops.empty())
+    shell->posegraph()->click_edge(ops.front().edge.key.from,
+                                   ops.front().edge.key.to);
+  return shell;
+}
+
+QWidget *make_pipeline(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::pipeline);
+  PipelineWorkspace *p = shell->pipeline();
+  p->select_stage(reusex::pipeline::JobStage::planes);
+  p->set_field("angle_threshold", 20.0);
+  p->set_field("plane_dist_threshold", 0.04);
+  p->set_field("filter", "rooms in [1, 2]");
+  return shell;
+}
+
+/// Runs `create planes` for real on the project copy (WRITES to it) and
+/// shows the finished run, its log tail and its command.
+QWidget *make_pipeline_run(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::pipeline);
+  PipelineWorkspace *p = shell->pipeline();
+  p->select_stage(reusex::pipeline::JobStage::planes);
+  p->set_field("angle_threshold", 20.0);
+  if (p->run())
+    settle(600000);
+  return shell;
+}
+
+QWidget *make_log(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::log);
+  shell->log()->select_row(0);
+  return shell;
+}
+
+QWidget *make_log_filter(const PageContext &ctx) {
+  auto *shell = make_shell(ctx, Open::project);
+  shell->show_page(Workspace::log);
+  LogFilter f;
+  f.text = "planes";
+  f.status = LogStatusFilter::success;
+  shell->log()->set_filter(f);
+  shell->log()->select_row(0);
+  return shell;
+}
+
 QWidget *make_palette_open(const PageContext &ctx) {
   auto *shell = make_shell(ctx, Open::project);
   shell->open_palette("pro");
@@ -216,8 +373,8 @@ void register_shell_pages() {
       {"start-error", "Startside efter en fejlet åbning", make_start_error});
   register_page({"shell-empty", "Skallen uden projekt: Database uden projekt",
                  make_shell_empty});
-  register_page({"shell-project", "Skallen med projekt: 3D-pladsholder",
-                 make_shell_project});
+  register_page(
+      {"shell-project", "Skallen med projekt på 3D", make_shell_project});
   register_page({"db-frames",
                  "Database: A/B-billeder med mærkater, kant og filmstrimmel",
                  make_db_frames});
@@ -238,6 +395,30 @@ void register_shell_pages() {
   register_page({"db-log", "Database: pipeline-loggen", make_db_log});
   register_page({"db-cloud", "Database: en punktsky i træet og inspektøren",
                  make_db_cloud});
+  register_page({"3d", "3D: punktskyen i perspektiv med snit", make_3d_page});
+  register_page({"3d-pick",
+                 "3D: farvet efter rum, med forklaring og et valgt punkt",
+                 make_3d_pick});
+  register_page({"3d-plan",
+                 "3D: plantegning farvet efter plan, med kamerafrustummer",
+                 make_3d_plan});
+  register_page(
+      {"3d-labels", "3D: semantiske mærkater ovenfra", make_3d_labels});
+  register_page({"posegraf",
+                 "Posegraf: billeder, A/B og ventende løkkelukninger",
+                 make_posegraf});
+  register_page({"posegraf-click",
+                 "Posegraf: klik på en kant åbner Database med A og B",
+                 make_posegraf_click});
+  register_page({"pipeline",
+                 "Pipeline: planer med ændrede parametre og rux-kommandoen",
+                 make_pipeline});
+  register_page({"pipeline-run",
+                 "Pipeline: kører create planes (skriver til projektkopien)",
+                 make_pipeline_run});
+  register_page({"log", "Log: pipeline-loggen med en valgt kørsel", make_log});
+  register_page(
+      {"log-filter", "Log: filtreret på tekst og status", make_log_filter});
   register_page({"palette-open", "Kommandopaletten med søgningen \"pro\"",
                  make_palette_open});
   register_page({"palette-all", "Kommandopaletten uden søgning (grupperet)",

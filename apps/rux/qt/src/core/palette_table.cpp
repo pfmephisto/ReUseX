@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <rux_qt/cli_command.hpp>
 #include <rux_qt/palette_table.hpp>
 
 #include <algorithm>
@@ -89,7 +90,9 @@ std::vector<PaletteEntry> build_palette(const PaletteState &s) {
     action("copy-path", "Kopiér projektets sti", "copy path udklipsholder",
            s.project_path);
     action("copy-cli", "Kopiér som rux-kommando", "cli terminal info",
-           "rux -p '" + s.project_path + "' info");
+           !s.cli_command.empty()
+               ? s.cli_command
+               : "rux -p " + shell_quote(s.project_path) + " info");
   }
   action("inspector", s.inspector_visible ? "Skjul inspektør" : "Vis inspektør",
          "panel højre inspector");

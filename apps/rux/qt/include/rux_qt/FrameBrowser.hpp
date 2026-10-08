@@ -223,6 +223,8 @@ class FrameBrowser : public QWidget {
   Selection frame_selection(bool side_b) const;
 
     signals:
+  /// A or B moved (the Posegraf marks them).
+  void pair_changed(int a_id, int b_id);
   void selection_changed(const rux::qt::Selection &selection);
 
     protected:

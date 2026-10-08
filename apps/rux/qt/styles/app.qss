@@ -1123,3 +1123,110 @@ QTextEdit#inspectorBlock {
   border-radius: var(--radius-md);
   padding: var(--space-2);
 }
+
+/* ============================================ 3D, Posegraf, Pipeline (Q3) */
+
+#viewerWorkspace, #poseGraphWorkspace, #pipelineWorkspace, #logWorkspace,
+#pipelineContent, QScrollArea#pipelineScroll {
+  background: var(--color-surface);
+}
+QScrollArea#layerScroll, #layerPanel, #layerRow, #legendHost {
+  background: transparent;
+}
+QLabel#layerCount {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: transparent;
+}
+QLabel#legendText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  background: transparent;
+}
+QGraphicsView#poseGraphView {
+  background: var(--color-canvas);
+  border: none;
+}
+
+/* ---- log filter bar */
+QFrame#filterBar {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+QFrame#filterBar QLabel {
+  background: transparent;
+}
+
+/* ---- pipeline */
+#stageList {
+  background: transparent;
+}
+QPushButton#stageRow {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+QPushButton#stageRow:hover {
+  background: var(--color-surface-sunken);
+}
+QPushButton#stageRow:checked {
+  background: var(--color-accent-muted);
+}
+QLabel#stageRowName {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  background: transparent;
+}
+QLabel#stageRowCmd {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-faint);
+  background: transparent;
+}
+QLabel#stageTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  background: transparent;
+}
+QLabel#stageReady {
+  font-size: var(--font-size-sm);
+  color: var(--tone-warn-ink);
+  padding-bottom: var(--space-1);
+  background: transparent;
+}
+QLabel#stageReady[ready="true"] {
+  color: var(--tone-good-ink);
+}
+QLabel#paramLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: transparent;
+}
+QLabel#paramDefault {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+  background: transparent;
+}
+QLabel#commandBlock {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+QPlainTextEdit#logTail {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}

@@ -90,6 +90,8 @@ TEST_CASE("FormatNumber_IsShortestAndLocaleFree", "[rux_qt][cli]") {
   CHECK(format_number(0.05) == "0.05");
   CHECK(format_number(25.0) == "25");
   CHECK(format_number(0.1 + 0.2) == "0.30000000000000004");
+  CHECK(format_number(0.07F) == "0.07");
+  CHECK(format_number(static_cast<float>(0.07)) == "0.07");
 }
 
 TEST_CASE("LogFilter_StageStatusAndText", "[rux_qt][log]") {

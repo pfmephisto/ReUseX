@@ -8,6 +8,7 @@ import { casesApi } from '../api/cases';
 import { TitleBar } from '../components/TitleBar';
 import { Spinner } from '../components/Spinner';
 import { SagerPage } from '../routes/SagerPage';
+import { useAuth } from './AuthGate';
 import { CASES_PATH, legacyRedirectTarget, readLastCase } from './cases';
 import { useTheme } from './useTheme';
 import styles from './AppShell.module.css';
@@ -18,12 +19,15 @@ import styles from './AppShell.module.css';
  */
 export function CasesApp() {
   const theme = useTheme();
+  const auth = useAuth();
   return (
     <div className={styles.shell}>
       <TitleBar
         projectName="Sager"
         themePreference={theme.preference}
         onThemeChange={theme.setPreference}
+        user={auth?.me.mode === 'server' ? auth.me.user : undefined}
+        onLogout={auth ? () => void auth.logout() : undefined}
       />
       <div className={styles.body}>
         <main className={styles.content} tabIndex={-1}>

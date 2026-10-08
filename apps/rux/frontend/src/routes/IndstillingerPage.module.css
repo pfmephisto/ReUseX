@@ -1,0 +1,108 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.page {
+  composes: page from './viewHead.module.css';
+  max-width: calc(var(--space-7) * 18);
+}
+
+.head {
+  composes: head from './viewHead.module.css';
+}
+
+.title {
+  composes: title from './viewHead.module.css';
+}
+
+.panel {
+  composes: panel from './SagerPage.module.css';
+  max-width: none;
+  margin-top: 0;
+}
+
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.panelHeading {
+  composes: panelHeading from '../components/surfaces.module.css';
+}
+
+.count {
+  composes: count from './SagerPage.module.css';
+}
+
+.mine {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.row {
+  composes: row from './SagerPage.module.css';
+  margin-top: var(--space-2);
+}
+
+.text,
+.muted {
+  composes: text from './SagerPage.module.css';
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.error {
+  composes: error from './SagerPage.module.css';
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-medium);
+}
+
+.you {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--tone-accent-bg);
+  color: var(--tone-accent-ink);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.select {
+  composes: input from '../components/controls.module.css';
+  cursor: pointer;
+}
+
+.role {
+  font-size: var(--font-size-sm);
+}
+
+.role[data-role='owner'] {
+  font-weight: var(--font-weight-bold);
+}
+
+.hint {
+  flex-basis: 100%;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* The role picker is as wide as its longest role, not half the row. */
+.row > .roleField {
+  flex: 0 0 auto;
+}

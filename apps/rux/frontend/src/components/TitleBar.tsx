@@ -5,9 +5,11 @@
 import type { RefObject } from 'react';
 
 import type { ConnectionStatus } from '../api/events';
+import type { AuthUser } from '../api/types';
 import type { ThemePreference } from '../theme';
 import { JobIndicator } from './JobIndicator';
 import { ThemeToggle } from './ThemeToggle';
+import { UserMenu } from './UserMenu';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -37,6 +39,9 @@ export interface TitleBarProps {
   /** The shell's single `useTheme()` state, shared with the drawer's toggle. */
   themePreference: ThemePreference;
   onThemeChange: (preference: ThemePreference) => void;
+  /** Who is signed in (server mode); omitted in local mode, which has no login. */
+  user?: AuthUser;
+  onLogout?: () => void;
 }
 
 /**
@@ -64,6 +69,8 @@ export function TitleBar({
   menuControls,
   themePreference,
   onThemeChange,
+  user,
+  onLogout,
 }: TitleBarProps) {
   const title = unreachable
     ? 'Server utilgængelig'
@@ -110,6 +117,7 @@ export function TitleBar({
         <span className={styles.theme}>
           <ThemeToggle preference={themePreference} setPreference={onThemeChange} />
         </span>
+        {user && onLogout && <UserMenu user={user} onLogout={onLogout} />}
       </div>
     </header>
   );

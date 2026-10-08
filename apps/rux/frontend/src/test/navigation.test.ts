@@ -25,7 +25,7 @@ import * as navigation from '../app/navigation';
 import type { Health, ProjectSummary } from '../api/types';
 
 describe('navigation model', () => {
-  it('lists the case workflow in the spec order, Skabeloner last', () => {
+  it('lists the case workflow in the spec order, then Skabeloner and Indstillinger', () => {
     expect(entriesIn('sag').map((e) => e.label)).toEqual([
       'Overblik',
       'Kortlægning',
@@ -35,6 +35,7 @@ describe('navigation model', () => {
       'Rapport',
       'Indberetning',
       'Skabeloner',
+      'Indstillinger',
     ]);
   });
 

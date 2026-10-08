@@ -9,6 +9,7 @@ import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
 import {
   INDBERETNING_PATH,
+  INDSTILLINGER_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
   OVERBLIK_PATH,
@@ -22,6 +23,7 @@ import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
 import { GraphViewPage } from '../routes/GraphViewPage';
 import { IndberetningPage } from '../routes/IndberetningPage';
+import { IndstillingerPage } from '../routes/IndstillingerPage';
 import { InstancesPage } from '../routes/InstancesPage';
 import { KortlaegningPage } from '../routes/KortlaegningPage';
 import { MiljoePage } from '../routes/MiljoePage';
@@ -85,6 +87,7 @@ function RoutedContent() {
           <Route path={MILJOE_PATH} element={<MiljoePage />} />
           <Route path={RAPPORT_PATH} element={<RapportPage />} />
           <Route path={SKABELONER_PATH} element={<SkabelonerPage />} />
+          <Route path={INDSTILLINGER_PATH} element={<IndstillingerPage />} />
           <Route path={INDBERETNING_PATH} element={<IndberetningPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/pipeline/log" element={<PipelineLogPage />} />

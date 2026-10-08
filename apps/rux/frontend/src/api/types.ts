@@ -57,6 +57,42 @@ export interface CaseSummary {
    * case is opened once.
    */
   summary?: CaseCardFigures | null;
+  /**
+   * The caller's role in this case (server mode); local mode's implicit user
+   * owns every case. `null` never reaches a client (it could not see the
+   * case), but an older server omits the field.
+   */
+  role?: CaseRole | null;
+}
+
+/** A member's role in one case (ruxd server mode, phase S3). */
+export type CaseRole = 'viewer' | 'editor' | 'owner';
+
+/** `User` — an account (never its password). */
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+  disabled: boolean;
+  created_at: string;
+}
+
+/** `AuthMe` — `GET /api/v1/auth/me` and the answer to a login. */
+export interface AuthMe {
+  /** `local`: `ruxd --local`, one implicit user, no login. */
+  mode: 'local' | 'server';
+  /** How this request authenticated. */
+  via: 'local' | 'session' | 'token' | 'superuser' | 'anonymous';
+  user: AuthUser;
+  /** An API token limited to one case. */
+  case_scope?: string;
+}
+
+/** `CaseMember` — `GET /api/v1/cases/{cid}/members`. */
+export interface CaseMember {
+  user: { id: number; email: string; display_name: string };
+  role: CaseRole;
 }
 
 export interface CaseCardFigures {

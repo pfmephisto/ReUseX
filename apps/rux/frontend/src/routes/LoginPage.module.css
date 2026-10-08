@@ -1,0 +1,108 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* The sign-in screen: one raised panel on the workbench surface, the
+ * chrome's wordmark on top. Calm and plain: it is a door, not a page. */
+
+.page {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--space-5) var(--space-4);
+  background: var(--color-surface);
+}
+
+.theme {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+}
+
+.card {
+  composes: panel from '../components/surfaces.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: calc(var(--space-7) * 8);
+  padding: var(--space-6) var(--space-5) var(--space-5);
+}
+
+/* The title bar's wordmark, on a chrome strip at the top of the card. */
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: calc(var(--space-6) * -1) calc(var(--space-5) * -1) 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-chrome);
+  color: var(--color-on-chrome);
+}
+
+.product {
+  font-family: var(--font-display);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-2xl);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--line-height-tight);
+}
+
+.x {
+  color: var(--color-accent);
+  font-style: normal;
+}
+
+.tagline {
+  font-size: var(--font-size-sm);
+  color: var(--color-on-chrome-muted);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  text-transform: uppercase;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The shared input, a size up: these are the only two fields on screen. */
+.input {
+  composes: input from '../components/controls.module.css';
+  min-height: var(--layout-titlebar-height);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+}
+
+.submit {
+  composes: btnPrimary from '../components/controls.module.css';
+  min-height: var(--layout-titlebar-height);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-md);
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--tone-crit-bg);
+  color: var(--tone-crit-ink);
+  font-size: var(--font-size-sm);
+}
+
+.help {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

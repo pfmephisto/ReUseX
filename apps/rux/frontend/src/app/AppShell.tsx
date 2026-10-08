@@ -15,6 +15,7 @@ import { useTheme } from './useTheme';
 import { useJobs } from './JobsContext';
 import { SurveyCountsProvider } from './SurveyCountsContext';
 import { kindOf } from './keyTargets';
+import { useAuth } from './AuthGate';
 import { caseBootAction, writeLastCase } from './cases';
 import { ALL_CASES_PATH, DRAWER_QUERY, displayProjectName, drawerKeyAction } from './navigation';
 import styles from './AppShell.module.css';
@@ -73,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // The one useTheme() instance; both toggles render from it (title bar, drawer).
   const theme = useTheme();
+  const auth = useAuth();
 
   const [navOpen, setNavOpen] = useState(false);
   const navOpenRef = useRef(false);
@@ -165,6 +167,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         menuControls={NAV_ID}
         themePreference={theme.preference}
         onThemeChange={theme.setPreference}
+        user={auth?.me.mode === 'server' ? auth.me.user : undefined}
+        onLogout={auth ? () => void auth.logout() : undefined}
       />
       <div className={styles.body}>
         <div className={styles.scrim} hidden={!navOpen} aria-hidden="true" onClick={closeNav} />

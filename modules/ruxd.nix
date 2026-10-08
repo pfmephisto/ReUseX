@@ -7,7 +7,8 @@
 #
 # Secrets (DATABASE_URL, RUXD_AUTH_TOKEN, AWS credentials) belong in
 # `environmentFile`, NOT in the Nix store. Non-secret settings (port, threads,
-# redis URL, S3 endpoint/region/bucket) are plain options.
+# bind, data dir, ...) are plain options. `redisUrl` and `s3.*` are RESERVED:
+# ruxd accepts them but does not use Redis or S3 yet.
 {self}: {
   config,
   lib,
@@ -40,25 +41,25 @@ in {
 
     redisUrl = lib.mkOption {
       type = lib.types.str;
-      default = "tcp://127.0.0.1:6379";
-      description = "Redis URI.";
+      default = "";
+      description = "Reserved, unused: ruxd does not use Redis yet. Redis URI.";
     };
 
     s3 = {
       endpoint = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "S3 endpoint URL (empty = real AWS).";
+        description = "Reserved, unused: ruxd does not use S3 yet. S3 endpoint URL (empty = real AWS).";
       };
       region = lib.mkOption {
         type = lib.types.str;
         default = "us-east-1";
-        description = "S3 region.";
+        description = "Reserved, unused. S3 region.";
       };
       bucket = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "S3 bucket name.";
+        description = "Reserved, unused. S3 bucket name.";
       };
     };
 
@@ -165,9 +166,9 @@ in {
           RUXD_PORT = toString cfg.port;
           RUXD_THREADS = toString cfg.threads;
           RUXD_DATA_DIR = cfg.dataDir;
-          REDIS_URL = cfg.redisUrl;
           AWS_REGION = cfg.s3.region;
         }
+        // lib.optionalAttrs (cfg.redisUrl != "") {REDIS_URL = cfg.redisUrl;}
         // lib.optionalAttrs (cfg.s3.endpoint != "") {AWS_ENDPOINT_URL = cfg.s3.endpoint;}
         // lib.optionalAttrs (cfg.s3.bucket != "") {RUXD_S3_BUCKET = cfg.s3.bucket;}
         // cfg.extraEnvironment;

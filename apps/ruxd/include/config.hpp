@@ -28,8 +28,12 @@ struct Config {
   unsigned pg_pool_size = 0;
   unsigned pg_acquire_timeout_ms = 5000;
 
+  // Redis and S3 are RESERVED: accepted on the command line, read by the
+  // client code in src/clients/, but not used by the server yet (S3
+  // snapshots, spec "Deferred"). Empty by default so an unconfigured server
+  // has nothing to warn about.
   // Redis — redis-plus-plus URI, e.g. "tcp://127.0.0.1:6379".
-  std::string redis_url = "tcp://127.0.0.1:6379";
+  std::string redis_url;
 
   // S3 / object storage. Endpoint empty = real AWS (region-derived endpoint);
   // set it for self-hosted S3-compatible servers (MinIO/Ceph/...).

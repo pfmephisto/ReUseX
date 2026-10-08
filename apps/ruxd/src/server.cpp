@@ -77,7 +77,8 @@ int run_server(Invocation inv) {
     server.job_store = jobs;
     server.readiness = [db] { return db->ping(); };
     if (!cfg.redis_url.empty() || !cfg.s3_bucket.empty())
-      spdlog::debug("Redis and S3 settings are not used by the server yet");
+      spdlog::warn("--redis-url and --s3-* are reserved and ignored: the "
+                   "server does not use Redis or S3 yet");
     return serve_web(std::move(inv.local));
   } catch (const std::exception &e) {
     spdlog::error("Could not start the ruxd server: {}", e.what());

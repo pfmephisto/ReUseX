@@ -182,3 +182,26 @@ TEST_CASE("RuxdCli_TrustedProxyRetentionAndSecretFiles", "[ruxd][cli]") {
   const auto found = ruxd::secrets_on_argv(6, const_cast<char **>(argv));
   CHECK(found == std::vector<std::string>{"--pg-url", "--auth-token"});
 }
+
+TEST_CASE("RuxdCli_DeploymentEnvironment_SetsBindDataDirAndPgUrlFile",
+          "[ruxd][cli]") {
+  // Final review #3: the OCI image configures ruxd through the environment
+  // (RUXD_BIND=0.0.0.0, RUXD_DATA_DIR=/data); a flag still wins.
+  clear_port_env();
+  reusex::test_support::TempPath url_file("test_cli_pg_url", ".txt");
+  {
+    std::ofstream out(url_file.path);
+    out << "postgresql://ruxd@db/ruxd\n";
+  }
+  ::setenv("RUXD_BIND", "0.0.0.0", 1);
+  ::setenv("RUXD_DATA_DIR", "/data", 1);
+  ::setenv("DATABASE_URL_FILE", url_file.path.c_str(), 1);
+  const auto from_env = parse("");
+  CHECK(from_env.local.server.bind_address == "0.0.0.0");
+  CHECK(from_env.local.server.data_dir == "/data");
+  CHECK(from_env.pg_url_file == url_file.path.string());
+  CHECK(parse("--bind 127.0.0.1").local.server.bind_address == "127.0.0.1");
+  ::unsetenv("RUXD_BIND");
+  ::unsetenv("RUXD_DATA_DIR");
+  ::unsetenv("DATABASE_URL_FILE");
+}

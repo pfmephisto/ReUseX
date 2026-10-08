@@ -152,29 +152,38 @@ void configure_cli(CLI::App &app, Invocation &inv) {
       ->envname("RUXD_PG_ACQUIRE_TIMEOUT_MS")
       ->capture_default_str();
 
-  // --- Redis ---
+  // --- Redis and S3: reserved ---
+  // Kept for the S3-snapshot phase (spec, "Deferred"); nothing reads them yet.
+  // The client code in src/clients/ stays, with its tests.
+  const std::string reserved = "Reserved (unused yet)";
   app.add_option("--redis-url", inv.config.redis_url,
-                 "Redis URI (tcp://host:port)")
+                 "Reserved, unused: Redis URI (tcp://host:port)")
       ->envname("REDIS_URL")
-      ->capture_default_str();
-
-  // --- S3 / object storage ---
+      ->group(reserved);
   app.add_option("--s3-endpoint", inv.config.s3_endpoint,
-                 "S3 endpoint URL (empty = real AWS)")
-      ->envname("AWS_ENDPOINT_URL");
-  app.add_option("--s3-region", inv.config.s3_region, "S3 region")
+                 "Reserved, unused: S3 endpoint URL (empty = real AWS)")
+      ->envname("AWS_ENDPOINT_URL")
+      ->group(reserved);
+  app.add_option("--s3-region", inv.config.s3_region,
+                 "Reserved, unused: S3 region")
       ->envname("AWS_REGION")
-      ->capture_default_str();
-  app.add_option("--s3-bucket", inv.config.s3_bucket, "S3 bucket name")
-      ->envname("RUXD_S3_BUCKET");
+      ->capture_default_str()
+      ->group(reserved);
+  app.add_option("--s3-bucket", inv.config.s3_bucket,
+                 "Reserved, unused: S3 bucket name")
+      ->envname("RUXD_S3_BUCKET")
+      ->group(reserved);
   app.add_option("--s3-access-key", inv.config.s3_access_key,
-                 "S3 access key id")
-      ->envname("AWS_ACCESS_KEY_ID");
+                 "Reserved, unused: S3 access key id")
+      ->envname("AWS_ACCESS_KEY_ID")
+      ->group(reserved);
   app.add_option("--s3-secret-key", inv.config.s3_secret_key,
-                 "S3 secret access key")
-      ->envname("AWS_SECRET_ACCESS_KEY");
+                 "Reserved, unused: S3 secret access key")
+      ->envname("AWS_SECRET_ACCESS_KEY")
+      ->group(reserved);
   app.add_flag("--s3-path-style,!--s3-virtual-style", inv.config.s3_path_style,
-               "Use path-style S3 addressing (required by MinIO/Ceph)");
+               "Reserved, unused: path-style S3 addressing (MinIO/Ceph)")
+      ->group(reserved);
 
   // --- Auth ---
   app.add_option("--auth-token", inv.config.auth_token,
@@ -253,6 +262,7 @@ void configure_cli(CLI::App &app, Invocation &inv) {
   app.add_option("--bind", local.server.bind_address,
                  "Interface to bind. In local mode anything beyond loopback "
                  "requires --auth-token; server mode always authenticates")
+      ->envname("RUXD_BIND")
       ->capture_default_str()
       ->group(local_group);
   app.add_option("--allow-origin", local.server.allowed_origins,

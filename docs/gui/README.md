@@ -104,6 +104,16 @@ phase S3):
   with; an administrator adds anyone. Otherwise, and for an unknown email,
   the answer is the same 404, so the form is no oracle for which accounts
   exist.
+- **Case files are untrusted input.** Every ProjectDB connection ruxd opens
+  is hardened (`ProjectDB::OpenOptions::hardened`, set process-wide at
+  start): `SQLITE_DBCONFIG_DEFENSIVE`, `trusted_schema=OFF`, and triggers and
+  views disabled — a ReUseX project has neither. An upload, at
+  `uploads/{id}/complete`, and a registered file are first checked with
+  `PRAGMA quick_check` and refused (422, a Danish message) when it fails or
+  when the schema holds a trigger or a view. The check reads the whole file
+  on the request's worker thread: minutes for tens of GB, so keep
+  `--threads` above the number of concurrent large uploads you expect. The
+  `rux` CLI opens files as before.
 - **SAM3 in server mode** uses only the server's configured or managed model;
   a request's `model_path` is refused (400).
 - **Audit retention**: `--audit-retention-days` (default 365), pruned
@@ -113,6 +123,9 @@ phase S3):
   unauthenticated or forbidden upload is answered — and its connection closed
   — without its body being buffered. A signed-in browser's mutation must also
   carry an allowed `Origin`.
+- **Redis and S3 are reserved.** `--redis-url` and `--s3-*` (and the NixOS
+  module's `redisUrl` / `s3.*`) are accepted for the deferred S3-snapshot
+  phase but nothing uses them; setting one logs a warning at start.
 - `GET /api/v1/readyz` answers 200 when Postgres is reachable (503 otherwise),
   for a load balancer or container health check.
 
@@ -127,6 +140,27 @@ ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080
 ruxd admin create-user --email bo@firma.dk --name "Bo"               # or: … < password.txt
 ruxd admin create-token --email ci@firma.dk --name nightly --case kontor   # prints rxt_… once
 ```
+
+### Container image
+
+`nix build .#ruxd-container` (CUDA) or `.#ruxd-container-cpu` builds an OCI
+image whose entrypoint is `ruxd` in server mode, configured through the
+environment: `RUXD_PORT=8080`, `RUXD_BIND=0.0.0.0` (ruxd binds loopback by
+default, which nothing outside the container can reach) and
+`RUXD_DATA_DIR=/data`, a volume. Supply Postgres yourself:
+
+```bash
+docker load < result
+docker run -p 8080:8080 -v ruxd-cases:/data \
+  -e DATABASE_URL_FILE=/run/secrets/pg-url -v ./pg-url:/run/secrets/pg-url:ro \
+  ruxd:latest
+```
+
+Every flag has its environment variable in `ruxd --help` (`--bind`
+`RUXD_BIND`, `--data-dir` `RUXD_DATA_DIR`, `--pg-url` `DATABASE_URL`,
+`--pg-url-file` `DATABASE_URL_FILE`, `--auth-token-file`
+`RUXD_AUTH_TOKEN_FILE`); a flag wins over its variable. Put the TLS proxy
+below in front of the published port.
 
 ### TLS via a reverse proxy
 

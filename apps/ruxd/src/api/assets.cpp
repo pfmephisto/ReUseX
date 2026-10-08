@@ -141,6 +141,14 @@ std::filesystem::path resolve_asset(const std::filesystem::path &root,
   if (const auto query = relative.find('?'); query != std::string::npos)
     relative.erase(query);
   relative = percent_decode(relative);
+  // A decoded NUL would truncate the name at the C API ("app.js%00.html"
+  // served app.js), and no bundle file has a control character in its name:
+  // refuse them all (final review #10).
+  if (std::any_of(relative.begin(), relative.end(), [](char c) {
+        const auto u = static_cast<unsigned char>(c);
+        return u < 0x20 || u == 0x7f;
+      }))
+    return {};
   // A decoded backslash is a separator on some platforms and a plain character
   // here; normalise it so the traversal check below sees the same components
   // the filesystem would.

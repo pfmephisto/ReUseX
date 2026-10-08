@@ -1197,6 +1197,18 @@ TEST_CASE("ResolveAsset_VariousRequests_ServesOnlyFilesUnderRoot",
     }
   }
 
+  SECTION("a control character, decoded or raw, is refused") {
+    // Final review #10: "%00" truncated the name, serving app.js.
+    for (const std::string &attack : std::vector<std::string>{
+             "/assets/app.js%00.html", "/assets/app.js%00", "/assets/app%0a.js",
+             "/assets/app.js%7f", "/assets/app.js%1f",
+             std::string("/assets/app.js\0.html", 20)}) {
+      INFO("attack: " << attack);
+      CHECK(resolve_asset(root.path, attack).empty());
+    }
+    CHECK_FALSE(resolve_asset(root.path, "/assets/app.js").empty());
+  }
+
   SECTION("a missing file resolves to nothing") {
     CHECK(resolve_asset(root.path, "/does-not-exist.js").empty());
   }

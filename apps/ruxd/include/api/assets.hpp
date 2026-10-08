@@ -45,7 +45,8 @@ std::string percent_decode(std::string_view text);
 /// Map a request path onto a file inside @p root.
 ///
 /// Returns an empty path when the resolved location escapes @p root (via `..`,
-/// percent-encoded `..`, a symlink, or an absolute component) or does not name
+/// percent-encoded `..`, a symlink, or an absolute component), holds a control
+/// character once decoded (a `%00` would truncate the name), or does not name
 /// an existing regular file. A request for "/" resolves to `index.html`.
 std::filesystem::path resolve_asset(const std::filesystem::path &root,
                                     std::string_view url_path);

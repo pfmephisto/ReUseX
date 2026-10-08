@@ -6,6 +6,7 @@
 #include <rux_qt/RecentProjects.hpp>
 #include <rux_qt/StartPage.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/palette_table.hpp>
 #include <rux_qt/widgets.hpp>
 
 #include <QAction>
@@ -16,6 +17,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QLabel>
 #include <QLocale>
 #include <QMimeData>
@@ -196,6 +198,7 @@ QWidget *AppShell::make_title_bar() {
   l->addWidget(search);
   inspector_button_ = chrome_button("Inspektør");
   inspector_button_->setCheckable(true);
+  inspector_button_->setProperty("toggle", true); // muted text when off
   connect(inspector_button_, &QPushButton::toggled, this,
           [this](bool on) { set_inspector_visible(on); });
   l->addWidget(inspector_button_);
@@ -220,21 +223,22 @@ void AppShell::build_actions() {
     addAction(a);
     return a;
   };
-  open_action_ = make("Åbn projekt…", QKeySequence::Open, [this] { browse(); });
-  close_action_ = make("Luk projekt", QKeySequence(Qt::CTRL | Qt::Key_W),
-                       [this] { session_.close(); });
-  reload_action_ = make("Genindlæs projekt", QKeySequence::Refresh,
-                        [this] { session_.reload(); });
+  auto key = [](const char *id) {
+    return QKeySequence(QString::fromStdString(action_shortcut(id)));
+  };
+  open_action_ = make("Åbn projekt…", key("open"), [this] { browse(); });
+  close_action_ =
+      make("Luk projekt", key("close"), [this] { session_.close(); });
+  reload_action_ =
+      make("Genindlæs projekt", key("reload"), [this] { session_.reload(); });
   inspector_action_ =
-      make("Vis eller skjul inspektør", QKeySequence(Qt::CTRL | Qt::Key_I),
+      make("Vis eller skjul inspektør", key("inspector"),
            [this] { set_inspector_visible(!inspector_visible()); });
   palette_action_ = make("Kommandopalet", QKeySequence(Qt::CTRL | Qt::Key_K),
                          [this] { open_palette(); });
-  quit_action_ =
-      make("Afslut", QKeySequence::Quit, [this] { emit quit_requested(); });
-  theme_action_ =
-      make("Skift tema", QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L),
-           [this] { emit toggle_theme_requested(); });
+  quit_action_ = make("Afslut", key("quit"), [this] { emit quit_requested(); });
+  theme_action_ = make("Skift tema", key("theme"),
+                       [this] { emit toggle_theme_requested(); });
   // Alt+1 … Alt+6 jump to a page, in rail order.
   for (int i = 0; i < kWorkspaceCount; ++i)
     make(workspace_infos()[i].name, QKeySequence(Qt::ALT | (Qt::Key_1 + i)),
@@ -242,81 +246,45 @@ void AppShell::build_actions() {
 }
 
 QVector<Command> AppShell::commands() {
-  QVector<Command> out;
-  const bool open = session_.is_open();
-  for (int i = 0; i < kWorkspaceCount; ++i) {
-    const auto &w = workspace_infos()[i];
-    Command c;
-    c.group = "Sider";
-    c.title = w.name;
-    // The subtitle line is kept for paths and commands (mono); a page's
-    // description is searchable but not shown.
-    c.keywords = "gå til side " + w.keywords;
-    c.shortcut = QString("Alt+%1").arg(i + 1);
-    c.badge =
-        static_cast<int>(current_page()) == i ? QString("Her") : QString();
-    c.run = [this, i] { show_page(static_cast<Workspace>(i)); };
-    out << c;
-  }
-  auto action = [&](const QString &title, const QString &kw, QAction *a,
-                    bool enabled = true) {
-    Command c;
-    c.group = "Handlinger";
-    c.title = title;
-    c.keywords = kw;
-    c.shortcut =
-        a ? a->shortcut().toString(QKeySequence::NativeText) : QString();
-    c.enabled = enabled;
-    c.run = [a] {
-      if (a)
-        a->trigger();
-    };
-    out << c;
-  };
-  action("Åbn projekt…", "open fil rux", open_action_);
-  if (open || session_.state() == ProjectSession::State::failed)
-    action("Genindlæs projekt", "reload igen", reload_action_);
-  if (open) {
-    action("Luk projekt", "close", close_action_);
-    Command copy;
-    copy.group = "Handlinger";
-    copy.title = "Kopiér projektets sti";
-    copy.keywords = "copy path udklipsholder";
-    copy.subtitle = session_.path();
-    const QString p = session_.path();
-    copy.run = [p] { QApplication::clipboard()->setText(p); };
-    out << copy;
-    Command cli;
-    cli.group = "Handlinger";
-    cli.title = "Kopiér som rux-kommando";
-    cli.keywords = "cli terminal info";
-    const QString cmd = QString("rux -p '%1' info").arg(p);
-    cli.subtitle = cmd;
-    cli.run = [cmd] { QApplication::clipboard()->setText(cmd); };
-    out << cli;
-  }
-  action(inspector_visible() ? "Skjul inspektør" : "Vis inspektør",
-         "panel højre inspector", inspector_action_);
-  action(theme().mode() == ThemeMode::dark ? "Skift til lyst tema"
-                                           : "Skift til mørkt tema",
-         "theme lys mørk dark light", theme_action_);
-  action("Afslut", "quit exit", quit_action_);
+  // The table itself is Qt-free (rux_qt/palette_table.hpp) so the ranking
+  // tests rank exactly what is shown; here each id gets its action.
+  PaletteState st;
+  st.project_open = session_.is_open();
+  st.project_failed = session_.state() == ProjectSession::State::failed;
+  st.project_path = session_.path().toStdString();
+  st.current_page = static_cast<int>(current_page());
+  st.inspector_visible = inspector_visible();
+  st.dark_theme = theme().mode() == ThemeMode::dark;
+  for (const auto &e : recent_.entries())
+    st.recent.push_back({e.path.toStdString(), e.missing});
 
-  for (const auto &e : recent_.entries()) {
+  const QHash<QString, QAction *> actions = {
+      {"open", open_action_},   {"reload", reload_action_},
+      {"close", close_action_}, {"inspector", inspector_action_},
+      {"theme", theme_action_}, {"quit", quit_action_}};
+  QVector<Command> out;
+  for (const PaletteEntry &e : build_palette(st)) {
     Command c;
-    c.group = "Seneste projekter";
-    const QFileInfo fi(e.path);
-    c.title = fi.completeBaseName().compare("project", Qt::CaseInsensitive) == 0
-                  ? fi.dir().dirName()
-                  : fi.completeBaseName();
-    c.subtitle = e.path;
-    c.keywords = "seneste recent " + e.path;
-    c.enabled = !e.missing;
-    c.badge = e.missing ? QString("Mangler")
-                        : (open && e.path == session_.path() ? QString("Åben")
-                                                             : QString());
-    const QString p = e.path;
-    c.run = [this, p] { open_project(p); };
+    c.group = QString::fromStdString(e.group);
+    c.title = QString::fromStdString(e.title);
+    c.keywords = QString::fromStdString(e.keywords);
+    c.subtitle = QString::fromStdString(e.subtitle);
+    c.shortcut = QString::fromStdString(e.shortcut);
+    c.badge = QString::fromStdString(e.badge);
+    c.enabled = e.enabled;
+    const QString id = QString::fromStdString(e.id);
+    if (id.startsWith("page:")) {
+      const int i = id.mid(5).toInt();
+      c.run = [this, i] { show_page(static_cast<Workspace>(i)); };
+    } else if (id.startsWith("recent:")) {
+      const QString p = id.mid(7);
+      c.run = [this, p] { open_project(p); };
+    } else if (id == "copy-path" || id == "copy-cli") {
+      const QString text = c.subtitle;
+      c.run = [text] { QApplication::clipboard()->setText(text); };
+    } else if (QAction *a = actions.value(id)) {
+      c.run = [a] { a->trigger(); };
+    }
     out << c;
   }
   return out;
@@ -551,7 +519,7 @@ void Inspector::refresh() {
   p->add("Skema", QString("v%1").arg(s.schema_version));
   p->add("Adgang", session_.is_read_only() ? "Skrivebeskyttet" : "Læs og skriv",
          false);
-  p->add("Åbnet på", QString("%1 ms").arg(session_.load_ms()));
+  p->add("Åbningstid", QString("%1 ms").arg(session_.load_ms()));
   l->addWidget(p);
 
   section("Indhold");

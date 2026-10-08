@@ -24,11 +24,8 @@
 #include <view.hpp>
 
 #include <reusex/core/logging.hpp>
-#include <rux_qt/launch.hpp>
-#ifdef RUX_HAVE_QT_CLIENT
-#include <rux_qt/app.hpp>
-#endif
 #include <reusex/core/version.hpp>
+#include <rux_qt/launch.hpp>
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
@@ -77,7 +74,7 @@ void install_fatal_signal_handlers() {
 
 namespace rux {
 
-int run(int argc, char **argv) {
+int run(int argc, char **argv, GuiLauncher launch_gui) {
   install_fatal_signal_handlers();
 
   // Initialize async logger thread pool (lock-free queue, background writer
@@ -236,7 +233,8 @@ int run(int argc, char **argv) {
   }
 
   // No subcommand: plain `rux` (or `rux -p x.rux`) is the Qt client when
-  // there is a display, and the help text otherwise (rux_qt/launch.hpp).
+  // there is a display and a launcher was linked (main.cpp), and the help
+  // text otherwise (rux_qt/launch.hpp).
   {
     auto env = [](const char *name) {
       const char *v = std::getenv(name);
@@ -244,14 +242,15 @@ int run(int argc, char **argv) {
     };
     rux::qt::LaunchInputs in;
     in.has_subcommand = !app.get_subcommands().empty();
-#ifdef RUX_HAVE_QT_CLIENT
-    in.qt_client_built = true;
-#else
-    in.qt_client_built = false;
-#endif
+    in.qt_client_built = static_cast<bool>(launch_gui);
     in.display = env("DISPLAY");
     in.wayland_display = env("WAYLAND_DISPLAY");
+    in.xdg_runtime_dir = env("XDG_RUNTIME_DIR");
     in.qpa_platform = env("QT_QPA_PLATFORM");
+    in.path_exists = [](const std::string &p) {
+      std::error_code ec;
+      return fs::exists(p, ec);
+    };
     switch (rux::qt::decide_launch(in)) {
     case rux::qt::LaunchAction::run_subcommand:
       break;
@@ -262,19 +261,15 @@ int run(int argc, char **argv) {
                      "or Wayland. Run a subcommand instead.\n";
       break;
     case rux::qt::LaunchAction::open_app: {
-#ifdef RUX_HAVE_QT_CLIENT
-      rux::qt::AppOptions qopt;
+      GuiLaunch request;
       // Only an explicit -p opens a project; the ./project.rux default
       // would otherwise be created by the open.
       if (app.count("--project") > 0)
-        qopt.project = QString::fromStdString(opt->project_db.string());
-      qopt.quit_after_ms = quit_after_ms;
-      const int rc = rux::qt::run_app(argc, argv, qopt);
+        request.project = opt->project_db;
+      request.quit_after_ms = quit_after_ms;
+      const int rc = launch_gui(argc, argv, request);
       teardown();
       return rc;
-#else
-      break;
-#endif
     }
     }
   }

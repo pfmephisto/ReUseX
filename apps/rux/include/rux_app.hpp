@@ -4,7 +4,25 @@
 
 #pragma once
 
+#include <filesystem>
+#include <functional>
+#include <optional>
+
 namespace rux {
+
+/// What plain `rux` (no subcommand) asks the desktop app to do.
+struct GuiLaunch {
+  /// Set only for an explicit `-p` — never the ./project.rux default.
+  std::optional<std::filesystem::path> project;
+  /// Dev/test `--quit-after-ms`; negative = run normally.
+  int quit_after_ms = -1;
+};
+
+/// Starts the desktop app and returns its exit code. Injected by the `rux`
+/// executable's main() (which alone links the Qt client), so rux_lib — and
+/// every test binary that links it — stays free of Qt Widgets.
+using GuiLauncher =
+    std::function<int(int argc, char **argv, const GuiLaunch &)>;
 
 /// The whole of the `rux` CLI, minus the `main()` symbol itself (#249).
 ///
@@ -21,6 +39,9 @@ namespace rux {
 /// Not re-entrant: it mutates process-global state (signal dispositions, the
 /// spdlog default logger, the ReUseX log handler) and calls
 /// `spdlog::shutdown()` on the way out. Call it once, from `main()`.
-int run(int argc, char **argv);
+///
+/// With no subcommand: calls @p launch_gui when there is a display and a
+/// launcher was given, and prints the help text otherwise (exit 0).
+int run(int argc, char **argv, GuiLauncher launch_gui = {});
 
 } // namespace rux

@@ -10,6 +10,7 @@
 
 #include <rux_qt/fuzzy.hpp>
 #include <rux_qt/launch.hpp>
+#include <rux_qt/palette_table.hpp>
 #include <rux_qt/recent.hpp>
 
 #include <algorithm>
@@ -77,9 +78,8 @@ TEST_CASE("Palette_IsCaseInsensitive_AndIgnoresQuerySpaces",
 
 TEST_CASE("Palette_PrefixAndWordStarts_BeatScatteredMatches",
           "[rux_qt][palette]") {
-  // "db" hits D-ata-B-ase? No: word-start D plus a later b. "Ændr billede"
-  // has a word-start b too, but no word-start d. Database must still win
-  // because its D is the very first character.
+  // "db": Database's D is the title's first letter (the biggest bonus);
+  // "Ændr billede" only has a word-start b. Database must win.
   const auto m = rank_palette("db", kCommands);
   REQUIRE_FALSE(m.empty());
   CHECK(kCommands[m.front().index].title == "Database");
@@ -152,14 +152,91 @@ TEST_CASE("Palette_Ties_AreBrokenByLengthThenOrder", "[rux_qt][palette]") {
         std::vector<std::string>{"Projekt A", "Projekt C", "Projekt B lang"});
 }
 
-TEST_CASE("Palette_LongTitles_DoNotBlowUp", "[rux_qt][palette]") {
-  std::string long_path(4000, 'a');
-  long_path += "/project.rux";
-  // Matches past any internal cap still need not crash; a match in the
-  // first part is found.
-  CHECK(fuzzy_score("aaa", long_path) > 0);
-  const std::vector<PaletteCandidate> c = {{"x", long_path}};
-  CHECK_NOTHROW(rank_palette("project", c));
+TEST_CASE("Palette_LongTexts_AreMatchedOnlyWithinTheCap", "[rux_qt][palette]") {
+  // Texts are matched within their first 512 code points: a hit inside the
+  // cap is found, one only past it is deliberately dropped (a pathological
+  // keyword string must not make every keystroke quadratic).
+  std::string long_text(600, 'a');
+  CHECK(fuzzy_score("aaa", long_text) > 0);
+  std::string late(600, 'x');
+  late += "project";
+  CHECK(fuzzy_score("project", late) == -1);
+  std::string early = "project" + std::string(600, 'x');
+  CHECK(fuzzy_score("project", early) > 0);
+  const std::vector<PaletteCandidate> c = {{"x", late}};
+  CHECK(rank_palette("project", c).empty());
+}
+
+// ------------------------------------------------- the real palette table --
+
+namespace {
+
+PaletteState open_state() {
+  PaletteState s;
+  s.project_open = true;
+  s.project_path = "/home/u/sager/NewOffice/project.rux";
+  s.current_page = 0;
+  s.recent = {{"/home/u/sager/NewOffice/project.rux", false},
+              {"/home/u/sager/Kontorhus Valby/project.rux", true},
+              {"/home/u/sager/Skolen 2025/scan-02.rux", true}};
+  return s;
+}
+
+std::vector<std::string> ranked_titles(const std::string &q,
+                                       const std::vector<PaletteEntry> &t) {
+  std::vector<std::string> out;
+  for (const auto &m : rank_palette(q, palette_candidates(t)))
+    out.push_back(t[m.index].title);
+  return out;
+}
+
+} // namespace
+
+TEST_CASE("PaletteTable_ListsPagesActionsAndRecents", "[rux_qt][palette]") {
+  const auto t = build_palette(open_state());
+  REQUIRE(t.size() == 6 + 8 + 3);
+  CHECK(t[0].title == "Start");
+  CHECK(t[0].badge == "Her");
+  CHECK(t[1].shortcut == "Alt+2");
+  // Without a project there is nothing to close, reload or copy.
+  PaletteState none;
+  for (const auto &e : build_palette(none))
+    CHECK((e.id != "close" && e.id != "reload" && e.id != "copy-path"));
+  // Recents: generic project.rux shows its folder; missing ones are disabled.
+  CHECK(t[14].title == "NewOffice");
+  CHECK(t[14].badge == "Åben");
+  CHECK(t[15].title == "Kontorhus Valby");
+  CHECK_FALSE(t[15].enabled);
+  CHECK(t[15].badge == "Mangler");
+  CHECK(action_shortcut("open") == "Ctrl+O");
+}
+
+TEST_CASE("PaletteTable_Db_FindsDatabaseFirst", "[rux_qt][palette]") {
+  const auto r = ranked_titles("db", build_palette(open_state()));
+  REQUIRE_FALSE(r.empty());
+  CHECK(r.front() == "Database");
+}
+
+TEST_CASE("PaletteTable_Pro_RanksTheProjectActionsFirst", "[rux_qt][palette]") {
+  const auto r = ranked_titles("pro", build_palette(open_state()));
+  REQUIRE(r.size() >= 5);
+  const std::set<std::string> top4(r.begin(), r.begin() + 4);
+  CHECK(top4 == std::set<std::string>{"Luk projekt", "Åbn projekt…",
+                                      "Kopiér projektets sti",
+                                      "Genindlæs projekt"});
+  // The scattered K-o-p…r…o hit comes after every "pro…" word.
+  CHECK(r[4] == "Kopiér som rux-kommando");
+}
+
+TEST_CASE("PaletteTable_RecentFolder_IsSearchable_ButPathsAreNot",
+          "[rux_qt][palette]") {
+  const auto t = build_palette(open_state());
+  auto r = ranked_titles("valby", t);
+  REQUIRE_FALSE(r.empty());
+  CHECK(r.front() == "Kontorhus Valby");
+  // A path fragment every row shares matches none of them.
+  CHECK(ranked_titles("home", t).empty());
+  CHECK(ranked_titles("sager", t).empty());
 }
 
 // ----------------------------------------------------------------- recent --
@@ -233,10 +310,16 @@ TEST_CASE("Launch_Subcommand_AlwaysRunsTheCli", "[rux_qt][launch]") {
 
 TEST_CASE("Launch_NoSubcommand_OpensTheAppOnlyWithADisplay",
           "[rux_qt][launch]") {
+  const std::set<std::string> sockets = {"/run/user/1000/wayland-1",
+                                         "/tmp/.X11-unix/X0"};
   LaunchInputs in;
+  in.xdg_runtime_dir = "/run/user/1000";
+  in.path_exists = [&](const std::string &p) { return sockets.count(p) > 0; };
   CHECK(decide_launch(in) == LaunchAction::print_help);
 
   in.display = ":0";
+  CHECK(decide_launch(in) == LaunchAction::open_app);
+  in.display = "unix:0.0";
   CHECK(decide_launch(in) == LaunchAction::open_app);
 
   in.display = "";
@@ -248,14 +331,72 @@ TEST_CASE("Launch_NoSubcommand_OpensTheAppOnlyWithADisplay",
   in.qpa_platform = "wayland;xcb";
   CHECK(decide_launch(in) == LaunchAction::print_help);
 
-  // Explicit offscreen (tests, screenshots) counts.
+  // Explicit offscreen (tests, screenshots) counts, with options too.
   in.qpa_platform = "offscreen";
   CHECK(decide_launch(in) == LaunchAction::open_app);
+  in.qpa_platform = "offscreen:fontengine=freetype";
+  CHECK(decide_launch(in) == LaunchAction::open_app);
 
-  // Built without the Qt client: help, never a crash.
+  // No GUI launcher linked: help, never a crash.
   in.qt_client_built = false;
   in.display = ":0";
   CHECK(decide_launch(in) == LaunchAction::print_help);
+}
+
+TEST_CASE("Launch_StaleOrMismatchedDisplays_PrintHelp", "[rux_qt][launch]") {
+  const std::set<std::string> sockets = {"/run/user/1000/wayland-1",
+                                         "/tmp/.X11-unix/X0"};
+  auto base = [&] {
+    LaunchInputs in;
+    in.xdg_runtime_dir = "/run/user/1000";
+    in.path_exists = [&](const std::string &p) { return sockets.count(p) > 0; };
+    return in;
+  };
+
+  // A stale WAYLAND_DISPLAY (tmux/ssh) whose socket is gone.
+  auto in = base();
+  in.wayland_display = "wayland-9";
+  CHECK_FALSE(has_display(in));
+  // A relative name with no XDG_RUNTIME_DIR cannot be resolved.
+  in = base();
+  in.wayland_display = "wayland-1";
+  in.xdg_runtime_dir = "";
+  CHECK_FALSE(has_display(in));
+  // An absolute socket path works without XDG_RUNTIME_DIR.
+  in.wayland_display = "/run/user/1000/wayland-1";
+  CHECK(has_display(in));
+
+  // A leaked local DISPLAY with no X socket.
+  in = base();
+  in.display = ":7";
+  CHECK_FALSE(has_display(in));
+  // A remote (ssh -X) display is trusted.
+  in.display = "localhost:10.0";
+  CHECK(has_display(in));
+  // Garbage.
+  in.display = "nonsense";
+  CHECK_FALSE(has_display(in));
+
+  // QT_QPA_PLATFORM names one platform: its variable must be usable.
+  in = base();
+  in.qpa_platform = "xcb";
+  in.wayland_display = "wayland-1"; // no XWayland DISPLAY
+  CHECK_FALSE(has_display(in));
+  in = base();
+  in.qpa_platform = "wayland";
+  in.display = ":0"; // X only
+  CHECK_FALSE(has_display(in));
+  in.wayland_display = "wayland-1";
+  CHECK(has_display(in));
+  // A list needs any member.
+  in = base();
+  in.qpa_platform = "wayland;xcb";
+  in.display = ":0";
+  CHECK(has_display(in));
+  // An explicit other platform is trusted.
+  in = base();
+  in.qpa_platform = "vnc";
+  CHECK(has_display(in));
 }
 
 // ------------------------------------------------------------ open errors --

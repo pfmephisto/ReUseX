@@ -158,7 +158,18 @@ int run_app(int argc, char **argv, const AppOptions &options) {
       app.quit();
     });
   }
-  return app.exec();
+  const int rc = app.exec();
+  // The window is gone by now. An open still waiting on a locked project
+  // (ProjectSession never joins its worker) gets a bounded grace period so it
+  // can close its connection and finish logging before rux tears down the
+  // logger; the user sees why the process is still alive.
+  if (ProjectSession::opens_in_flight() > 0) {
+    std::fprintf(stderr, "rux: venter på at et projekt bliver færdigt med at "
+                         "åbne (højst 8 s) …\n");
+    if (!ProjectSession::wait_for_opens(8000))
+      std::fprintf(stderr, "rux: afslutter uden at vente længere\n");
+  }
+  return rc;
 }
 
 } // namespace rux::qt

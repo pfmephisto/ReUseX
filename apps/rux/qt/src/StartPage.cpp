@@ -5,6 +5,7 @@
 #include <rux_qt/RecentProjects.hpp>
 #include <rux_qt/StartPage.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/palette_table.hpp>
 #include <rux_qt/widgets.hpp>
 #include <rux_qt/workspaces.hpp>
 
@@ -50,15 +51,8 @@ void clear_layout(QLayout *l) {
   }
 }
 
-/// "NewOffice" for /…/NewOffice/project.rux — the generic file name tells
-/// nothing — else the file's base name.
 QString recent_title(const QString &path) {
-  const QFileInfo fi(path);
-  const QString base = fi.completeBaseName();
-  if (base.compare("project", Qt::CaseInsensitive) == 0 ||
-      base.compare("projekt", Qt::CaseInsensitive) == 0)
-    return fi.dir().dirName();
-  return base;
+  return QString::fromStdString(recent_project_title(path.toStdString()));
 }
 
 QString pretty_dir(const QString &path) {
@@ -197,8 +191,9 @@ QWidget *StartPage::make_hero(bool compact) {
                       compact ? "secondary" : "primary");
   connect(open, &QPushButton::clicked, this, &StartPage::browse_requested);
   row->addWidget(open);
+  // The palette footer's inline key chip, not a button-height box.
   auto *kbd = label("Ctrl+O", "kbd");
-  row->addWidget(kbd);
+  row->addWidget(kbd, 0, Qt::AlignVCenter);
   row->addStretch(1);
   b->addLayout(row);
 

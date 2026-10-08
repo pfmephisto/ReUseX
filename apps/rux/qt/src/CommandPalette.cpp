@@ -130,7 +130,14 @@ class PaletteDelegate : public QStyledItemDelegate {
       const int h = bfm.height() + chip_pad;
       const QRect pill(right - w, line_mid - h / 2, w, h);
       p->setPen(Qt::NoPen);
-      p->setBrush(t.color(enabled ? "--tone-accent-bg" : "--tone-crit-bg"));
+      // On the selected row the accent pill would melt into the accent-muted
+      // selection fill (dark theme): lift it onto the overlay surface.
+      p->setBrush(t.color(!enabled  ? "--tone-crit-bg"
+                          : current ? "--color-surface-overlay"
+                                    : "--tone-accent-bg"));
+      if (current && enabled) {
+        p->setPen(QPen(t.color("--color-accent"), 1));
+      }
       const qreal rad = t.px("--radius-sm");
       p->drawRoundedRect(QRectF(pill), rad, rad);
       p->setFont(badge_font);
@@ -296,8 +303,9 @@ void CommandPalette::refilter() {
   std::vector<PaletteCandidate> cands;
   cands.reserve(static_cast<std::size_t>(commands_.size()));
   for (const Command &c : commands_)
-    cands.push_back(
-        {c.title.toStdString(), (c.keywords + ' ' + c.subtitle).toStdString()});
+    // Title + keywords, as rux::qt::palette_candidates(): the subtitle (a
+    // full path) is shown but not searched.
+    cands.push_back({c.title.toStdString(), c.keywords.toStdString()});
   const QString q = input_->text();
   const auto ranked = rank_palette(q.toStdString(), cands);
   const bool grouped = q.trimmed().isEmpty();

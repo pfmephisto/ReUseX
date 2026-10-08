@@ -5,10 +5,13 @@
 # The native Qt client of rux (Stream Q). Three targets, split so the design
 # loop rebuilds in seconds and the pure logic is testable without Qt:
 #
-#   rux_qt_core     token parsing and the gallery's command line. Standard
-#                   library only -> linked into the LIGHT unit-test binary
-#                   (tests/unit/rux_qt/).
-#   rux_qt_lib      the Qt layer: theme loader (tokens.css -> QSS + QPalette,
+#   rux_qt_core     token parsing, the gallery's command line, palette
+#                   ranking, the recent list, the launch decision. Standard
+#                   library only and ALWAYS built (even BUILD_QT_CLIENT=OFF):
+#                   rux_lib uses it to decide what plain `rux` does, and the
+#                   LIGHT unit-test binary tests it (tests/unit/rux_qt/).
+#   rux_qt_lib      the Qt layer (linked into the `rux` executable only,
+#                   never rux_lib — see apps/rux/CMakeLists.txt): theme loader (tokens.css -> QSS + QPalette,
 #                   hot reload), bundled fonts, shared widgets, the page
 #                   registry. Qt6 Widgets/OpenGLWidgets + VTK GUISupportQt +
 #                   reusex_visualize (core + the headless VTK renderer); never
@@ -25,7 +28,8 @@ add_library(rux_qt_core STATIC
     src/core/gallery_args.cpp
     src/core/fuzzy.cpp
     src/core/recent.cpp
-    src/core/launch.cpp)
+    src/core/launch.cpp
+    src/core/palette_table.cpp)
 target_include_directories(rux_qt_core PUBLIC include)
 target_compile_features(rux_qt_core PUBLIC cxx_std_20)
 

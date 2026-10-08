@@ -10,11 +10,65 @@ bool contains(std::string_view hay, std::string_view needle) {
   return hay.find(needle) != std::string_view::npos;
 }
 
+bool exists(const LaunchInputs &in, const std::string &path) {
+  return !in.path_exists || in.path_exists(path);
+}
+
+bool wayland_ok(const LaunchInputs &in) {
+  if (in.wayland_display.empty())
+    return false;
+  std::string sock(in.wayland_display);
+  if (sock.front() != '/') {
+    if (in.xdg_runtime_dir.empty())
+      return false; // libwayland cannot resolve a relative name either
+    sock = std::string(in.xdg_runtime_dir) + "/" + sock;
+  }
+  return exists(in, sock);
+}
+
+bool x11_ok(const LaunchInputs &in) {
+  const std::string_view d = in.display;
+  const auto colon = d.rfind(':');
+  if (d.empty() || colon == std::string_view::npos)
+    return false;
+  const std::string_view host = d.substr(0, colon);
+  if (!host.empty() && host != "unix")
+    return true; // TCP / ssh -X forwarding: cannot check cheaply, trust it
+  std::string_view num = d.substr(colon + 1);
+  num = num.substr(0, num.find('.'));
+  if (num.empty() ||
+      num.find_first_not_of("0123456789") != std::string_view::npos)
+    return false;
+  return exists(in, "/tmp/.X11-unix/X" + std::string(num));
+}
+
+bool platform_ok(const LaunchInputs &in, std::string_view p) {
+  p = p.substr(0, p.find(':')); // "offscreen:fontengine=freetype"
+  if (p == "offscreen" || p == "minimal")
+    return true;
+  if (p == "xcb")
+    return x11_ok(in);
+  if (p.substr(0, 7) == "wayland") // wayland, wayland-egl, wayland-brcm
+    return wayland_ok(in);
+  return true; // eglfs, linuxfb, vnc, …: the user asked for it explicitly
+}
+
 } // namespace
 
 bool has_display(const LaunchInputs &in) {
-  return !in.display.empty() || !in.wayland_display.empty() ||
-         in.qpa_platform == "offscreen";
+  std::string_view q = in.qpa_platform;
+  if (q.empty())
+    return x11_ok(in) || wayland_ok(in);
+  // A ';'-separated list: Qt tries each in turn.
+  while (true) {
+    const auto semi = q.find(';');
+    const std::string_view one = q.substr(0, semi);
+    if (!one.empty() && platform_ok(in, one))
+      return true;
+    if (semi == std::string_view::npos)
+      return false;
+    q.remove_prefix(semi + 1);
+  }
 }
 
 LaunchAction decide_launch(const LaunchInputs &in) {

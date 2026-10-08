@@ -6,6 +6,7 @@
 // What plain `rux` does, and how a failed project open is explained — the
 // Qt-free half of the app shell's start-up, unit-tested without a display.
 
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -21,16 +22,27 @@ enum class LaunchAction {
 
 struct LaunchInputs {
   bool has_subcommand = false;
-  bool qt_client_built = true; ///< false when built with BUILD_QT_CLIENT=OFF
-  std::string_view display;    ///< $DISPLAY
+  bool qt_client_built = true;      ///< false when no GUI launcher is linked
+  std::string_view display;         ///< $DISPLAY
   std::string_view wayland_display; ///< $WAYLAND_DISPLAY
+  std::string_view xdg_runtime_dir; ///< $XDG_RUNTIME_DIR
   std::string_view qpa_platform;    ///< $QT_QPA_PLATFORM
+  /// Whether a socket path exists. Empty = assume every socket exists
+  /// (callers that cannot check). rux passes a std::filesystem check.
+  std::function<bool(const std::string &)> path_exists;
 };
 
-/// True when a window can be shown: an X or Wayland display, or Qt's
-/// offscreen platform explicitly selected (tests, screenshots). Any other
-/// QT_QPA_PLATFORM value alone is not a display: a desktop profile exports
-/// "wayland;xcb" into SSH sessions too.
+/// True when a window can be shown — i.e. Qt's platform plugin will connect
+/// instead of aborting with "could not connect to display":
+///  - a Wayland display needs its socket ($WAYLAND_DISPLAY absolute, or
+///    under $XDG_RUNTIME_DIR) to exist — a stale variable in tmux/ssh does
+///    not count;
+///  - a local X display (":0", "unix:0.0") needs /tmp/.X11-unix/X<n>; a
+///    remote one ("localhost:10.0", ssh -X forwarding) is trusted;
+///  - QT_QPA_PLATFORM (options after ':' ignored) narrows it: "xcb" needs
+///    X, "wayland*" needs Wayland, a list ("wayland;xcb") needs any member,
+///    "offscreen" / "minimal" need nothing (tests, screenshots), and any
+///    other platform (eglfs, vnc, …) is trusted.
 bool has_display(const LaunchInputs &in);
 
 LaunchAction decide_launch(const LaunchInputs &in);

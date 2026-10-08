@@ -9,6 +9,11 @@
 #include <QFileInfo>
 #include <QThread>
 
+#include <atomic>
+#include <mutex>
+#include <stdexcept>
+#include <thread>
+
 namespace rux::qt {
 
 struct ProjectSession::Result {
@@ -70,26 +75,13 @@ std::shared_ptr<ProjectSession::Result> do_open(const QString &path,
     // Probe read-only first: a read-write open of a foreign sqlite file (or
     // an empty file) would create every ReUseX table in it.
     if (!ro) {
-      try {
-        // The probe's read-only open warns that an older schema was not
-        // migrated — true of the probe, misleading in the log, since the
-        // real open right after migrates. Quiet it for the probe alone.
-        // (The level is process-global; a line another thread logs in
-        // these milliseconds at warn level would be dropped.)
-        const auto level = reusex::core::get_log_level();
-        if (level < reusex::core::LogLevel::error)
-          reusex::core::set_log_level(reusex::core::LogLevel::error);
-        struct Restore {
-          reusex::core::LogLevel l;
-          ~Restore() { reusex::core::set_log_level(l); }
-        } restore{level};
-        reusex::ProjectDB probe(fs_path, /*readOnly=*/true);
-      } catch (const std::exception &e) {
-        if (classify_open_error(e.what()) == OpenErrorKind::not_a_project)
-          throw;
-        // Anything else (a WAL quirk of read-only opens) is the real open's
-        // to report.
-      }
+      // ProjectDB::probe opens read-only, writes nothing and logs nothing.
+      // Only "not a project" stops here; a lock or a read-only-WAL quirk is
+      // the real open's to report.
+      const auto probe = reusex::ProjectDB::probe(fs_path);
+      if (!probe.is_project &&
+          classify_open_error(probe.error) == OpenErrorKind::not_a_project)
+        throw std::runtime_error(probe.error);
     }
     try {
       r->db = std::make_unique<reusex::ProjectDB>(fs_path, ro);
@@ -116,14 +108,42 @@ std::shared_ptr<ProjectSession::Result> do_open(const QString &path,
 
 } // namespace
 
-ProjectSession::ProjectSession(QObject *parent) : QObject(parent) {}
+namespace {
+std::atomic<int> g_in_flight{0};
+} // namespace
+
+/// Where a worker posts its result. The worker posts under the mutex, and the
+/// session's destructor clears `owner` under it, so a post never races the
+/// session's deletion; one already queued is dropped by ~QObject.
+struct ProjectSession::Mailbox {
+  std::mutex m;
+  ProjectSession *owner = nullptr;
+};
+
+ProjectSession::ProjectSession(QObject *parent)
+    : QObject(parent), mailbox_(std::make_shared<Mailbox>()) {
+  mailbox_->owner = this;
+}
 
 ProjectSession::~ProjectSession() {
-  if (worker_) {
-    // A ProjectDB constructor cannot be interrupted; it ends within the busy
-    // timeout at worst. Its result is dropped with this object.
-    worker_->wait();
+  // Never wait for a worker: an open stuck on a locked migration would hold
+  // the window's close for the whole busy timeout. The worker finishes on
+  // its own, finds no owner and closes its ProjectDB itself.
+  std::lock_guard<std::mutex> lock(mailbox_->m);
+  mailbox_->owner = nullptr;
+}
+
+int ProjectSession::opens_in_flight() { return g_in_flight.load(); }
+
+bool ProjectSession::wait_for_opens(int timeout_ms) {
+  QElapsedTimer t;
+  t.start();
+  while (g_in_flight.load() > 0) {
+    if (t.elapsed() >= timeout_ms)
+      return false;
+    QThread::msleep(20);
   }
+  return true;
 }
 
 QString ProjectSession::display_name() const {
@@ -141,11 +161,12 @@ void ProjectSession::set_state(State s) {
 void ProjectSession::open(const QString &path, bool read_only) {
   const QString abs =
       path.isEmpty() ? path : QFileInfo(path).absoluteFilePath();
-  if (worker_) {
+  if (busy_) {
     has_pending_ = true;
     pending_path_ = abs;
     pending_read_only_ = read_only;
     path_ = abs;
+    requested_read_only_ = read_only;
     set_state(State::loading);
     return;
   }
@@ -163,31 +184,27 @@ void ProjectSession::start_worker(const QString &path, bool read_only) {
   requested_read_only_ = read_only;
   error_ = {};
   set_state(State::loading);
+  busy_ = true;
   const unsigned gen = ++generation_;
-  // `this` outlives the worker: the destructor waits for it. A result
-  // posted just before destruction is discarded with the object's events.
-  worker_ = QThread::create([this, path, read_only, gen] {
+  // A detached std::thread, not a QThread: nothing has to join it, so the
+  // session (and the window) can go away while a locked open still waits.
+  ++g_in_flight;
+  std::thread([box = mailbox_, path, read_only, gen] {
     auto r = do_open(path, read_only);
     r->generation = gen;
-    QMetaObject::invokeMethod(
-        this, [this, r] { finish(r); }, Qt::QueuedConnection);
-  });
-  worker_->setObjectName("rux-project-open");
-  connect(worker_, &QThread::finished, worker_, &QObject::deleteLater);
-  connect(worker_, &QThread::finished, this, [this, w = worker_] {
-    if (worker_ == w)
-      worker_ = nullptr;
-    if (has_pending_ && !worker_) {
-      has_pending_ = false;
-      start_worker(pending_path_, pending_read_only_);
+    {
+      std::lock_guard<std::mutex> lock(box->m);
+      if (ProjectSession *owner = box->owner)
+        QMetaObject::invokeMethod(
+            owner, [owner, r] { owner->finish(r); }, Qt::QueuedConnection);
     }
-  });
-  worker_->start();
+    r.reset(); // without an owner the ProjectDB closes here, on the worker
+    --g_in_flight;
+  }).detach();
 }
 
 bool ProjectSession::open_blocking(const QString &path, bool read_only) {
-  if (worker_)
-    worker_->wait();
+  // An async open still running is superseded by the generation bump below.
   if (db_) {
     db_.reset();
     emit closed();
@@ -197,13 +214,23 @@ bool ProjectSession::open_blocking(const QString &path, bool read_only) {
   set_state(State::loading);
   auto r = do_open(path_, read_only);
   r->generation = ++generation_;
-  finish(r);
+  apply(r);
   return state_ == State::open;
 }
 
 void ProjectSession::finish(std::shared_ptr<Result> r) {
-  if (r->generation != generation_ || has_pending_)
-    return; // superseded by a newer open
+  busy_ = false;
+  if (has_pending_) { // a newer open was asked for while this one ran
+    has_pending_ = false;
+    start_worker(pending_path_, pending_read_only_);
+    return;
+  }
+  if (r->generation != generation_)
+    return; // superseded (close(), open_blocking())
+  apply(r);
+}
+
+void ProjectSession::apply(const std::shared_ptr<Result> &r) {
   load_ms_ = r->ms;
   if (r->db) {
     db_ = std::move(r->db);

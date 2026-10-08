@@ -181,6 +181,13 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   tracking on the `QHeaderView` font in code.
 - Installed binaries need Qt's platform plugins: `default.nix` keeps
   `dontWrapQtApps = true` and calls `wrapQtApp $out/bin/rux` in postFixup.
+- **Linkage**: `rux_qt_lib` goes on the `rux` executable only (main.cpp
+  injects a `GuiLauncher` into `rux::run`). Never link it into `rux_lib`: the
+  heavy test binary links `rux_lib`. Qt-free logic (palette table, launch
+  decision, recent list) lives in `rux_qt_core`, which is always built.
+- **Vetting a file**: `ProjectDB::probe(path)` (read-only, silent) says
+  whether it is a ReUseX project before a read-write open would give a
+  foreign sqlite file ReUseX's tables. Never lower the global log level.
 - **A widget taken out of a layout still paints** until its `deleteLater()`
   runs: `hide()` it first when rebuilding a panel, or the old content shows
   through the new (seen as overlapping text in the inspector).

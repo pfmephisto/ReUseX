@@ -6,17 +6,18 @@
 // The open project of the Qt client: owns the one ProjectDB and tells the
 // shell (and, from Q2, every workspace) what happened to it through signals.
 //
-// Opening runs on a worker thread — a big project's first open migrates its
-// schema, and a locked one waits out the 5 s sqlite busy timeout — while the
-// session reports State::loading. The finished ProjectDB is handed to the
-// GUI thread and used only there from then on (ProjectDB is not
-// thread-safe; handing a connection over between uses is fine for sqlite).
-// Every signal is emitted on the GUI thread.
+// Opening runs on a detached worker thread — a big project's first open
+// migrates its schema, and a locked one waits out the 5 s sqlite busy
+// timeout — while the session reports State::loading. The session never
+// joins it, so destroying the session (closing the window) never blocks. The
+// finished ProjectDB is handed to the GUI thread and used only there from then
+// on (ProjectDB is not thread-safe; handing a connection over between uses is
+// fine for sqlite). Every signal is emitted on the GUI thread.
 //
-// A file is probed read-only before the read-write open, so a foreign sqlite
-// file is reported as "not a ReUseX project" instead of being given ReUseX's
-// tables. A file or directory the user cannot write is opened read-only, and
-// the session says so.
+// A file is vetted with ProjectDB::probe (read-only, silent) before the
+// read-write open, so a foreign sqlite file is reported as "not a ReUseX
+// project" instead of being given ReUseX's tables. A file or directory the user
+// cannot write is opened read-only, and the session says so.
 
 #include <rux_qt/launch.hpp>
 
@@ -26,8 +27,6 @@
 #include <QString>
 
 #include <memory>
-
-class QThread;
 
 namespace rux::qt {
 
@@ -77,6 +76,13 @@ class ProjectSession : public QObject {
   /// The result of one open attempt, built off the GUI thread.
   struct Result;
 
+  /// Opens still running on worker threads, across all sessions (a session
+  /// destroyed mid-open leaves its worker to finish alone).
+  static int opens_in_flight();
+  /// Wait up to @p timeout_ms for them; true if none is left. run_app calls
+  /// it after the window has closed, so a quit never looks hung.
+  static bool wait_for_opens(int timeout_ms);
+
     signals:
   void state_changed(rux::qt::ProjectSession::State state);
   void opened();
@@ -86,6 +92,8 @@ class ProjectSession : public QObject {
     private:
   void start_worker(const QString &path, bool read_only);
   void finish(std::shared_ptr<Result> r);
+  void apply(const std::shared_ptr<Result> &r);
+  struct Mailbox;
   void set_state(State s);
 
   State state_ = State::empty;
@@ -98,7 +106,8 @@ class ProjectSession : public QObject {
   Error error_;
   qint64 load_ms_ = 0;
 
-  QThread *worker_ = nullptr;
+  std::shared_ptr<Mailbox> mailbox_;
+  bool busy_ = false; ///< a worker is running for this session
   unsigned generation_ = 0;
   bool has_pending_ = false;
   QString pending_path_;

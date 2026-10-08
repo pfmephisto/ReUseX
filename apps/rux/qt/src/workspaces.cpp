@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/palette_table.hpp>
 #include <rux_qt/widgets.hpp>
 #include <rux_qt/workspaces.hpp>
 
@@ -13,17 +14,27 @@
 namespace rux::qt {
 
 const QVector<WorkspaceInfo> &workspace_infos() {
+  // Names and aliases come from the Qt-free palette table, the one list the
+  // palette and its ranking tests use.
+  auto name = [](int i) {
+    return QString::fromStdString(
+        page_entries()[static_cast<std::size_t>(i)].name);
+  };
+  auto keywords = [](int i) {
+    return QString::fromStdString(
+        page_entries()[static_cast<std::size_t>(i)].keywords);
+  };
   static const QVector<WorkspaceInfo> infos = {
       {Workspace::start,
-       "Start",
-       "forside velkomst åbn seneste projekter",
+       name(0),
+       keywords(0),
        "Åbn et projekt, eller fortsæt hvor du slap.",
        {},
        {},
        {}},
       {Workspace::database,
-       "Database",
-       "tabeller billeder frames databaseviewer data",
+       name(1),
+       keywords(1),
        "Projektets tabeller, billeder og posegrafens kanter.",
        "Q2",
        {"Projekttræ med tabeller, skyer, mesh, billeder og panoramaer",
@@ -32,8 +43,8 @@ const QVector<WorkspaceInfo> &workspace_infos() {
         "Tabelvisning af hver sqlite-tabel og pipeline-loggen"},
        {"rux info", "rux get frames", "rux get clouds"}},
       {Workspace::viewer3d,
-       "3D",
-       "punktsky viewer vtk mesh scene",
+       name(2),
+       keywords(2),
        "Punktskyer, mesh og kameraer i én scene.",
        "Q3",
        {"Lag: skyer, mesh, kamerafrustummer og panoramaer",
@@ -41,24 +52,24 @@ const QVector<WorkspaceInfo> &workspace_infos() {
         "Visningsforudindstillinger og snitplan"},
        {"rux view", "rux render -o plan.png --view plan"}},
       {Workspace::posegraph,
-       "Posegraf",
-       "pose graph kanter loop closure graf",
+       name(3),
+       keywords(3),
        "Billedernes poser og kanterne mellem dem.",
        "Q3",
        {"Noder og kanter i 2D, farvet efter type eller residual",
         "Klik på en node eller kant for at vælge A/B i Database"},
        {"rux optimize", "rux register"}},
       {Workspace::pipeline,
-       "Pipeline",
-       "kør trin stage job parametre",
+       name(4),
+       keywords(4),
        "Kør trin med parametre, fremskridt og log.",
        "Q3",
        {"Parameterformular for hvert trin",
         "Kør i programmet med fremskridt og log", "Kopiér som rux-kommando"},
        {"rux create planes", "rux create rooms", "rux validate --stage mesh"}},
       {Workspace::log,
-       "Log",
-       "kørselslog pipeline log historik",
+       name(5),
+       keywords(5),
        "Hvad der er kørt på projektet, og hvornår.",
        "Q3",
        {"Pipeline-loggen med parametre og varighed",

@@ -130,7 +130,10 @@ install(TARGETS rux DESTINATION bin)
 # targets only under BUILD_QT_CLIENT.
 add_subdirectory(qt)
 target_link_libraries(rux_lib PRIVATE rux_qt_core)
+# The Qt client goes on the executable only: main.cpp hands rux::run a
+# launcher (rux_app.hpp, GuiLauncher). Linking it into rux_lib would drag Qt
+# Widgets + VTK GUISupportQt into reusex_unit_tests_vision (#268).
 if(BUILD_QT_CLIENT)
-    target_link_libraries(rux_lib PRIVATE rux_qt_lib)
-    target_compile_definitions(rux_lib PRIVATE RUX_HAVE_QT_CLIENT)
+    target_link_libraries(rux PRIVATE rux_qt_lib)
+    target_compile_definitions(rux PRIVATE RUX_HAVE_QT_CLIENT)
 endif()

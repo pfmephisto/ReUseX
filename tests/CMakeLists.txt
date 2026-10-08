@@ -115,10 +115,6 @@ endif()
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX
      "/unit/(vision|ruxd|rux_app|visualize)/|/unit/gsplat/cuda/")
-# tests/unit/rux_qt covers rux_qt_core, which exists only with the Qt client.
-if(NOT BUILD_QT_CLIENT)
-    list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX "/unit/rux_qt/")
-endif()
 
 # -----------------------------------------------
 # Create unit test executables
@@ -161,12 +157,12 @@ target_link_libraries(reusex_unit_tests
         SQLite3::SQLite3
 )
 
-# The Qt client's Qt-free half (tokens.css parsing, the gallery's command
-# line). Standard library only, so tests/unit/rux_qt costs this binary no Qt
-# start-up.
-if(BUILD_QT_CLIENT)
-    target_link_libraries(reusex_unit_tests PRIVATE rux_qt_core)
-endif()
+# The Qt client's Qt-free half: tokens.css parsing, the gallery's command
+# line, palette ranking, the recent list, what plain `rux` launches.
+# Standard library only and built even with BUILD_QT_CLIENT=OFF
+# (apps/rux/qt/CMakeLists.txt), so tests/unit/rux_qt always runs and costs
+# this binary no Qt start-up.
+target_link_libraries(reusex_unit_tests PRIVATE rux_qt_core)
 
 target_include_directories(reusex_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/reusex/include

@@ -612,9 +612,13 @@ QPushButton#chromeButton {
 QPushButton#chromeButton:hover {
   background: var(--color-chrome-raised);
 }
+/* Checked = the inspector is open: accent edge, like the rail's current item. */
 QPushButton#chromeButton:checked {
   background: var(--color-chrome-raised);
-  border: 1px solid var(--color-on-chrome-muted);
+  border: 1px solid var(--color-accent);
+}
+QPushButton#chromeButton[toggle="true"]:!checked QLabel#chromeButtonText {
+  color: var(--color-on-chrome-muted);
 }
 QPushButton#chromeButton:focus {
   border: 1px solid var(--color-accent);
@@ -672,9 +676,9 @@ QLabel#pathMono {
   background: transparent;
 }
 QLabel#kbd {
-  color: var(--color-text-faint);
-  background: transparent;
-  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   padding: 0 var(--space-1);
   font-family: var(--font-mono);

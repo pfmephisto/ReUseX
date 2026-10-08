@@ -160,4 +160,33 @@ TEST_CASE("FramePairIcp_ReportsPointCountsAndIdentityWorldDelta",
   // The stored poses already agree on the plane: the world correction is
   // (near) identity in translation along the plane normal.
   CHECK(std::abs(r.world_delta[11]) < 0.01);
+  // Nothing to correct along the normal, and no rotation.
+  CHECK(r.rotation_deg < 1.0);
+  CHECK(r.converged);
+}
+
+TEST_CASE("FramePairIcp_ShiftedFrame_ReportsTheCameraCentreShift",
+          "[slam][icp]") {
+  // The same 1 m plane, but frame 2's stored pose claims it is 5 cm further
+  // from the plane than it is (its depth still reads 1 m): ICP must pull its
+  // cloud back 5 cm along z — a pure translation of the camera centre, with
+  // the frames far from the world origin so a lever arm would show.
+  const TempPath project("frame_pair_icp_shift");
+  auto far = [](double tx, double tz) {
+    return std::array<double, 16>{1, 0, 0, 7.0 + tx, 0, 1, 0, 3.0,
+                                  0, 0, 1, tz,       0, 0, 0, 1};
+  };
+  {
+    reusex::ProjectDB db(project.path, /*readOnly=*/false);
+    db.save_sensor_frame(1, dummy_color(), flat_depth(1000), full_confidence(),
+                         far(0.0, 0.0), make_intr(), 0.0);
+    db.save_sensor_frame(2, dummy_color(), flat_depth(1000), full_confidence(),
+                         far(0.0, -0.05), make_intr(), 1.0);
+  }
+  reusex::ProjectDB db(project.path, /*readOnly=*/true);
+  const auto r = reusex::slam::refine_frame_pair_icp(db, 2, 1);
+  CHECK(r.converged);
+  CHECK(r.rotation_deg < 1.0);
+  CHECK(r.source_center_shift_m == Catch::Approx(0.05).margin(0.01));
+  CHECK(r.world_delta[11] == Catch::Approx(0.05).margin(0.01));
 }

@@ -70,6 +70,12 @@ class ProjectDB {
    *        `-shm` even to read), and nobody can be writing it through that
    *        directory. Elsewhere a read-only open is a plain one and, like any
    *        WAL reader, may create the `-shm` / `-wal` sidecars.
+   *        Trade-off: "nobody can be writing" holds for THIS user only. On a
+   *        shared drive where a colleague has write access, an immutable
+   *        connection never sees their WAL and takes no locks, so it can
+   *        read stale data or a page mid-checkpoint (SQLITE_CORRUPT). Reopen
+   *        to see their changes. A non-empty `-wal` in such a directory
+   *        (an unfinished write) cannot be read at all and fails to open.
    * @throws std::runtime_error if database cannot be opened or schema is
    * invalid
    */
@@ -667,9 +673,11 @@ class ProjectDB {
   // what the file contains, including tables no accessor covers.
   //
   // Blob cells never carry their bytes: only their size and the first few
-  // bytes (enough to sniff PNG / JPEG / PLY), so paging through
-  // `sensor_frames` costs kilobytes, not the images. Long text is truncated
-  // to `text_limit` bytes with its full size reported.
+  // bytes (enough to sniff PNG / JPEG / PLY), read by incremental blob I/O,
+  // which touches one page — so paging through `sensor_frames` costs
+  // kilobytes, not the images. (A table WITHOUT ROWID has no blob I/O; its
+  // blob heads come from substr(), which does read the whole value.) Long text
+  // is truncated to `text_limit` bytes with its full size reported.
 
   /// One user table and its row count. `sqlite_*` internals are excluded.
   struct TableInfo {
@@ -698,6 +706,10 @@ class ProjectDB {
 
   /// Every user table, sorted by name, with its row count.
   std::vector<TableInfo> list_tables() const;
+
+  /// Rows in @p table now (COUNT(*)).
+  /// @throws std::invalid_argument when @p table is not a user table.
+  std::int64_t table_row_count(std::string_view table) const;
 
   /// The columns of @p table, in declaration order.
   /// @throws std::invalid_argument when @p table is not a user table.

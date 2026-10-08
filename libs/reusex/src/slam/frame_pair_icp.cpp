@@ -149,6 +149,19 @@ FramePairIcpResult refine_frame_pair_icp(const ProjectDB &db, int from_id,
         static_cast<double>(inliers) / static_cast<double>(src->size());
   }
 
+  // The "from" camera's optical centre in the world (pose * local origin),
+  // and how far the correction moves it.
+  {
+    const auto intr = db.sensor_frame_intrinsics(from_id);
+    const Eigen::Matrix4d local =
+        Eigen::Map<const RowMajor4d>(intr.local_transform.data());
+    const Eigen::Vector4d c = t_from * local * Eigen::Vector4d(0, 0, 0, 1);
+    result.source_center_shift_m = (delta * c - c).head<3>().norm();
+    const double tr = delta(0, 0) + delta(1, 1) + delta(2, 2);
+    result.rotation_deg =
+        std::acos(std::clamp((tr - 1.0) / 2.0, -1.0, 1.0)) * 180.0 / M_PI;
+  }
+
   for (int i = 0; i < 4; ++i)
     for (int j = 0; j < 4; ++j) {
       result.relative_pose[static_cast<size_t>(i * 4 + j)] = rel(i, j);

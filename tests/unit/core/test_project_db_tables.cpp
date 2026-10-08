@@ -154,7 +154,21 @@ TEST_CASE("ProjectDB_TableRows_PagesAreContiguousAndTyped",
   CHECK(db.table_rows("zz_demo", 1, 1, 2000)[0][2].text.size() == 1000);
 
   CHECK(db.table_rows("zz_demo", 25, 10).empty());
+  CHECK(db.table_row_count("zz_demo") == 25);
+  CHECK_THROWS_AS(db.table_row_count("nope"), std::invalid_argument);
   CHECK(db.table_rows("zz_demo", 0, 0).empty());
+}
+
+TEST_CASE("ProjectDB_TableRows_BlobHeadsOfEveryRow",
+          "[core][project_db][tables]") {
+  // Incremental blob I/O reads each row's own head, not the first row's.
+  TempPath tmp("project_db_tables");
+  make_project(tmp.path);
+  ProjectDB db(tmp.path, true);
+  const auto rows = db.table_rows("zz_demo", 0, 3);
+  CHECK(rows[0][3].text.substr(0, 4) == "\x89PNG");
+  CHECK(rows[1][3].text == std::string(16, '\0')); // zeroblob(2000)
+  CHECK(rows[2][3].size == 3000);
 }
 
 TEST_CASE("ProjectDB_TableRows_WithoutRowidOrdersByPrimaryKey",

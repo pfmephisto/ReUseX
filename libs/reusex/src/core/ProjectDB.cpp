@@ -8090,11 +8090,24 @@ std::vector<ProjectDB::TableInfo> ProjectDB::list_tables() const {
 
 std::vector<ProjectDB::TableColumn>
 ProjectDB::table_columns(std::string_view table) const {
-  const auto tables = list_tables();
-  if (std::none_of(tables.begin(), tables.end(),
-                   [&](const TableInfo &t) { return t.name == table; }))
-    throw std::invalid_argument("table_columns: no table '" +
-                                std::string(table) + "'");
+  // Validate against sqlite_master (one indexed lookup, not list_tables()'s
+  // COUNT(*) of every table — this runs on every page fetch).
+  {
+    sqlite3_stmt *v = prepare_or_throw(
+        impl_->db,
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\';",
+        "table_columns");
+    StmtGuard vg(v);
+    const std::string name(table);
+    sqlite3_bind_text(v, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(v);
+    if (rc == SQLITE_DONE)
+      throw std::invalid_argument("table_columns: no table '" + name + "'");
+    if (rc != SQLITE_ROW)
+      throw std::runtime_error(std::string("table_columns: ") +
+                               sqlite3_errmsg(impl_->db));
+  }
   const std::string sql = "PRAGMA table_info(" + quote_identifier(table) + ");";
   sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_columns");
   StmtGuard g(s);
@@ -8115,6 +8128,17 @@ ProjectDB::table_columns(std::string_view table) const {
   return out;
 }
 
+std::int64_t ProjectDB::table_row_count(std::string_view table) const {
+  (void)table_columns(table); // validates the name
+  const std::string sql = "SELECT COUNT(*) FROM " + quote_identifier(table);
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_row_count");
+  StmtGuard g(s);
+  if (sqlite3_step(s) != SQLITE_ROW)
+    throw std::runtime_error(std::string("table_row_count: ") +
+                             sqlite3_errmsg(impl_->db));
+  return sqlite3_column_int64(s, 0);
+}
+
 std::vector<std::vector<ProjectDB::TableCell>>
 ProjectDB::table_rows(std::string_view table, std::int64_t offset,
                       std::int64_t limit, std::size_t text_limit) const {
@@ -8129,12 +8153,14 @@ ProjectDB::table_rows(std::string_view table, std::int64_t offset,
   // Order: rowid when the table has one, else its primary key — a stable
   // order, so consecutive pages neither skip nor repeat rows.
   std::string order;
+  bool has_rowid = false;
   {
     sqlite3_stmt *probe = nullptr;
     const std::string sql = "SELECT rowid FROM " + from + " LIMIT 0;";
     if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &probe, nullptr) ==
         SQLITE_OK) {
       order = " ORDER BY rowid";
+      has_rowid = true;
     } else {
       std::string keys;
       for (const auto &c : columns)
@@ -8146,17 +8172,23 @@ ProjectDB::table_rows(std::string_view table, std::int64_t offset,
     sqlite3_finalize(probe);
   }
 
-  // Per column: its type, a bounded value (blob head / text prefix / number)
-  // and its full size. length() of a blob does not read the blob's pages.
+  // Per column: its type, a bounded value and its full size. typeof() and
+  // length() of a blob do not read its pages (sqlite's OPFLAG_TYPEOFARG /
+  // OPFLAG_LENGTHARG), but any expression ON the blob — substr() included —
+  // loads all of it. So a blob's value is not selected at all: its 16 head
+  // bytes come from incremental blob I/O by rowid, which reads one page.
   const std::string n = std::to_string(std::max<std::size_t>(text_limit, 1));
-  std::string select;
+  std::string select = has_rowid ? "rowid" : "";
   for (const auto &c : columns) {
     const std::string q = quote_identifier(c.name);
     if (!select.empty())
       select += ", ";
+    const std::string blob_value =
+        has_rowid ? "NULL"
+                  : "substr(" + q + ", 1, 16)"; // no rowid: no blob I/O
     select += "typeof(" + q + "), CASE typeof(" + q + ") WHEN 'blob' THEN " +
-              "substr(" + q + ", 1, 16) WHEN 'text' THEN substr(" + q +
-              ", 1, " + n + ") ELSE " + q + " END, CASE typeof(" + q +
+              blob_value + " WHEN 'text' THEN substr(" + q + ", 1, " + n +
+              ") ELSE " + q + " END, CASE typeof(" + q +
               ") WHEN 'text' THEN length(CAST(" + q + " AS BLOB)) ELSE " +
               "length(" + q + ") END";
   }
@@ -8165,12 +8197,15 @@ ProjectDB::table_rows(std::string_view table, std::int64_t offset,
                           std::to_string(offset) + ";";
   sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_rows");
   StmtGuard g(s);
+  const std::string table_name(table);
+  const int first = has_rowid ? 1 : 0;
   int rc;
   while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    const sqlite3_int64 rowid = has_rowid ? sqlite3_column_int64(s, 0) : 0;
     std::vector<TableCell> row;
     row.reserve(columns.size());
     for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
-      const int base = 3 * i;
+      const int base = first + 3 * i;
       const std::string type = column_text(s, base);
       TableCell cell;
       if (type == "integer") {
@@ -8191,6 +8226,20 @@ ProjectDB::table_rows(std::string_view table, std::int64_t offset,
             static_cast<std::uint64_t>(sqlite3_column_int64(s, base + 2));
         cell.truncated =
             cell.kind == TableCell::Kind::text && cell.size > cell.text.size();
+        if (cell.kind == TableCell::Kind::blob && has_rowid && cell.size > 0) {
+          sqlite3_blob *b = nullptr;
+          if (sqlite3_blob_open(
+                  impl_->db, "main", table_name.c_str(),
+                  columns[static_cast<std::size_t>(i)].name.c_str(), rowid, 0,
+                  &b) == SQLITE_OK) {
+            char head[16];
+            const int want = static_cast<int>(
+                std::min<std::uint64_t>(sizeof head, cell.size));
+            if (sqlite3_blob_read(b, head, want, 0) == SQLITE_OK)
+              cell.text.assign(head, static_cast<std::size_t>(want));
+          }
+          sqlite3_blob_close(b); // a no-op on nullptr
+        }
       }
       row.push_back(std::move(cell));
     }

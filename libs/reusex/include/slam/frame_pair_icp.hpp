@@ -30,14 +30,23 @@ struct FramePairIcpOptions {
 };
 
 struct FramePairIcpResult {
-  /// Row-major 4x4 relative pose T_to^{-1} * T_icp_delta * T_from: maps a
-  /// point from the "from" camera frame into the "to" camera frame.
+  /// Row-major 4x4 relative pose T_to^{-1} * T_icp_delta * T_from, between
+  /// the two frames' stored POSE frames (the device/base frames the
+  /// `transform` blob describes; the camera's local_transform is not part of
+  /// it): maps a point from "from"'s pose frame into "to"'s pose frame.
   std::array<double, 16> relative_pose{1, 0, 0, 0, 0, 1, 0, 0,
                                        0, 0, 1, 0, 0, 0, 0, 1};
   /// The ICP correction applied to the "from" cloud in world space
   /// (identity when the stored poses already agree), row-major 4x4.
   std::array<double, 16> world_delta{1, 0, 0, 0, 0, 1, 0, 0,
                                      0, 0, 1, 0, 0, 0, 0, 1};
+  /// How far the correction moves the "from" camera's optical centre (m):
+  /// |delta * c - c|. This is the shift a user means; the translation part of
+  /// world_delta also folds in the rotation's lever arm about the WORLD
+  /// origin, so it grows with the distance from the origin.
+  double source_center_shift_m = 0.0;
+  /// Rotation angle of world_delta (degrees).
+  double rotation_deg = 0.0;
   double fitness = 0.0;         ///< RMS correspondence error after ICP (m)
   double inlier_fraction = 0.0; ///< share of "from" points within the gate
   bool converged = false;

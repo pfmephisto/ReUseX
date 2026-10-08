@@ -11,6 +11,7 @@
 #include <local.hpp>
 #include <server.hpp>
 
+#include <reusex/core/ProjectDB.hpp>
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
 
@@ -87,6 +88,12 @@ int run(int argc, char **argv) {
                  "machine can read it (/proc/*/cmdline); prefer its "
                  "environment variable or {}-file",
                  name, name);
+
+  // Every case file this process opens — uploaded, registered, or a
+  // pipeline stage's own connection — runs hardened (DEFENSIVE,
+  // trusted_schema=OFF, no triggers or views): a server cannot trust the
+  // files it is handed. The local `rux` CLI keeps the plain open.
+  reusex::ProjectDB::set_hardened_by_default(true);
 
   if (inv.is_admin())
     return run_admin(std::move(inv));

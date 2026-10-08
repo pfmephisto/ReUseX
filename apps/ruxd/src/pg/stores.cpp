@@ -738,6 +738,8 @@ PgCaseStore::register_path(const std::string &name, const fs::path &raw_file,
     throw HttpError(404, "no such file '" + raw_file.string() + "'");
   if (const auto why = api::reusex_project_problem(file); !why.empty())
     throw HttpError(422, "not a ReUseX project: " + why);
+  if (const auto bad = api::case_file_integrity_problem(file); !bad.empty())
+    throw HttpError(422, bad);
   std::lock_guard<std::mutex> lock(write_mutex_);
   std::set<std::string> taken;
   for (const auto &info : list())

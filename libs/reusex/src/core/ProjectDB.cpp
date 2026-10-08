@@ -26,6 +26,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -315,12 +316,46 @@ deserializeXYZ(const void *data, size_t size, uint32_t width, uint32_t height) {
   return cloud;
 }
 
+// ── Hardening ───────────────────────────────────────────────────────────
+
+namespace {
+
+std::atomic<bool> g_hardened_by_default{false};
+
+/// Applies ProjectDB::OpenOptions::hardened to a fresh connection, before any
+/// statement reads the schema. Each setting is checked: a connection that
+/// silently stayed unhardened would be worse than a failed open.
+void harden_connection(sqlite3 *db) {
+  const struct {
+    int op;
+    int value;
+    const char *name;
+  } settings[] = {
+      {SQLITE_DBCONFIG_DEFENSIVE, 1, "DEFENSIVE"},
+      {SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, "TRUSTED_SCHEMA"},
+      // ReUseX never creates a trigger or a view; one in a file is foreign.
+      {SQLITE_DBCONFIG_ENABLE_TRIGGER, 0, "ENABLE_TRIGGER"},
+      {SQLITE_DBCONFIG_ENABLE_VIEW, 0, "ENABLE_VIEW"},
+  };
+  for (const auto &setting : settings) {
+    int now = -1;
+    if (sqlite3_db_config(db, setting.op, setting.value, &now) != SQLITE_OK ||
+        now != setting.value)
+      throw std::runtime_error(std::string("Cannot harden the connection: "
+                                           "SQLITE_DBCONFIG_") +
+                               setting.name + " was not applied");
+  }
+}
+
+} // namespace
+
 // ── Impl ────────────────────────────────────────────────────────────────
 
 class ProjectDB::Impl {
     public:
   std::filesystem::path dbPath;
   bool readOnly;
+  bool hardened = false;
   sqlite3 *db = nullptr;
   /// survey_parts.passport_guid exists (schema v25). Set once at the end of
   /// configure(): a read-write open has migrated, a read-only open of an
@@ -357,8 +392,8 @@ class ProjectDB::Impl {
     }
   }
 
-  Impl(std::filesystem::path path, bool ro)
-      : dbPath(std::move(path)), readOnly(ro) {
+  Impl(std::filesystem::path path, bool ro, bool harden)
+      : dbPath(std::move(path)), readOnly(ro), hardened(harden) {
     reusex::info("Opening ReUseX database: {}", dbPath);
 
     // Open sqlite3 connection for project database
@@ -376,6 +411,8 @@ class ProjectDB::Impl {
     // close the handle itself. Leaking it would also leak its WAL read lock,
     // once per failed open — one per 503 in `ruxd --local`.
     try {
+      if (hardened)
+        harden_connection(db);
       configure();
     } catch (...) {
       sqlite3_close_v2(db);
@@ -6673,8 +6710,89 @@ class ProjectDB::Impl {
 // ── Public Interface Implementation ─────────────────────────────────────
 
 ProjectDB::ProjectDB(std::filesystem::path dbPath, bool readOnly)
-    : impl_(std::make_unique<Impl>(std::move(dbPath), readOnly)) {
+    : ProjectDB(std::move(dbPath),
+                OpenOptions{readOnly, hardened_by_default()}) {}
+
+ProjectDB::ProjectDB(std::filesystem::path dbPath, OpenOptions options)
+    : impl_(std::make_unique<Impl>(std::move(dbPath), options.read_only,
+                                   options.hardened)) {
   impl_->validateSchema();
+}
+
+void ProjectDB::set_hardened_by_default(bool on) noexcept {
+  g_hardened_by_default.store(on);
+}
+
+bool ProjectDB::hardened_by_default() noexcept {
+  return g_hardened_by_default.load();
+}
+
+ProjectDB::IntegrityReport
+ProjectDB::check_integrity(const std::filesystem::path &file) {
+  using Kind = IntegrityReport::Kind;
+  sqlite3 *db = nullptr;
+  const int rc = sqlite3_open_v2(file.string().c_str(), &db,
+                                 SQLITE_OPEN_READONLY, nullptr);
+  struct Closer {
+    sqlite3 *db;
+    ~Closer() { sqlite3_close_v2(db); }
+  } closer{db}; // after the open: sqlite3_open_v2 sets db even on failure
+  if (rc != SQLITE_OK)
+    return {Kind::unreadable, db ? sqlite3_errmsg(db) : "cannot open it"};
+  try {
+    harden_connection(db);
+  } catch (const std::exception &e) {
+    return {Kind::unreadable, e.what()};
+  }
+  sqlite3_busy_timeout(db, Impl::BUSY_TIMEOUT_MS);
+
+  // quick_check is O(N) and skips only the index-content cross-check of
+  // integrity_check; it catches the malformed b-tree pages that matter here.
+  // It answers one row "ok", or up to 100 rows naming problems.
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db, "PRAGMA quick_check;", -1, &stmt, nullptr) !=
+      SQLITE_OK)
+    return {Kind::corrupt, sqlite3_errmsg(db)};
+  std::string problems;
+  int step = SQLITE_ROW;
+  for (int rows = 0; (step = sqlite3_step(stmt)) == SQLITE_ROW && rows < 5;
+       ++rows) {
+    const auto *text =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const std::string row = text ? text : "";
+    if (row == "ok")
+      continue;
+    if (!problems.empty())
+      problems += "; ";
+    problems += row;
+  }
+  const bool step_failed = step != SQLITE_ROW && step != SQLITE_DONE;
+  const std::string step_error = step_failed ? sqlite3_errmsg(db) : "";
+  sqlite3_finalize(stmt);
+  if (step_failed)
+    return {Kind::corrupt, step_error};
+  if (!problems.empty())
+    return {Kind::corrupt, problems};
+
+  if (sqlite3_prepare_v2(db,
+                         "SELECT type, name FROM sqlite_master WHERE type IN "
+                         "('trigger', 'view') ORDER BY type, name LIMIT 5;",
+                         -1, &stmt, nullptr) != SQLITE_OK)
+    return {Kind::corrupt, sqlite3_errmsg(db)};
+  std::string found;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const auto *type =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const auto *name =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    if (!found.empty())
+      found += ", ";
+    found += std::string(type ? type : "?") + " '" + (name ? name : "") + "'";
+  }
+  sqlite3_finalize(stmt);
+  if (!found.empty())
+    return {Kind::executable_schema, found};
+  return {};
 }
 
 ProjectDB::~ProjectDB() = default;

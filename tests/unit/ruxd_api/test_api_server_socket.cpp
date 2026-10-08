@@ -1226,6 +1226,90 @@ TEST_CASE("RunningServer_CasesApi_CreateUploadRenameDelete",
   CHECK(in_trash);
 }
 
+TEST_CASE("RunningServer_Upload_CorruptOrExecutableSchema_Refused",
+          "[ruxd_api][server][socket][upload]") {
+  // Final review #2: an upload is quick_checked, and a schema with a trigger
+  // or a view is refused, before the server adopts the file.
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_upload_check");
+  TempDir src("test_api_server_upload_check_src");
+  const fs::path with_trigger = src.path / "trigger.rux";
+  const fs::path corrupt = src.path / "corrupt.rux";
+  for (const auto &file : {with_trigger, corrupt}) {
+    reusex::ProjectDB db(file);
+  }
+  // Every page past this one is a filler row written below.
+  const auto schema_bytes = fs::file_size(corrupt);
+  for (const auto &file : {with_trigger, corrupt}) {
+    reusex::ProjectDB db(file);
+    for (int i = 0; i < 200; ++i)
+      db.log_pipeline_start("filler",
+                            "{\"pad\": \"" + std::string(512, 'x') + "\"}");
+  }
+  for (const auto &file : {with_trigger, corrupt}) {
+    sqlite3 *db = nullptr;
+    REQUIRE(sqlite3_open(file.string().c_str(), &db) == SQLITE_OK);
+    const char *sql =
+        file == with_trigger
+            ? "CREATE TRIGGER evil AFTER INSERT ON pipeline_log BEGIN "
+              "DELETE FROM projects; END; PRAGMA journal_mode=DELETE;"
+            : "PRAGMA journal_mode=DELETE;";
+    REQUIRE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(db);
+  }
+  {
+    // Scribble over the filler rows' pages, keeping the header and the
+    // schema pages readable.
+    const auto size = fs::file_size(corrupt);
+    REQUIRE(size > schema_bytes + 8 * 4096);
+    std::fstream f(corrupt, std::ios::in | std::ios::out | std::ios::binary);
+    const std::string junk(4000, '\xA5');
+    for (std::uintmax_t at = schema_bytes; at + 4096 <= size; at += 4096) {
+      f.seekp(static_cast<std::streamoff>(at + 50));
+      f.write(junk.data(), static_cast<std::streamsize>(junk.size()));
+    }
+  }
+
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.upload_limits.max_bytes = 64ull << 20;
+  options.upload_limits.max_chunk_bytes = 64ull << 20;
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  const auto upload = [&](const fs::path &file) {
+    const std::string bytes = slurp(file);
+    const auto begun =
+        connection.send_json("POST", "/api/v1/uploads",
+                             R"({"name":"Mistænkelig","size":)" +
+                                 std::to_string(bytes.size()) + "}");
+    REQUIRE(begun.status == 201);
+    const std::string id = nlohmann::json::parse(begun.body)["id"];
+    REQUIRE(connection
+                .send_json("PUT", "/api/v1/uploads/" + id + "?offset=0", bytes)
+                .status == 200);
+    return connection.send_json("POST", "/api/v1/uploads/" + id + "/complete",
+                                "{}");
+  };
+
+  const auto refused_trigger = upload(with_trigger);
+  INFO(refused_trigger.body);
+  CHECK(refused_trigger.status == 422);
+  CHECK(refused_trigger.body.find("sikkerhedshensyn") != std::string::npos);
+  CHECK(refused_trigger.body.find("evil") != std::string::npos);
+
+  const auto refused_corrupt = upload(corrupt);
+  INFO(refused_corrupt.body);
+  CHECK(refused_corrupt.status == 422);
+  CAPTURE(refused_corrupt.status, refused_corrupt.body);
+  CHECK(refused_corrupt.body.find("beskadiget") != std::string::npos);
+
+  // Nothing was adopted, and no staged file is left behind.
+  const auto list = nlohmann::json::parse(connection.get("/api/v1/cases").body);
+  CHECK(list["cases"].empty());
+  for (const auto &entry : fs::recursive_directory_iterator(dir.path))
+    CHECK(entry.path().extension() != ".rux");
+}
+
 TEST_CASE("RunningServer_OversizedBody_RefusedBeforeItIsRead",
           "[ruxd_api][server][socket][upload]") {
   // M3: Crow buffers whole bodies. The patched parser (overlays/crow.nix,

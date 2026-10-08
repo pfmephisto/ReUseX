@@ -68,6 +68,44 @@ class ProjectDB {
    * invalid
    */
   explicit ProjectDB(std::filesystem::path dbPath, bool readOnly = false);
+
+  /// How a connection is opened. `hardened` is for files from a source the
+  /// process does not trust (a server's uploaded or registered cases): the
+  /// connection runs with SQLITE_DBCONFIG_DEFENSIVE, trusted_schema=OFF, and
+  /// with triggers and views disabled (a ReUseX project has neither), so
+  /// nothing stored in the file's schema executes when it is opened or read.
+  struct OpenOptions {
+    bool read_only = false;
+    bool hardened = false;
+  };
+  ProjectDB(std::filesystem::path dbPath, OpenOptions options);
+
+  /// Process-wide default for `OpenOptions::hardened`, used by the
+  /// `(path, readOnly)` constructor — and so by every open in this process
+  /// that does not pass options, pipeline stages included. A server sets it
+  /// once at startup; the local `rux` CLI leaves it off.
+  static void set_hardened_by_default(bool on) noexcept;
+  static bool hardened_by_default() noexcept;
+
+  /// Result of check_integrity().
+  struct IntegrityReport {
+    enum class Kind {
+      ok,
+      unreadable,        ///< SQLite cannot open the file at all
+      corrupt,           ///< `PRAGMA quick_check` reported a problem
+      executable_schema, ///< the schema holds a trigger or a view
+    };
+    Kind kind = Kind::ok;
+    std::string detail; ///< SQLite's own words; empty when ok
+    bool ok() const noexcept { return kind == Kind::ok; }
+  };
+
+  /// Checks a file before a server adopts it, on a hardened read-only
+  /// connection that runs no migration: `PRAGMA quick_check`, then that the
+  /// schema holds no trigger and no view. Takes time linear in the file size
+  /// (minutes for tens of GB). Never throws for a bad file.
+  static IntegrityReport check_integrity(const std::filesystem::path &file);
+
   bool is_read_only() const noexcept;
   /**
    * @brief Destructor closes database connection

@@ -247,6 +247,16 @@ std::string reusex_project_problem(const fs::path &file) {
     sqlite3_close(db);
     return "SQLite cannot open it (" + why + ")";
   }
+  // The file is untrusted: nothing in its schema may run while it is probed
+  // (ProjectDB::OpenOptions::hardened, for this raw connection).
+  for (const auto [op, value] : {std::pair{SQLITE_DBCONFIG_DEFENSIVE, 1},
+                                 std::pair{SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0},
+                                 std::pair{SQLITE_DBCONFIG_ENABLE_TRIGGER, 0},
+                                 std::pair{SQLITE_DBCONFIG_ENABLE_VIEW, 0}})
+    if (sqlite3_db_config(db, op, value, nullptr) != SQLITE_OK) {
+      sqlite3_close(db);
+      return "SQLite cannot open it safely";
+    }
   auto has_table = [db](const char *name) {
     sqlite3_stmt *stmt = nullptr;
     bool found = false;
@@ -276,6 +286,29 @@ std::string reusex_project_problem(const fs::path &file) {
   }
   sqlite3_close(db);
   return problem;
+}
+
+std::string case_file_integrity_problem(const fs::path &file) {
+  using Kind = reusex::ProjectDB::IntegrityReport::Kind;
+  const auto report = reusex::ProjectDB::check_integrity(file);
+  switch (report.kind) {
+  case Kind::ok:
+    return {};
+  case Kind::unreadable:
+    return "Filen kan ikke åbnes som en SQLite-database (" + report.detail +
+           "). Den er sandsynligvis beskadiget; prøv at uploade den igen.";
+  case Kind::corrupt:
+    return "Filen er beskadiget: SQLite's integritetstjek (quick_check) "
+           "fejlede (" +
+           report.detail +
+           "). Prøv at uploade den igen, eller kør et nyt eksport af "
+           "projektet.";
+  case Kind::executable_schema:
+    return "Filen afvises af sikkerhedshensyn: den indeholder triggere eller "
+           "views (" +
+           report.detail + "), som et ReUseX-projekt aldrig har.";
+  }
+  return "Filen kunne ikke kontrolleres.";
 }
 
 bool has_sqlite_header(const fs::path &file) {

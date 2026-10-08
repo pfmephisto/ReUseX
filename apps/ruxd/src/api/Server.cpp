@@ -1199,6 +1199,16 @@ class Server::Impl {
                   throw HttpError(
                       422, "the uploaded file is not a ReUseX project: " + why);
                 }
+                // Runs on this request's worker thread: a large file holds
+                // it for the length of one sequential read of the file.
+                if (const auto bad = case_file_integrity_problem(staged);
+                    !bad.empty()) {
+                  discard();
+                  spdlog::warn("Upload '{}' refused by the integrity check: "
+                               "{}",
+                               session.name, bad);
+                  throw HttpError(422, bad);
+                }
                 const Principal &who = principal_of(req);
                 CaseInfo info;
                 try {

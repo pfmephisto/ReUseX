@@ -253,10 +253,15 @@ bool has_sqlite_header(const std::filesystem::path &file);
 /// table. Read-only; nothing is migrated. Any other SQLite file is refused:
 /// adopting it would add ReUseX's tables to someone else's database.
 ///
-/// Not a full integrity check: `PRAGMA quick_check` reads the whole file
-/// (minutes for a multi-GB scan) and belongs with the multi-user server's
-/// untrusted-upload handling (spec phase S3).
+/// Not a full integrity check — that is case_file_integrity_problem(). The
+/// probe's own connection is hardened like ProjectDB's.
 std::string reusex_project_problem(const std::filesystem::path &file);
+
+/// Why a server must not adopt @p file, in Danish for the person who
+/// uploaded it, or "" when it may: ProjectDB::check_integrity() — `PRAGMA
+/// quick_check` plus no trigger or view in the schema. Reads the whole file
+/// (minutes for tens of GB). Run on every upload and registration.
+std::string case_file_integrity_problem(const std::filesystem::path &file);
 
 // --- wire shapes (docs/gui/openapi.yaml: Case, CaseList, Upload) -----------
 

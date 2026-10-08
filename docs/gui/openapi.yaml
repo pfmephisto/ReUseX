@@ -35,7 +35,8 @@ servers:
 security: []
 # No authentication in v1: `ruxd --local` binds to loopback and is single-user
 # (beyond loopback it requires --auth-token, presented as bearerAuth, the
-# `ruxd_token` cookie or `?token=`).
+# `ruxd_token_<port>` cookie or `?token=`, which redirects to the URL without
+# it).
 # Access control is an Origin allowlist enforced server-side (403 for a
 # non-allowlisted browser origin) plus `Content-Type: application/json` on
 # mutating routes. See docs/gui/README.md.
@@ -994,7 +995,7 @@ paths:
 
         **503 without a model registered:** the endpoint returns 503 when the
         server was started without `ruxd --local` (e.g. from a test harness) because
-        `rux_gui_lib` never links the ML backends directly.
+        `ruxd_api_lib` never links the ML backends directly.
       parameters:
         - name: id
           in: path
@@ -3792,7 +3793,7 @@ components:
         default, has no notion of a user, and there leaves the document-level
         `security: []` in force — sending a token to it is harmless and
         ignored. Started with `--bind <non-loopback> --auth-token <t>`, it
-        requires the token on every request (this scheme, the `ruxd_token`
+        requires the token on every request (this scheme, the `ruxd_token_<port>`
         cookie, or `?token=`). The multi-user server is then a change of
         *which* security requirement applies, not a change to the operations
         themselves.

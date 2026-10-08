@@ -52,13 +52,27 @@ reachable by any page or host it should not be:
 1. **Loopback bind by default.** A `--bind` beyond loopback is refused unless
    `--auth-token` is set. The token is then required on every HTTP request and
    on the WebSocket upgrade, as `Authorization: Bearer <token>`, as the
-   `ruxd_token` cookie, or as `?token=<token>` — which answers with that cookie
-   (HttpOnly, SameSite=Strict), so a browser opened at
-   `http://<host>:8420/?token=<token>` stays signed in for its `<img>`, `fetch`
-   and WebSocket traffic, none of which can carry a header.
-2. **A server-side origin allowlist.** A request carrying an `Origin` that is
-   not loopback and not named with `--allow-origin` is refused with `403`
-   before any handler runs. This is enforcement, not a CORS hint — CORS alone
+   `ruxd_token_<port>` cookie, or as `?token=<token>`. Any presented credential
+   that matches is accepted. A GET with a valid `?token=` answers `303` to the
+   same URL without the token and sets the cookie (HttpOnly, SameSite=Strict,
+   named per port so two servers on one host do not shadow each other), so a
+   browser opened at `http://<host>:8420/?token=<token>` stays signed in for
+   its `<img>`, `fetch` and WebSocket traffic — none of which can carry a
+   header — and the token leaves the address bar and history. Every response
+   carries `Referrer-Policy: no-referrer`, and the request log (spdlog, `-vv`)
+   redacts query strings.
+2. **A Host allowlist** (DNS rebinding). A page on `evil.example` that resolves
+   to 127.0.0.1 sends same-origin requests with no `Origin` header; only its
+   `Host` gives it away. On a loopback bind only `localhost`, `127.0.0.1` and
+   `[::1]` are served; on a specific address, that address or an
+   `--allow-origin` host; on a wildcard bind (`0.0.0.0`), any host, since the
+   token it requires cannot be presented by a rebinding page.
+3. **A server-side origin allowlist.** A request carrying an `Origin` that is
+   not loopback, not named with `--allow-origin` and — with a token — not the
+   request's own origin (`<scheme>://<Host>`, i.e. the page this server served
+   to a browser on another machine) is refused with `403` before any handler
+   runs. `--allow-origin` is therefore only needed for a frontend served from
+   somewhere else. This is enforcement, not a CORS hint — CORS alone
    would not help, because a `text/plain` POST is a *simple* request that the
    browser dispatches before it reads any response header. Mutating routes
    additionally require `Content-Type: application/json`, which a simple

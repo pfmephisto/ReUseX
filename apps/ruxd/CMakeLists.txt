@@ -33,7 +33,7 @@ find_package(AWSSDK REQUIRED COMPONENTS s3)
 #                 reusex_pipeline ONLY      -> the LIGHT test binary
 #                                              (tests/unit/ruxd_api/)
 #   ruxd_lib      everything else: backend clients, auth, the
-#                 legacy service routes, and the heavy pieces
+#                 service routes, the CLI (ruxd::run), and the heavy pieces
 #                 injected into the API (SAM3, renderer, ICP,
 #                 optimize). Links the `reusex` umbrella
 #                                           -> the HEAVY test binary

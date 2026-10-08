@@ -225,7 +225,8 @@ permission. The handshake is therefore the only place this can be enforced, and
 not loopback and not named with `--allow-origin` is refused at the handshake. A
 request with no `Origin` (curl, a CLI client, a test) is allowed. When the
 server runs with `--auth-token`, the upgrade must also present the token
-(`ruxd_token` cookie, `Authorization: Bearer`, or `?token=`).
+(`ruxd_token_<port>` cookie, `Authorization: Bearer`, or `?token=`). The
+upgrade's Host header must name the server too (see docs/gui/README.md).
 
 ## Reconnection
 

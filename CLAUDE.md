@@ -292,9 +292,10 @@ CMake edit assigning it to the CPU or the CUDA half.
 The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
 **Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker
-and, with `--local`, the web GUI server). `rux_lib` links the light
-`ruxd_api_lib` because `rux create clouds` builds the GUI's Morton tile index
-(`api/point_lod.hpp`).
+and, with `--local`, the web GUI server). ruxd's `main.cpp` is one statement;
+its CLI is `ruxd::run()` in `ruxd_lib` (`src/cli.cpp`). The Morton tile index
+the GUI streams clouds by is built by the clouds stage itself
+(`reusex/pipeline/tile_index.hpp`), whichever front end runs it.
 Both use CLI11 for argument parsing and spdlog as the log sink.
 
 ### Type System (types.hpp)
@@ -498,7 +499,12 @@ WebSocket contract in `docs/gui/openapi.yaml` for one project (a directory must
 hold exactly one `.rux` until multi-case routes land), with no Postgres, Redis
 or S3. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
 unless `--auth-token` is set, and the token is then required on every request
-(Bearer header, `ruxd_token` cookie, or `?token=`, which sets the cookie).
+(Bearer header, the per-port `ruxd_token_<port>` cookie, or `?token=`, which
+sets the cookie and 303-redirects to the URL without it); the page's own
+origin is then allowed for mutations. Every request's Host header must name
+the server (DNS-rebinding guard: loopback names on a loopback bind). Crow's
+request log goes through spdlog (`-vv`) with query strings redacted.
+Local-mode flags require `--local`.
 Other local-mode flags: `--allow-origin`, `--assets`, `--open-browser`,
 `--[no-]segment-cuda`, `--sam3-model`, `--models-dir`, `--sam3-manifest-url`.
 The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`

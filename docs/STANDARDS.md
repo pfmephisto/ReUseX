@@ -133,11 +133,11 @@ defining `main` cannot be linked into a Catch2 binary that supplies its own
 | Target | Contents | Test directory | Test binary |
 |---|---|---|---|
 | `rux_core_lib` | app logic that stops at `reusex_core`: `path_parser`, `filter_utils`, `stage_prerequisites`, the stdin/format handlers | `tests/unit/rux/` | light |
-| `rux_lib` | everything else under `apps/rux/src`: subcommands, `database/*_router.cpp`, the interactive viewer, `rux::run()`; links `ruxd_api_lib` for the GUI tile index `rux create clouds` builds | `tests/unit/rux_app/` | heavy |
+| `rux_lib` | everything else under `apps/rux/src`: subcommands, `database/*_router.cpp`, the interactive viewer, `rux::run()` | `tests/unit/rux_app/` | heavy |
 | `rux` | `src/main.cpp` — `return rux::run(argc, argv);` | — | — |
 | `ruxd_api_lib` | `apps/ruxd/src/api/`: the web GUI's REST + WebSocket API, served by `ruxd --local` (#265; formerly `rux gui`'s `rux_gui_lib`) — links `reusex_core` + `reusex_pipeline`, not the umbrella | `tests/unit/ruxd_api/` | light |
-| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: `EndpointRegistry`, `BearerAuthMiddleware`, the connection pool, the handlers, local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
-| `ruxd` | `src/main.cpp` | — | — |
+| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: `EndpointRegistry`, `BearerAuthMiddleware`, the connection pool, the handlers, the CLI (`ruxd::run()`, `src/cli.cpp`), local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
+| `ruxd` | `src/main.cpp` — `return ruxd::run(argc, argv);` | — | — |
 
 Rules for adding to `apps/`:
 

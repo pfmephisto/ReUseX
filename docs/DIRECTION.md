@@ -201,8 +201,13 @@ changelog — that history is the point of keeping it in the repo.
     renderer, ICP, `optimize`) are injected by ruxd.
   - **`ruxd --local <file.rux | dir>`** replaces `rux -p x.rux gui`: no
     Postgres, Redis or S3, `127.0.0.1:8420` by default, and a bind beyond
-    loopback requires `--auth-token` (Bearer, cookie or `?token=`). Routes are
-    unchanged and single-project.
+    loopback requires `--auth-token` (Bearer, a per-port cookie, or `?token=`,
+    which redirects the token out of the URL); a Host allowlist guards the
+    token-less loopback default against DNS rebinding. Routes are unchanged
+    and single-project.
+  - The Morton tile index the GUI streams clouds by is now built by the
+    clouds stage itself, so a GUI-submitted clouds job gets one too, and
+    `rux` does not link the web API.
   - ruxd's legacy single-project routes (`/materials`, `/material-columns`,
     `/export-templates`, `/exports/csv`, `/reports/…`) shared one `ProjectDB`
     across threads; they are deleted in favour of the moved API, which covers

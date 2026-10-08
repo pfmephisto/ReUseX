@@ -63,7 +63,8 @@ to one side deliberately — adding a `src/gsplat/*.cpp` needs a CMake edit.
 
 `pipeline` (#265) is the other Layer-4 module. It holds the database-level
 stage runners (`run_stage(ProjectDB&, StageContext)`) and the in-process
-`JobRunner` that both `rux gui` and, later, ruxd drive. **It is the one module
+`JobRunner` that ruxd's web API drives (`ruxd --local` today, the multi-case
+server next). **It is the one module
 permitted to link several Layer-3 peers at once** — running a stage end to end
 inherently spans `core` (the ProjectDB read/write) plus whichever peers
 implement that stage, which is exactly the combination a peer is forbidden to
@@ -132,16 +133,19 @@ defining `main` cannot be linked into a Catch2 binary that supplies its own
 | Target | Contents | Test directory | Test binary |
 |---|---|---|---|
 | `rux_core_lib` | app logic that stops at `reusex_core`: `path_parser`, `filter_utils`, `stage_prerequisites`, the stdin/format handlers | `tests/unit/rux/` | light |
-| `rux_gui_lib` | the `rux gui` server (#265) — links `reusex_pipeline`, not the umbrella | `tests/unit/rux_gui/` | light |
 | `rux_lib` | everything else under `apps/rux/src`: subcommands, `database/*_router.cpp`, the interactive viewer, `rux::run()` | `tests/unit/rux_app/` | heavy |
 | `rux` | `src/main.cpp` — `return rux::run(argc, argv);` | — | — |
-| `ruxd_lib` | everything under `apps/ruxd/src` except `main.cpp`: `EndpointRegistry`, `BearerAuthMiddleware`, the connection pool, the handlers | `tests/unit/ruxd/` | heavy |
-| `ruxd` | `src/main.cpp` | — | — |
+| `ruxd_api_lib` | `apps/ruxd/src/api/`: the web GUI's REST + WebSocket API, served by `ruxd --local` (#265; formerly `rux gui`'s `rux_gui_lib`) — links `reusex_core` + `reusex_pipeline`, not the umbrella | `tests/unit/ruxd_api/` | light |
+| `ruxd_cli_lib` | `apps/ruxd/src/cli/`: ruxd's option set and post-parse defaults (`configure_cli`, `finish_invocation`) — links `ruxd_api_lib` + CLI11 | `tests/unit/ruxd_cli/` | light |
+| `ruxd_pg_lib` | `apps/ruxd/src/pg/`: server mode's Postgres stores (users, sessions, tokens, cases, membership, jobs, audit), the schema migrations (`apps/ruxd/migrations/`, embedded at build time) and `ruxd admin` — links `ruxd_api_lib` + libpqxx | `tests/unit/ruxd_pg/` (`[postgres]` tests skip without `initdb`) | light |
+| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: the backend clients and connection pool, `ruxd::run()` (`src/run.cpp`), server mode (`src/server.cpp`), local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
+| `ruxd` | `src/main.cpp` — `return ruxd::run(argc, argv);` | — | — |
 
 Rules for adding to `apps/`:
 
-- **New source files need no CMake edit.** `rux_lib`, `rux_gui_lib` and
-  `ruxd_lib` are `GLOB_RECURSE ... CONFIGURE_DEPENDS`; only `rux_core_lib` is
+- **New source files need no CMake edit.** `rux_lib`, `ruxd_api_lib` and
+  `ruxd_lib` are `GLOB_RECURSE ... CONFIGURE_DEPENDS` (a file goes under
+  `apps/ruxd/src/api/` only if it links no further than core + pipeline); only `rux_core_lib` is
   an explicit list, and only because membership there is a *claim* — that the
   file links no further than `reusex_core`, and therefore that its tests can
   stay in the fast binary. When in doubt, leave the file in `rux_lib`.
@@ -149,7 +153,7 @@ Rules for adding to `apps/`:
   one statement each and stay that way; CLI wiring belongs in `rux::run()`
   (`apps/rux/src/rux.cpp`), inside the library.
 - **Splitting an app library further is a dependency decision, not a
-  responsibility one.** `rux_core_lib` and `rux_gui_lib` exist because they
+  responsibility one.** `rux_core_lib` and `ruxd_api_lib` exist because they
   keep the ML/viewer closure out of the light test binary (§7), which is the
   only thing that makes their tests cheap. Do not split for tidiness.
 
@@ -311,7 +315,7 @@ writes labels MUST follow it; any deviation is a bug.
   the app code is reachable because each app is a static library plus a
   one-line `main.cpp` (§1.1). Which directory a test goes in follows the same
   light/heavy rule as everything else: `tests/unit/rux/` for anything covered
-  by `rux_core_lib`, `tests/unit/rux_gui/` for the GUI server,
+  by `rux_core_lib`, `tests/unit/ruxd_api/` for the web API (`ruxd_api_lib`),
   `tests/unit/rux_app/` only when the test needs a subcommand, a
   `database/*_router.cpp` or the viewer. Adding a file to any of these needs
   no CMake change — `tests/unit/**/*.cpp` is globbed and the libraries are

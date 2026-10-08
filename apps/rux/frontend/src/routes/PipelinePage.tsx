@@ -15,6 +15,7 @@ import { Spinner } from '../components/Spinner';
 import { StageCard } from '../components/StageCard';
 import { buildStageCards } from '../pipeline/stageModel';
 import styles from './PipelinePage.module.css';
+import { useCanEdit } from '../app/CaseRoleContext';
 
 /**
  * The pipeline runner (#305, split from the log in #449).
@@ -27,6 +28,7 @@ import styles from './PipelinePage.module.css';
  * derived from the running jobs — see `PipelineLogPage` for why.
  */
 export function PipelinePage() {
+  const canEdit = useCanEdit();
   const { jobs } = useJobs();
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
 
@@ -112,6 +114,7 @@ export function PipelinePage() {
                 submitError={submitErrors[card.stage] || undefined}
                 onRun={run}
                 onCancel={cancel}
+                readOnly={!canEdit}
               />
             ))}
           </div>

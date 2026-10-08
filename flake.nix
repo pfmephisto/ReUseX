@@ -230,9 +230,15 @@
               config = {
                 Entrypoint = ["${package}/bin/ruxd"];
                 ExposedPorts = {"8080/tcp" = {};};
+                # Server mode: cases live on the /data volume; give it
+                # DATABASE_URL (or DATABASE_URL_FILE) at `docker run`. ruxd
+                # binds loopback by default, which a container cannot reach.
+                Volumes = {"/data" = {};};
                 Env =
                   [
                     "RUXD_PORT=8080"
+                    "RUXD_BIND=0.0.0.0"
+                    "RUXD_DATA_DIR=/data"
                     "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
                   ]
                   ++ extraEnv;

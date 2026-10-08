@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import { ApiRequestError, describeFailure } from '../../api/client';
 import type { Template } from '../../api/types';
 import { SKABELONER_PATH } from '../../app/links';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import {
   csvCountLine,
   csvDownloadErrorMessage,
@@ -70,6 +71,9 @@ export function DataExportPanel({
   const opts = readCsvOptions(t?.csv);
   const [downloading, setDownloading] = useState(false);
   const dl = downloadState(t, writing);
+  // The CSV options are saved on the template: a viewer downloads with them
+  // but cannot change them.
+  const canEdit = useCanEdit();
 
   const download = async () => {
     if (!t) return;
@@ -116,21 +120,21 @@ export function DataExportPanel({
               label="Skilletegn"
               value={opts.delimiter}
               options={DELIMITER_OPTIONS}
-              disabled={!t}
+              disabled={!t || !canEdit}
               onChange={(v) => onCsvChange({ delimiter: v })}
             />
             <Choice
               label="Tegnsæt"
               value={opts.encoding}
               options={ENCODING_OPTIONS}
-              disabled={!t}
+              disabled={!t || !canEdit}
               onChange={(v) => onCsvChange({ encoding: v })}
             />
             <Choice
               label="Kolonneoverskrift"
               value={opts.header}
               options={HEADER_OPTIONS}
-              disabled={!t}
+              disabled={!t || !canEdit}
               onChange={(v) => onCsvChange({ header: v })}
             />
           </div>

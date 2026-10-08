@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Depth-cloud ICP between two stored sensor frames (#465). Moved here from
-// apps/rux/src/gui_icp.cpp so the web GUI's callback and the Qt client's pair
-// strip share one implementation.
+// the web GUI's ICP callback (now apps/ruxd/src/icp.cpp) so that callback and
+// the Qt client's pair strip share one implementation.
 
 #include "slam/frame_pair_icp.hpp"
 

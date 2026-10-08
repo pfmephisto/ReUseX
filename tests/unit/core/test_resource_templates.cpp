@@ -124,17 +124,13 @@ TEST_CASE("ResourceTemplates_CsvOptions_DefaultsExtrasAndValidation",
   CHECK(read_csv_options("garbage", "T").delimiter == ";");
 }
 
-TEST_CASE("ResourceTemplates_LegacyColumns_RoundTrip",
+TEST_CASE("ResourceTemplates_LegacyColumnMember_MapsToKeys",
           "[resources][templates]") {
   const auto catalogue = key_catalogue({column("c1", "Bredde")});
   CHECK(legacy_column_member("Bredde", catalogue) == key("col:c1"));
   CHECK(legacy_column_member("Note", catalogue) == key("sys:note"));
   CHECK(legacy_column_member("width_mm", catalogue).ref.rfind("lex:", 0) == 0);
   CHECK(legacy_column_member("kind", catalogue) == key("legacy:kind"));
-  CHECK(legacy_columns({key("legacy:kind"), key("col:c1"), key("sys:note"),
-                        cat("Owner"), key("col:gone")},
-                       catalogue) ==
-        std::vector<std::string>{"kind", "Bredde"});
 }
 
 TEST_CASE("ResourceTemplates_UniqueName_NumbersUntilFree",

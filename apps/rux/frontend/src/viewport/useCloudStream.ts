@@ -228,7 +228,7 @@ export function createPageFetcher(options: PageFetcherOptions = {}): FetchPage {
  * fetch would be affordable. Sequential stays for two reasons that outlast that
  * change: what the user actually wants is the *first* page fast, and sequential
  * already gives it — the cloud builds up in front of them instead of appearing
- * all at once at the end — and `rux gui` opens a fresh `ProjectDB` per request,
+ * all at once at the end — and `ruxd --local` opens a fresh `ProjectDB` per request,
  * so concurrent readers only widen the window in which a running job's writer
  * turns one of them into a `SQLITE_BUSY`.
  */

@@ -44,7 +44,8 @@ EXAMPLES:
 
 OUTPUT:
   The trained splat is stored IN THE PROJECT (schema v12) under --name,
-  defaulting to 'splat', and is what `rux gui` renders as its splat layer.
+  defaulting to 'splat', and is what the web GUI (`ruxd --local`) renders as
+  its splat layer.
   -o/--out additionally writes the same bytes to a .ply for viewers outside
   ReUseX; it is an export, not the output, and is optional.
 
@@ -402,8 +403,9 @@ int run_subcommand_create_gsplat(SubcommandCreateGsplatOptions const &opt,
     if (opt.mcmc)
       spdlog::info("MCMC: relocated {}, added {} Gaussians", r.relocated,
                    r.added);
-    spdlog::info("Stored in the project as '{}' — view it with `rux gui`",
-                 opt.splat_name);
+    spdlog::info(
+        "Stored in the project as '{}' — view it with `ruxd --local <project>`",
+        opt.splat_name);
     if (!opt.out_ply.empty())
       spdlog::info("Wrote {}", opt.out_ply);
     for (const auto &p : r.renders)

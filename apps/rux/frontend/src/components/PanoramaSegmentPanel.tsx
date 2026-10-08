@@ -20,6 +20,7 @@ import { useSam3 } from '../app/useSam3';
 import { SegmentCancelled } from '../data/sam3Provisioning';
 import { Sam3StatusChip } from './Sam3StatusChip';
 import styles from './PanoramaSegmentPanel.module.css';
+import { useCanEdit } from '../app/CaseRoleContext';
 
 // Module-level counter avoids key collisions across add/remove cycles.
 let _nextId = 0;
@@ -40,6 +41,7 @@ export function PanoramaSegmentPanel({
   panoramaId,
   onSegmented,
 }: PanoramaSegmentPanelProps) {
+  const canEdit = useCanEdit();
   const sam3 = useSam3();
   const [prompts, setPrompts] = useState<UIPrompt[]>([]);
   const [confidence, setConfidence] = useState(0.5);
@@ -189,6 +191,7 @@ export function PanoramaSegmentPanel({
       )}
 
       {/* ---- run button ---- */}
+      {canEdit && (
       <button
         type="button"
         className={styles.runBtn}
@@ -202,6 +205,7 @@ export function PanoramaSegmentPanel({
             : 'Segmenterer…'
           : 'Kør segmentering'}
       </button>
+      )}
 
       {/* ---- result ---- */}
       {result && !running && (

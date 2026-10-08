@@ -20,7 +20,7 @@
  * decode as silent garbage — no throw, no clue, just a scrambled cloud.
  *
  * That is the format's deliberate non-goal, not an oversight here
- * (`docs/gui/binary-points.md` § Endianness): every platform `rux gui` and its
+ * (`docs/gui/binary-points.md` § Endianness): every platform `ruxd --local` and its
  * browser client run on is little-endian. If a big-endian client ever matters,
  * the fix is a `flags` bit advertising byte order plus a byte-swapping slow
  * path — and this parser already refuses any page with an unknown flag set, so

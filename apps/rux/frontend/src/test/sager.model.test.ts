@@ -4,7 +4,22 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { cardDate, cardSubline, caseStats, caseStatus, OPEN_ANOTHER_COMMAND } from '../sager/model';
+import { ApiRequestError } from '../api/client';
+import type { CaseSummary } from '../api/types';
+import {
+  cardFigures,
+  caseThumbUrl,
+  cardDate,
+  cardFileLine,
+  cardSubline,
+  cardTitle,
+  caseStats,
+  caseStatus,
+  caseWriteErrorText,
+  SERVE_DIRECTORY_COMMAND,
+  sortCases,
+  uploadPercent,
+} from '../sager/model';
 import * as sager from '../sager/model';
 import { surveyFractions, surveySummary } from './surveyFixtures';
 
@@ -80,12 +95,102 @@ describe('card text', () => {
 });
 
 describe('commands (R1)', () => {
-  it('says how to open another case', () => {
-    expect(OPEN_ANOTHER_COMMAND).toBe('rux -p <fil>.rux gui');
+  it('says how to serve more than one case', () => {
+    expect(SERVE_DIRECTORY_COMMAND).toBe('ruxd --local <mappe>');
+    expect('OPEN_ANOTHER_COMMAND' in sager).toBe(false);
   });
 
   it('sager no longer exports the phone command (On-site moved to the mobile app)', () => {
     expect('phoneCommand' in sager).toBe(false);
     expect('NO_AUTH_WARNING' in sager).toBe(false);
+  });
+});
+
+function summary(over: Partial<CaseSummary> = {}): CaseSummary {
+  return {
+    id: 'kontor',
+    name: 'Kontor',
+    file_name: 'kontor.rux',
+    created_at: '2026-10-08T10:00:00Z',
+    archived: false,
+    size_bytes: 1_234_567,
+    deletable: true,
+    open: false,
+    ...over,
+  };
+}
+
+describe('case list cards (S2)', () => {
+  it('titles a card by the building record, else the case name', () => {
+    expect(cardTitle(summary(), { id: 'p', name: '  Rådhuset ' })).toBe('Rådhuset');
+    expect(cardTitle(summary(), { id: 'p', name: ' ' })).toBe('Kontor');
+    expect(cardTitle(summary(), undefined)).toBe('Kontor');
+  });
+
+  it('names the file and its size, never a path', () => {
+    expect(cardFileLine(summary())).toBe('kontor.rux · 1,2 MB');
+    // A created or uploaded case's file is always project.rux: name it instead.
+    expect(cardFileLine(summary({ file_name: 'project.rux', name: 'Korridor (upload)' }))).toBe(
+      'Korridor (upload) · 1,2 MB',
+    );
+  });
+
+  it('lists active cases first, each group by Danish name order', () => {
+    const sorted = sortCases([
+      summary({ id: 'z', name: 'Ærø', archived: false }),
+      summary({ id: 'a', name: 'Arkiv', archived: true }),
+      summary({ id: 'b', name: 'Bygning', archived: false }),
+    ]);
+    expect(sorted.map((c) => c.id)).toEqual(['b', 'z', 'a']);
+  });
+
+  it('shows upload progress as a whole percent', () => {
+    expect(uploadPercent(0, 0)).toBe('0 %');
+    expect(uploadPercent(1, 3)).toBe('33 %');
+    expect(uploadPercent(5, 5)).toBe('100 %');
+  });
+
+  it('explains a failed create or upload in Danish', () => {
+    const err = (status: number) => new ApiRequestError(status, 'x', '/api/v1/uploads');
+    expect(caseWriteErrorText(err(413), 'upload')).toMatch(/større/);
+    expect(caseWriteErrorText(err(422), 'upload')).toMatch(/ikke et ReUseX-projekt/);
+    expect(caseWriteErrorText(err(429), 'upload')).toMatch(/for mange uploads/);
+    expect(caseWriteErrorText(err(409), 'create')).toMatch(/kan ikke oprette/);
+    expect(caseWriteErrorText(err(409), 'upload')).toMatch(/kan ikke modtage/);
+    // A 409 on a chunk or on completing is the upload falling out of step,
+    // not the server lacking a data dir.
+    expect(
+      caseWriteErrorText(new ApiRequestError(409, 'x', '/api/v1/uploads/ab12?offset=0'), 'upload'),
+    ).toMatch(/ud af trit/);
+    expect(caseWriteErrorText(new ApiRequestError(409, 'x', '/api/v1/uploads/ab12/complete'), 'upload')).toMatch(
+      /ud af trit/,
+    );
+    expect(caseWriteErrorText(err(507), 'upload')).toMatch(/plads/);
+    expect(caseWriteErrorText(new Error('net'), 'upload')).toMatch(/Upload mislykkedes/);
+    expect(caseWriteErrorText(new DOMException('a', 'AbortError'), 'upload')).toBe('Upload afbrudt.');
+  });
+});
+
+describe('cards from the list alone (S2 fix round)', () => {
+  it('reads a card from the summary the list carries', () => {
+    const survey = surveySummary({ counts: { queue: 2, approved: 1, rejected: 0, all: 3 } });
+    const f = cardFigures(
+      summary({ summary: { project: { id: 'p', name: 'Rådhuset' }, survey, fractions: surveyFractions() } }),
+    );
+    expect(f.record?.name).toBe('Rådhuset');
+    expect(f.survey).toBe(survey);
+    expect(f.status.label).toBe('Gennemgang');
+    expect(f.unreadable).toBe(false);
+  });
+
+  it('says so when the project is unreadable, or older and not yet opened', () => {
+    expect(cardFigures(summary({ summary: null }))).toMatchObject({ unreadable: true, status: { tone: 'crit' } });
+    expect(
+      cardFigures(summary({ summary: { project: null, survey: null, fractions: null } })).status.label,
+    ).toBe('Åbn for status');
+  });
+
+  it('asks the server for a cached plan thumbnail', () => {
+    expect(caseThumbUrl('kontor')).toBe('/api/v1/cases/kontor/renders?view=plan&width=640&height=248');
   });
 });

@@ -1,0 +1,131 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.root {
+  position: relative;
+  flex: none;
+}
+
+/* Chrome-toned like the title bar's Menu button. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border: 1px solid var(--color-chrome-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-on-chrome);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.button:hover,
+.button[aria-expanded='true'] {
+  background: var(--color-chrome-raised);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-on-chrome);
+  outline-offset: 2px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-caps);
+}
+
+.name {
+  max-width: calc(var(--space-7) * 3);
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caret {
+  color: var(--color-on-chrome-muted);
+  font-size: var(--font-size-xs);
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: calc(var(--space-7) * 8);
+  max-width: calc(100vw - var(--space-5));
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-overlay);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  z-index: var(--z-panel);
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.whoName {
+  font-weight: var(--font-weight-bold);
+}
+
+.whoEmail {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+}
+
+.badge {
+  align-self: flex-start;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--tone-accent-bg);
+  color: var(--tone-accent-ink);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.logout {
+  composes: btnGhost from './controls.module.css';
+  width: 100%;
+}
+
+/* Phone: initials only, a 44px tap target. */
+@media (max-width: 56.25rem) {
+  .button {
+    min-width: var(--layout-titlebar-height);
+    min-height: var(--layout-titlebar-height);
+    padding: var(--space-1);
+    border-color: transparent;
+    justify-content: center;
+  }
+
+  .name,
+  .caret {
+    display: none;
+  }
+}

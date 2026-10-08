@@ -80,13 +80,6 @@ nlohmann::json csv_options_json(const CsvOptions &options);
 inline constexpr std::string_view kLegacyKeyPrefix = "legacy:";
 TemplateMember legacy_column_member(std::string_view column,
                                     const std::vector<ResourceKey> &catalogue);
-/// The reverse, for the /export-templates view: legacy members give back
-/// their name, user-column members their current label; other members are
-/// left out.
-std::vector<std::string>
-legacy_columns(const std::vector<TemplateMember> &members,
-               const std::vector<ResourceKey> &catalogue);
-
 /// First of "<base> (<tag>)", "<base> (<tag> 2)", "<base> (<tag> 3)", …
 /// that is not in @p taken.
 std::string unique_name(std::string_view base, std::string_view tag,

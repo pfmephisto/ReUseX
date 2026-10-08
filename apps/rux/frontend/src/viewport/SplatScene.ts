@@ -46,7 +46,7 @@ import type { PointCloudScene } from './PointCloudScene';
  * ## SharedArrayBuffer
  *
  * `sharedMemoryForWorkers` is forced off. The library defaults it on and has no
- * fallback for a document that is not cross-origin-isolated; `rux gui` sends no
+ * fallback for a document that is not cross-origin-isolated; `ruxd --local` sends no
  * COOP/COEP headers (and should not — they would break the rest of the page for
  * one layer), so leaving the default would throw inside the sort worker.
  *

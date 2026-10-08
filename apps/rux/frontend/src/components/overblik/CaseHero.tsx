@@ -4,6 +4,8 @@
 
 import type { Ref } from 'react';
 
+import { useCanEdit } from '../../app/CaseRoleContext';
+
 import styles from './CaseHero.module.css';
 
 export interface CaseHeroProps {
@@ -18,6 +20,7 @@ export interface CaseHeroProps {
 
 /** The case's navy hero (prototype `.hero`): name, metadata line, edit toggle. */
 export function CaseHero({ name, subline, editing, onToggle, toggleRef }: CaseHeroProps) {
+  const canEdit = useCanEdit(); // a viewer cannot edit the case's record
   return (
     <section className={styles.hero} aria-labelledby="case-name">
       <h2 id="case-name" className={styles.name}>
@@ -26,16 +29,18 @@ export function CaseHero({ name, subline, editing, onToggle, toggleRef }: CaseHe
       <p className={subline ? styles.sub : `${styles.sub} ${styles.empty}`}>
         {subline || 'Ingen sagsoplysninger endnu — adresse, byggeår og registrering tilføjes her.'}
       </p>
-      <button
-        ref={toggleRef}
-        type="button"
-        className={styles.edit}
-        aria-expanded={editing}
-        aria-controls={editing ? 'case-meta-form' : undefined}
-        onClick={onToggle}
-      >
-        {editing ? 'Luk redigering' : 'Rediger sagsoplysninger'}
-      </button>
+      {canEdit && (
+        <button
+          ref={toggleRef}
+          type="button"
+          className={styles.edit}
+          aria-expanded={editing}
+          aria-controls={editing ? 'case-meta-form' : undefined}
+          onClick={onToggle}
+        >
+          {editing ? 'Luk redigering' : 'Rediger sagsoplysninger'}
+        </button>
+      )}
     </section>
   );
 }

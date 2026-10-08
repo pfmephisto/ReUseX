@@ -19,6 +19,7 @@ import { editorKeyAction } from './editorKeys';
 import type { TargetKind } from './keyTargets';
 import {
   INDBERETNING_PATH,
+  INDSTILLINGER_PATH,
   KORTLAEGNING_PATH,
   MILJOE_PATH,
   OVERBLIK_PATH,
@@ -44,6 +45,11 @@ export interface NavEntry {
   badge?: NavBadge;
 }
 
+/**
+ * The case list. Absolute and outside every case's router: link to it with a
+ * plain `<a href>` (a page load), never a router link, which would resolve it
+ * inside the case (`/sager/<cid>/sager`). Same as `CASES_PATH` in `cases.ts`.
+ */
 export const ALL_CASES_PATH = '/sager';
 
 /**
@@ -82,6 +88,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
   { to: RAPPORT_PATH, label: 'Rapport', group: 'sag' },
   { to: INDBERETNING_PATH, label: 'Indberetning', group: 'sag' },
   { to: SKABELONER_PATH, label: 'Skabeloner', group: 'sag' },
+  { to: INDSTILLINGER_PATH, label: 'Indstillinger', group: 'sag' },
 
   { to: '/graph-view', label: 'Posegraf', group: 'tools' },
   { to: '/pipeline', label: 'Pipeline', group: 'tools', end: true },

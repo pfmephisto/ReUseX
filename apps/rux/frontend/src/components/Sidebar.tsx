@@ -166,9 +166,8 @@ export function Sidebar({
         </div>
       </div>
       <div className={styles.back}>
-        <NavLink to={ALL_CASES_PATH} className={({ isActive }) => (isActive ? styles.backActive : undefined)}>
-          ← Alle sager
-        </NavLink>
+        {/* A page load, not a router link: the list lives outside this case. */}
+        <a href={ALL_CASES_PATH}>← Alle sager</a>
       </div>
     </aside>
   );

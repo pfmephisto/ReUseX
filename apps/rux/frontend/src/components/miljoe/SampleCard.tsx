@@ -6,6 +6,7 @@ import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { Sample, SampleResult, SurveyType } from '../../api/types';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import { kindOf } from '../../app/keyTargets';
 import { surveyTypeHref } from '../../app/links';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
@@ -178,6 +179,8 @@ export function SampleCard(props: SampleCardProps) {
   const { sample, types, linkedIds, busy, focused, editing, onEditing, onAdvance, onResult, onUndoResult, cardRef } =
     props;
   const editButton = useRef<HTMLButtonElement>(null);
+  // A viewer reads the card; every control on it writes.
+  const canEdit = useCanEdit();
   const pill = statusPill(sample);
   const action = cardAction(sample);
   const next = nextStage(sample.stage);
@@ -203,17 +206,19 @@ export function SampleCard(props: SampleCardProps) {
         <Pill tone={pill.tone}>{pill.label}</Pill>
         <p className={styles.linked}>
           <LinkedLine types={linkedTypes(linkedIds, types)} />
-          <button
-            ref={editButton}
-            type="button"
-            className={styles.textBtn}
-            aria-expanded={editing}
-            aria-controls={editing ? editorId : undefined}
-            aria-describedby={headingId}
-            onClick={() => onEditing(!editing)}
-          >
-            {editing ? 'Luk redigering' : 'Rediger'}
-          </button>
+          {canEdit && (
+            <button
+              ref={editButton}
+              type="button"
+              className={styles.textBtn}
+              aria-expanded={editing}
+              aria-controls={editing ? editorId : undefined}
+              aria-describedby={headingId}
+              onClick={() => onEditing(!editing)}
+            >
+              {editing ? 'Luk redigering' : 'Rediger'}
+            </button>
+          )}
         </p>
       </header>
 
@@ -221,7 +226,7 @@ export function SampleCard(props: SampleCardProps) {
 
       <StageChain sample={sample} />
 
-      {action === 'advance' && (
+      {canEdit && action === 'advance' && (
         <div className={styles.actions}>
           <button
             type="button"
@@ -235,7 +240,7 @@ export function SampleCard(props: SampleCardProps) {
           </button>
         </div>
       )}
-      {action === 'answer' && (
+      {canEdit && action === 'answer' && (
         <div className={styles.actions}>
           <button type="button" className={styles.btnPrimary} disabled={busy} onClick={() => onResult('ren')}>
             Registrér svar: Ren
@@ -248,19 +253,21 @@ export function SampleCard(props: SampleCardProps) {
       {action === 'answered' && (
         <p className={styles.note}>
           {answeredNote({ type_ids: linkedIds })}{' '}
-          <button
-            type="button"
-            className={styles.textBtn}
-            disabled={busy}
-            onClick={onUndoResult}
-            aria-describedby={headingId}
-          >
-            Fortryd svar
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className={styles.textBtn}
+              disabled={busy}
+              onClick={onUndoResult}
+              aria-describedby={headingId}
+            >
+              Fortryd svar
+            </button>
+          )}
         </p>
       )}
 
-      {editing && <SampleEditor {...props} id={editorId} onClose={closeEditor} />}
+      {canEdit && editing && <SampleEditor {...props} id={editorId} onClose={closeEditor} />}
     </article>
   );
 }

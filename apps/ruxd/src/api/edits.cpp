@@ -1,0 +1,257 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "api/edits.hpp"
+
+#include "api/api.hpp"
+
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/report_generator.hpp>
+
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <charconv>
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace ruxd::api {
+namespace {
+
+using json = nlohmann::json;
+
+/// Cloud whose label names are a record, not a caption.
+///
+/// `create instances` writes names of the form `SM<class>-<id> (<n>p)`, and
+/// both the v10 schema migration and io/export_scene.cpp parse the semantic
+/// class back out of that string. Letting a user type over it would destroy
+/// data while looking like a cosmetic edit, so the whole cloud is off limits
+/// rather than the format being defended field by field.
+constexpr std::string_view kUnrenamableCloud = "instances";
+
+/// Parse a request body and pull out the required sub-object.
+///
+/// @throws HttpError(400) if the body is not an object or @p key is missing or
+///         is not an object itself.
+json required_object(const std::string &body, std::string_view key) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  auto it = parsed.find(key);
+  if (it == parsed.end() || !it->is_object())
+    throw HttpError(400, std::string("'").append(key) +
+                             "' is required and must be a JSON object");
+  return *it;
+}
+
+/// Parse a JSON object key as a positive label id.
+int label_id_of(const std::string &key) {
+  int id = 0;
+  const char *first = key.data();
+  const char *last = first + key.size();
+  auto [ptr, ec] = std::from_chars(first, last, id);
+  if (ec != std::errc{} || ptr != last)
+    throw HttpError(400, "label id '" + key + "' is not an integer");
+  if (id <= 0)
+    throw HttpError(400, "label id " + key +
+                             " is not a class: 0 is unlabeled and ids are "
+                             "positive");
+  return id;
+}
+
+} // namespace
+
+json patch_cloud_labels(reusex::ProjectDB &db, const std::string &name,
+                        const std::string &body) {
+  if (!db.has_point_cloud(name))
+    throw HttpError(404, "no such cloud '" + name + "'");
+
+  if (name == kUnrenamableCloud)
+    throw HttpError(
+        409, "label names of the '" + name +
+                 "' cloud encode the semantic class and instance id and are "
+                 "parsed back by the pipeline; they cannot be renamed here");
+
+  const json patch = required_object(body, "labels");
+
+  auto legend = db.label_definitions(name);
+  if (legend.empty())
+    throw HttpError(404, "cloud '" + name + "' has no label definitions");
+
+  // Validate the whole patch before applying any of it. Storage replaces the
+  // cloud's map wholesale, so a half-applied patch is not a partial success —
+  // it is a rewrite of the map with some edits in and some out.
+  std::map<int, std::string> updated = legend;
+  for (const auto &[key, value] : patch.items()) {
+    const int id = label_id_of(key);
+
+    if (!value.is_string())
+      throw HttpError(400, "label " + key + " must be renamed to a string");
+    const auto label = value.get<std::string>();
+    if (label.empty())
+      throw HttpError(400, "label " + key +
+                               " cannot be renamed to an empty "
+                               "name");
+
+    if (legend.find(id) == legend.end())
+      throw HttpError(400, "label " + key + " is not defined for cloud '" +
+                               name +
+                               "'; this renames existing classes rather than "
+                               "creating new ones");
+
+    updated[id] = label;
+  }
+
+  if (updated != legend)
+    db.save_label_definitions(name, updated);
+
+  return cloud_labels_json(db, name);
+}
+
+json patch_material(reusex::ProjectDB &db, const std::string &guid,
+                    const std::string &body) {
+  const auto guids = db.list_passport_guids();
+  if (std::find(guids.begin(), guids.end(), guid) == guids.end())
+    throw HttpError(404, "no such material passport '" + guid + "'");
+
+  const json patch = required_object(body, "properties");
+
+  // Validate first, write second — same reasoning as the label patch, except
+  // here the failure mode is a passport left half-edited with no indication of
+  // which half took.
+  std::vector<std::pair<std::string, std::optional<std::string>>> edits;
+  for (const auto &[key, value] : patch.items()) {
+    if (key.empty())
+      throw HttpError(400, "a property name cannot be empty");
+
+    if (value.is_null()) {
+      edits.emplace_back(key, std::nullopt);
+      continue;
+    }
+    if (!value.is_string())
+      throw HttpError(400, "property '" + key +
+                               "' must be a string, or null to clear it");
+    edits.emplace_back(key, value.get<std::string>());
+  }
+
+  const auto stored = db.passport_stored_properties(guid);
+  for (const auto &[field, value] : edits) {
+    if (value) {
+      db.set_passport_property(guid, field, *value);
+      continue;
+    }
+    // Clearing a property the passport never had is the state the caller asked
+    // for, so it succeeds silently. ProjectDB would throw, which would turn an
+    // idempotent request into a 500 on its second run.
+    if (stored.find(field) != stored.end())
+      db.delete_passport_property(guid, field);
+  }
+
+  return material_json(db, guid);
+}
+
+json patch_project(reusex::ProjectDB &db, const std::string &id,
+                   const std::string &body) {
+  auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+
+  // Read the existing record or start from a blank one (upsert semantics).
+  reusex::ProjectDB::ProjectMetadata metadata;
+  const auto ids = db.list_project_ids();
+  if (std::find(ids.begin(), ids.end(), id) != ids.end())
+    metadata = db.get_project_metadata(id);
+  else
+    metadata.id = id;
+
+  for (const auto &[key, value] : parsed.items()) {
+    if (key == "name") {
+      if (!value.is_string())
+        throw HttpError(400, "'name' must be a string");
+      metadata.name = value.get<std::string>();
+    } else if (key == "building_address") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'building_address' must be a string or null");
+      metadata.building_address =
+          value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "year_of_construction") {
+      if (value.is_null()) {
+        metadata.year_of_construction = 0;
+      } else if (value.is_number_integer()) {
+        const int year = value.get<int>();
+        if (year < 0)
+          throw HttpError(400, "'year_of_construction' must be >= 0");
+        metadata.year_of_construction = year;
+      } else {
+        throw HttpError(400,
+                        "'year_of_construction' must be an integer or null");
+      }
+    } else if (key == "survey_date") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'survey_date' must be a string or null");
+      metadata.survey_date = value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "survey_organisation") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'survey_organisation' must be a string or null");
+      metadata.survey_organisation =
+          value.is_null() ? "" : value.get<std::string>();
+    } else if (key == "notes") {
+      if (!value.is_string() && !value.is_null())
+        throw HttpError(400, "'notes' must be a string or null");
+      metadata.notes = value.is_null() ? "" : value.get<std::string>();
+    }
+    // Unknown keys are silently ignored for forward-compatibility.
+  }
+
+  db.update_project_metadata(metadata);
+
+  return json{{"id", metadata.id},
+              {"name", metadata.name},
+              {"building_address", metadata.building_address},
+              {"year_of_construction", metadata.year_of_construction},
+              {"survey_date", metadata.survey_date},
+              {"survey_organisation", metadata.survey_organisation},
+              {"notes", metadata.notes}};
+}
+
+// ===========================================================================
+// report PDFs (schema v20, #456)
+// ===========================================================================
+
+json generate_report_pdf_json(reusex::ProjectDB &db, const std::string &body) {
+  auto parsed = json::parse(body.empty() ? "{}" : body, nullptr,
+                            /*allow_exceptions=*/false);
+  if (parsed.is_discarded() || !parsed.is_object())
+    throw HttpError(400, "request body must be a JSON object");
+  std::optional<std::int64_t> template_id;
+  if (const auto it = parsed.find("resource_template_id");
+      it != parsed.end() && !it->is_null()) {
+    if (!it->is_number_integer())
+      throw HttpError(400, "'resource_template_id' must be an integer or null");
+    template_id = it->get<std::int64_t>();
+    // Checked here, not left to the generator: its errors map to 500.
+    if (!db.resource_template(*template_id))
+      throw HttpError(404, "no template " + std::to_string(*template_id));
+  }
+  // Counted before generation, from the same state the PDF is built from.
+  const int blocking = reusex::report_blocking_types(db);
+  std::vector<std::uint8_t> pdf;
+  try {
+    pdf = reusex::generate_ressourcekortlaegning_pdf(db, template_id);
+  } catch (const std::exception &e) {
+    throw HttpError(500, std::string("PDF generation failed: ") + e.what());
+  }
+  // Storing stays outside the try, so a locked database still maps to 503 in
+  // with_write, not 500.
+  return report_version_json(
+      db.add_report_pdf(pdf, "Ressourcekortlægning", blocking));
+}
+
+} // namespace ruxd::api

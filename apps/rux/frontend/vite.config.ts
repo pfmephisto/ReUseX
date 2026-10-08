@@ -10,14 +10,15 @@ import react from '@vitejs/plugin-react';
 /**
  * Vite configuration for the ReUseX GUI frontend.
  *
- * The dev proxy is not a convenience — it is required. `rux gui` cannot answer
+ * The dev proxy is not a convenience — it is required. `ruxd` cannot answer
  * a CORS preflight (Crow 1.3 replies to `OPTIONS` before the request headers
  * are parsed, so it never sees the `Origin`), which means any JSON-bodied
  * cross-origin call from a bare `vite dev` would fail. Proxying `/api` makes
  * the browser talk only to the Vite origin, and CORS never enters into it.
  * See `docs/gui/README.md` § "The frontend must be same-origin".
  *
- * `RUX_GUI_URL` retargets the proxy at a server on another port.
+ * The proxy targets `ruxd --local` on its default port, 8420. `RUX_GUI_URL`
+ * retargets it at a server on another port.
  */
 const backend = process.env.RUX_GUI_URL ?? 'http://localhost:8420';
 
@@ -31,7 +32,7 @@ export default defineConfig({
     },
   },
   build: {
-    // `rux gui` serves this directory verbatim; --assets points at it.
+    // `ruxd --local` serves this directory verbatim; --assets points at it.
     outDir: 'dist',
     sourcemap: true,
     rolldownOptions: {

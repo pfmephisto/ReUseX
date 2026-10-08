@@ -8,6 +8,7 @@ import { resolveMembers } from '../../skabeloner/members';
 import { countLine, deleteConfirmText, restoreSeedsTitle, seedLabel } from '../../skabeloner/model';
 import { Pill } from '../Pill';
 import styles from './TemplateList.module.css';
+import { useCanEdit } from '../../app/CaseRoleContext';
 
 export interface TemplateListProps {
   templates: Template[];
@@ -31,6 +32,7 @@ export interface TemplateListProps {
  * a press elsewhere, a busy page or another selection disarms it.
  */
 export function TemplateList(p: TemplateListProps) {
+  const canEdit = useCanEdit();
   const sel = p.selectedId;
   const selected = p.templates.find((t) => t.id === sel) ?? null;
   const confirm = useArmedConfirm<number>(p.busy, sel);
@@ -39,9 +41,11 @@ export function TemplateList(p: TemplateListProps) {
   return (
     <aside className={styles.panel} aria-label="Skabeloner">
       <div className={styles.toolbar}>
-        <button type="button" className={styles.btnPrimary} onClick={p.onNew} disabled={p.busy}>
-          Ny skabelon
-        </button>
+        {canEdit && (
+          <button type="button" className={styles.btnPrimary} onClick={p.onNew} disabled={p.busy}>
+            Ny skabelon
+          </button>
+        )}
       </div>
       <ul className={styles.list}>
         {p.templates.map((t) => (
@@ -61,55 +65,59 @@ export function TemplateList(p: TemplateListProps) {
           </li>
         ))}
       </ul>
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.btnGhost}
-          disabled={sel === null || p.busy}
-          onClick={() => sel !== null && p.onRename(sel)}
-        >
-          Omdøb
-        </button>
-        <button
-          type="button"
-          className={styles.btnGhost}
-          disabled={sel === null || p.busy}
-          onClick={() => sel !== null && p.onDuplicate(sel)}
-        >
-          Dupliker
-        </button>
-        <button
-          type="button"
-          className={styles.btnDanger}
-          disabled={sel === null || p.busy}
-          onClick={(e) => {
-            if (sel === null) return;
-            if (!armed) {
-              confirm.arm(sel, e.currentTarget);
-              return;
-            }
-            confirm.disarm();
-            p.onDelete(sel);
-          }}
-          onBlur={confirm.disarm}
-        >
-          {armed ? 'Bekræft: slet' : 'Slet'}
-        </button>
-      </div>
-      {armed && selected && (
+      {canEdit && (
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.btnGhost}
+            disabled={sel === null || p.busy}
+            onClick={() => sel !== null && p.onRename(sel)}
+          >
+            Omdøb
+          </button>
+          <button
+            type="button"
+            className={styles.btnGhost}
+            disabled={sel === null || p.busy}
+            onClick={() => sel !== null && p.onDuplicate(sel)}
+          >
+            Dupliker
+          </button>
+          <button
+            type="button"
+            className={styles.btnDanger}
+            disabled={sel === null || p.busy}
+            onClick={(e) => {
+              if (sel === null) return;
+              if (!armed) {
+                confirm.arm(sel, e.currentTarget);
+                return;
+              }
+              confirm.disarm();
+              p.onDelete(sel);
+            }}
+            onBlur={confirm.disarm}
+          >
+            {armed ? 'Bekræft: slet' : 'Slet'}
+          </button>
+        </div>
+      )}
+      {canEdit && armed && selected && (
         <p className={styles.confirm} role="status">
           {deleteConfirmText(selected)}
         </p>
       )}
-      <button
-        type="button"
-        className={styles.textBtn}
-        onClick={p.onRestoreSeeds}
-        disabled={p.busy || p.missingSeeds.length === 0}
-        title={restoreSeedsTitle(p.missingSeeds)}
-      >
-        Gendan standardskabeloner
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          className={styles.textBtn}
+          onClick={p.onRestoreSeeds}
+          disabled={p.busy || p.missingSeeds.length === 0}
+          title={restoreSeedsTitle(p.missingSeeds)}
+        >
+          Gendan standardskabeloner
+        </button>
+      )}
     </aside>
   );
 }

@@ -7,7 +7,8 @@
 #
 # Secrets (DATABASE_URL, RUXD_AUTH_TOKEN, AWS credentials) belong in
 # `environmentFile`, NOT in the Nix store. Non-secret settings (port, threads,
-# redis URL, S3 endpoint/region/bucket) are plain options.
+# bind, data dir, ...) are plain options. `redisUrl` and `s3.*` are RESERVED:
+# ruxd accepts them but does not use Redis or S3 yet.
 {self}: {
   config,
   lib,
@@ -40,25 +41,25 @@ in {
 
     redisUrl = lib.mkOption {
       type = lib.types.str;
-      default = "tcp://127.0.0.1:6379";
-      description = "Redis URI.";
+      default = "";
+      description = "Reserved, unused: ruxd does not use Redis yet. Redis URI.";
     };
 
     s3 = {
       endpoint = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "S3 endpoint URL (empty = real AWS).";
+        description = "Reserved, unused: ruxd does not use S3 yet. S3 endpoint URL (empty = real AWS).";
       };
       region = lib.mkOption {
         type = lib.types.str;
         default = "us-east-1";
-        description = "S3 region.";
+        description = "Reserved, unused. S3 region.";
       };
       bucket = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "S3 bucket name.";
+        description = "Reserved, unused. S3 bucket name.";
       };
     };
 
@@ -82,16 +83,80 @@ in {
       description = "Extra environment variables passed to the service.";
     };
 
+    dataDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/ruxd";
+      description = ''
+        Where case files are stored, one directory per case (--data-dir).
+        The default is the service's systemd StateDirectory. Users, sessions
+        and the case catalogue live in Postgres (DATABASE_URL); create the
+        first administrator with `ruxd admin create-user --email … --admin`.
+      '';
+    };
+
+    bind = lib.mkOption {
+      type = lib.types.str;
+      default = "127.0.0.1";
+      example = "0.0.0.0";
+      description = ''
+        Interface to bind (--bind). The default, loopback, suits a TLS
+        reverse proxy on the same host (set allowOrigins to its public
+        origin, and trustedProxies to its address). Bind beyond loopback only
+        with TLS in front: the session cookie is then Secure.
+      '';
+    };
+
+    allowOrigins = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      example = ["https://ruxd.example.dk"];
+      description = "Public origins the frontend is served under (--allow-origin).";
+    };
+
+    trustedProxies = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      example = ["127.0.0.1"];
+      description = ''
+        Reverse proxies (CIDRs) whose X-Forwarded-For names the client
+        (--trusted-proxy), for the login back-off.
+      '';
+    };
+
+    cookieSecure = lib.mkOption {
+      type = lib.types.enum ["auto" "always" "never"];
+      default = "auto";
+      description = "Whether the session cookie is Secure (--cookie-secure).";
+    };
+
+    auditRetentionDays = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 365;
+      description = "Days the audit log is kept; 0 = for ever (--audit-retention-days).";
+    };
+
+    authTokenFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = ''
+        File holding the superuser token (--auth-token-file, at least 32
+        characters). Keeps it out of the process list and the Nix store.
+      '';
+    };
+
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Open the listen port in the firewall.";
+      description = ''
+        Open the listen port in the firewall. Only useful with a non-loopback
+        `bind`.
+      '';
     };
   };
 
   config = lib.mkIf cfg.enable {
     systemd.services.ruxd = {
-      description = "ReUseX ruxd HTTP service worker";
+      description = "ReUseX ruxd web GUI server";
       wantedBy = ["multi-user.target"];
       wants = ["network-online.target"];
       after = ["network-online.target"];
@@ -100,16 +165,24 @@ in {
         {
           RUXD_PORT = toString cfg.port;
           RUXD_THREADS = toString cfg.threads;
-          REDIS_URL = cfg.redisUrl;
+          RUXD_DATA_DIR = cfg.dataDir;
           AWS_REGION = cfg.s3.region;
         }
+        // lib.optionalAttrs (cfg.redisUrl != "") {REDIS_URL = cfg.redisUrl;}
         // lib.optionalAttrs (cfg.s3.endpoint != "") {AWS_ENDPOINT_URL = cfg.s3.endpoint;}
         // lib.optionalAttrs (cfg.s3.bucket != "") {RUXD_S3_BUCKET = cfg.s3.bucket;}
         // cfg.extraEnvironment;
 
       serviceConfig =
         {
-          ExecStart = "${cfg.package}/bin/ruxd";
+          ExecStart = lib.escapeShellArgs (
+            ["${cfg.package}/bin/ruxd" "--bind" cfg.bind "--cookie-secure" cfg.cookieSecure "--audit-retention-days" (toString cfg.auditRetentionDays)]
+            ++ lib.concatMap (o: ["--allow-origin" o]) cfg.allowOrigins
+            ++ lib.concatMap (p: ["--trusted-proxy" p]) cfg.trustedProxies
+            # Through systemd's credential store: readable by the dynamic user
+            # whatever the file's own permissions.
+            ++ lib.optionals (cfg.authTokenFile != null) ["--auth-token-file" "%d/auth-token"]
+          );
           Restart = "on-failure";
           RestartSec = 2;
           DynamicUser = true;
@@ -120,6 +193,12 @@ in {
           PrivateTmp = true;
           ProtectControlGroups = true;
           ProtectKernelTunables = true;
+        }
+        // lib.optionalAttrs (cfg.dataDir == "/var/lib/ruxd") {
+          StateDirectory = "ruxd";
+        }
+        // lib.optionalAttrs (cfg.authTokenFile != null) {
+          LoadCredential = "auth-token:${toString cfg.authTokenFile}";
         }
         // lib.optionalAttrs (cfg.environmentFile != null) {
           EnvironmentFile = cfg.environmentFile;

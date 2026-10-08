@@ -1,6 +1,6 @@
 # ReUseX GUI — conventions for building with this design system
 
-This library is the shipped frontend of `rux gui` — a local web app for a 3D
+This library is the shipped frontend of `ruxd --local` (formerly `rux gui`) — a local web app for a 3D
 scan-processing pipeline (point clouds → planes → rooms → mesh). Its register
 is a precision instrument on a light workbench, with a navy chrome (title bar,
 sidebar) and a dark theme available: dense data, calm status colors,
@@ -11,7 +11,7 @@ monospace figures.
 - Components are self-contained except two: **Sidebar** needs a react-router
   context (wrap your app in a router; the preview harness uses `MemoryRouter`
   via the exported `PreviewProviders`), and **JobToaster** renders only inside
-  the app's live `JobsProvider` (it subscribes to a running `rux gui` server —
+  the app's live `JobsProvider` (it subscribes to a running `ruxd --local` server —
   in a static design, show job UI with `StageCard`/`JobIndicator`/
   `StageProgress` fed by props instead).
 - The page background must be `var(--color-surface)` with `color:

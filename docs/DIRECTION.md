@@ -99,7 +99,7 @@ a `workstream: *` label so alignment can be queried with
 | Workstream | Label | Anchor | Intent (one line) |
 |---|---|---|---|
 | SLAM / reconstruction quality | `workstream: slam-quality` | #221, #225 | Reach ~10 mm plane flatness via an owned global pose-optimization stage (plane landmarks + GNC), measured against fixture scans — not by tuning RTABMap forever |
-| GUI application | `workstream: gui` | #265 | `rux gui` serving a designed web frontend locally; visual language authored in Claude Design, behaviour owned by the repo; `ruxd` stays headless and remote execution comes later over the same API contract |
+| GUI application | `workstream: gui` | #265 | `ruxd` serving a designed web frontend — `ruxd --local` for one person, and a multi-user server (logins, roles per case, Postgres) over the same API contract (`/api/v1/cases/{cid}`); a native Qt client (plain `rux`) alongside; visual language authored in Claude Design, behaviour owned by the repo |
 | Gaussian splatting | `workstream: gsplat` | #240 | Native C++/CUDA 3DGS trained from `ProjectDB` — point-cloud-seeded Gaussians, sensor frames and sliced 360 panoramas as views, Apache-licensed gsplat kernels under a GPL trainer |
 | 360 integration | `workstream: 360-integration` | #236 | Turn panoramas into wide-baseline pose-graph constraints; a panorama that sees many temporally-distant frames supplies exactly the loop closures the plane-landmark back-end cannot. Mechanism landed and tested (`rux optimize --use-panoramas`); **blocked on matcher quality** — cross-camera ORB resections are too weak to help, see [`research/panorama-loop-closure.md`](research/panorama-loop-closure.md) |
 | Agent-driven modeling | `workstream: agent-modeling` | #267 | Evaluate an agent + MCP gateway + Blender path to a simplified, tagged building model as a complement to the geometric pipeline; requires headless rendering so the agent has eyes |
@@ -257,6 +257,113 @@ changelog — that history is the point of keeping it in the repo.
   re-shoots in ~1.3 s, a C++ edit in ~10 s. One design system, two renderers:
   the web GUI's tokens are now also the Qt client's. Plain-`rux` launch and the
   workspaces follow in Q1–Q3.
+- **2026-10-08** — **GUI: ruxd becomes a multi-user server** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream S, phase S3). `ruxd` without `--local` now serves the same frontend
+  and API to many people:
+  - **Postgres** holds users, sessions, API tokens, cases, case members, jobs
+    and an audit log (`apps/ruxd/migrations/NNN_*.sql`, embedded, applied at
+    start in `schema_migrations` under an advisory lock). Case **files** stay
+    in `--data-dir`; the `cases` table points at them. `ruxd --local` keeps its
+    in-memory stores and `.ruxd/cases.json`.
+  - **Logins**: argon2id passwords (OpenSSL 3 `EVP_KDF`), cookie sessions
+    stored only as SHA-256 (HttpOnly, SameSite=Strict, Secure unless on
+    loopback; 12 h sliding, 14 days absolute), logout revokes, and failed
+    logins back off (see the fix round below). Scripts use `rxt_…` API tokens (optionally one
+    case); `--auth-token` is a superuser token. `ruxd admin` creates the
+    first administrator and manages users; passwords never on argv.
+  - **Roles per case**: viewer (GET only), editor (all but deleting the case
+    and managing members), owner (all); administrators everything. A case you
+    are not a member of is a 404. Mutations are audited.
+  - The S2 blocker is closed: the access decision runs in a **patched Crow
+    header phase**, before a request body is read.
+  - Frontend: a login page, a user menu, and a case **Indstillinger →
+    Medlemmer** panel. Local mode never shows the login page.
+  - The old service stub (`/`, `/livez`, `/health`, `/segment/planes`,
+    `/openapi.json`, BearerAuthMiddleware) is gone; `/api/v1/readyz` checks
+    Postgres.
+  - Security review fix round (same day): an `Upgrade:` header on a
+    request Crow does not upgrade (HTTP/1.0, h2c) skipped the middleware
+    entirely — closed, with raw-socket regression tests. Also: events
+    sockets close when access ends; `model_path` is refused in server mode;
+    login back-off per account and per address (IPv6 /64) with
+    `--trusted-proxy`; API tokens expire and can be listed and revoked;
+    atomic last-owner check; `__Host-` cookie when Secure; a 32-character
+    minimum superuser token and secret files; audit retention; viewers no
+    longer see the main edit controls, and an ended session returns to the
+    login page.
+  - Final-review fix round (same day): case files are untrusted input —
+    every ProjectDB connection ruxd opens is hardened
+    (`ProjectDB::OpenOptions::hardened`: `SQLITE_DBCONFIG_DEFENSIVE`,
+    `trusted_schema=OFF`, triggers and views disabled), and uploads and
+    registered files must pass `PRAGMA quick_check` and hold no trigger or
+    view (422 otherwise); the `rux` CLI is unchanged. Also: `RUXD_BIND` and
+    the OCI image's `RUXD_BIND=0.0.0.0` / `RUXD_DATA_DIR=/data`; 400 for a
+    duplicated Host header; control characters refused in asset paths;
+    viewers see no write control anywhere.
+  - Still open: no web UI for user administration beyond the `/users` API;
+    Redis and S3 are reserved — the flags and NixOS options are accepted and
+    marked unused, the client code is kept for S3 snapshots; the
+    `[postgres]` tests do not run in CI (the nix check sandbox has no
+    PostgreSQL — `ctest -L postgres` locally); `quick_check` runs on the
+    upload request's worker thread. Deferred as before: S3 snapshots and
+    multi-instance locks. Issue drafts 37 (multi-case list) and 38 (LAN
+    pairing) are retargeted to what is left after S2/S3.
+
+- **2026-10-08** — **GUI: one ruxd serves many cases** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream S, phase S2). A ruxd process is no longer bound to one project:
+  - Every project route lives under **`/api/v1/cases/{cid}/…`**, the events
+    WebSocket included; `/api/v1/cases` (list, create, rename/archive,
+    delete-to-trash) and chunked `/api/v1/uploads` are server-level, as are
+    `/health`, `/endpoints` and the SAM3 model status.
+  - `ruxd --local <dir>` serves every `.rux` in the directory as a case (ids
+    are slugs of the file names) and stores created and uploaded cases there,
+    one directory each (`--data-dir`). Cases open lazily and close when idle,
+    at most `--max-open-cases` at once.
+  - One process-wide job scheduler (`--job-workers`, default 1 because the GPU
+    is shared; at most one running job per case, round robin between cases).
+    Progress is now **per job** (`core::ScopedProgressObserver`), so two
+    cases' stages can run at once without mixing their progress. Job records
+    go through a store interface — in memory in local mode, Postgres in S3.
+  - The frontend's case screens move under `/sager/:cid/…` and `/sager` is a
+    real case list with create and upload; old unprefixed links forward to the
+    last-used case.
+  - Crow buffers request bodies in memory with no limit of its own, so it is
+    patched (`overlays/crow.nix`) to refuse a body over 72 MiB at its headers;
+    uploads go up in chunks under that cap.
+  - Next: S3 (users, sessions, roles, Postgres-backed cases and jobs). **S3
+    blocker:** the body cap is checked before routing but the access token
+    only after the headers — fine for one trusted user, not for anonymous
+    traffic; S3 should also open uploaded files with
+    `SQLITE_DBCONFIG_DEFENSIVE` and `PRAGMA quick_check` them. Still deferred:
+    S3 snapshots of case files and multi-instance advisory locks.
+
+- **2026-10-08** — **GUI: the web backend moves into `ruxd`; `rux gui` is
+  removed** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream S, phase S1). The direction changes from "`rux gui` locally, `ruxd`
+  headless" to "`ruxd` serves the web GUI, single-user now and multi-user
+  next; plain `rux` becomes a native Qt client (Stream Q)":
+  - The GUI's REST + WebSocket API moved, with history, to
+    `apps/ruxd/{src,include}/api/` as `ruxd_api_lib` (light: core + pipeline
+    only; tests in `tests/unit/ruxd_api/`). The heavy pieces it needs (SAM3,
+    renderer, ICP, `optimize`) are injected by ruxd.
+  - **`ruxd --local <file.rux | dir>`** replaces `rux -p x.rux gui`: no
+    Postgres, Redis or S3, `127.0.0.1:8420` by default, and a bind beyond
+    loopback requires `--auth-token` (Bearer, a per-port cookie, or `?token=`,
+    which redirects the token out of the URL); a Host allowlist guards the
+    token-less loopback default against DNS rebinding. Routes are unchanged
+    and single-project.
+  - The Morton tile index the GUI streams clouds by is now built by the
+    clouds stage itself, so a GUI-submitted clouds job gets one too, and
+    `rux` does not link the web API.
+  - ruxd's legacy single-project routes (`/materials`, `/material-columns`,
+    `/export-templates`, `/exports/csv`, `/reports/…`) shared one `ProjectDB`
+    across threads; they are deleted in favour of the moved API, which covers
+    all of them.
+  - Next: S2 re-roots every route under `/api/v1/cases/{cid}` with a
+    per-case registry and one job scheduler; S3 adds Postgres users, sessions,
+    roles and the login UI. Deferred follow-ups: S3 snapshots of case files
+    and multi-instance advisory locks (several ruxd hosts sharing cases).
+
 - **2026-10-06** — **GUI: Segmentering view and mask → resource**
   ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md),
   Stream B). Interactive SAM3 segmentation gets its own screen and can now

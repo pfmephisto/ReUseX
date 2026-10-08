@@ -142,7 +142,8 @@ plane_graph_options(SubcommandOptimizeOptions const &opt);
 
 /// The optimize stage's parameter JSON (min_observations, assoc_rounds,
 /// no_gnc, dry_run) applied to @p options — the one reader shared by
-/// `rux optimize` and the in-process stage (make_gui_stage_executor).
+/// `rux optimize` and the in-process stage (make_stage_executor,
+/// stage_executor.hpp).
 /// @throws std::invalid_argument when @p parameters is not a JSON object.
 void apply_optimize_parameters(reusex::geometry::PlaneGraphOptions &options,
                                bool &dry_run, const std::string &parameters);

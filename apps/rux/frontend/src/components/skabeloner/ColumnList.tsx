@@ -5,6 +5,7 @@
 import { useRef, type RefObject } from 'react';
 
 import type { PropertyDefinition } from '../../api/types';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import { useArmedConfirm } from '../../app/useArmedConfirm';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
 import {
@@ -38,12 +39,21 @@ interface DraftFieldProps {
   label: string;
   home: RefObject<HTMLElement | null>;
   reset: number;
+  readOnly: boolean;
   onCommit: (value: string) => void;
 }
 
-function NameField({ value, label, home, reset, onCommit }: DraftFieldProps) {
+function NameField({ value, label, home, reset, readOnly, onCommit }: DraftFieldProps) {
   const draft = useTextDraft(value, onCommit, { required: true, reset });
-  return <input className={styles.input} aria-label={label} {...draft.props} onKeyDown={fieldKeys(draft, home)} />;
+  return (
+    <input
+      className={styles.input}
+      aria-label={label}
+      {...draft.props}
+      readOnly={readOnly}
+      onKeyDown={fieldKeys(draft, home)}
+    />
+  );
 }
 
 interface OptionsFieldProps extends DraftFieldProps {
@@ -51,7 +61,7 @@ interface OptionsFieldProps extends DraftFieldProps {
   current: readonly string[];
 }
 
-function OptionsField({ value, current, label, home, reset, onCommit }: OptionsFieldProps) {
+function OptionsField({ value, current, label, home, reset, readOnly, onCommit }: OptionsFieldProps) {
   const draft = useTextDraft(value, onCommit, { reset });
   return (
     <label className={styles.field}>
@@ -60,6 +70,7 @@ function OptionsField({ value, current, label, home, reset, onCommit }: OptionsF
         className={styles.textarea}
         rows={Math.min(Math.max(value.split('\n').length, 2), 6)}
         {...draft.props}
+        readOnly={readOnly}
         onKeyDown={fieldKeys(draft, home, true)}
       />
       <span className={styles.hint}>Én valgmulighed pr. linje, eller adskilt med komma.</span>
@@ -77,6 +88,7 @@ function OptionsField({ value, current, label, home, reset, onCommit }: OptionsF
 export function ColumnList({ columns, busy, errors, resets, onRename, onOptions, onDelete }: ColumnListProps) {
   const home = useRef<HTMLElement | null>(null);
   const confirm = useArmedConfirm<string>(busy, null);
+  const canEdit = useCanEdit(); // a viewer reads the columns, read-only
 
   return (
     <section ref={home} tabIndex={-1} className={styles.panel} aria-labelledby="egne-felter-heading">
@@ -99,25 +111,28 @@ export function ColumnList({ columns, busy, errors, resets, onRename, onOptions,
                     value={c.name}
                     label={`Navn på feltet ${c.name}`}
                     home={home}
+                    readOnly={!canEdit}
                     onCommit={(name) => onRename(c, name)}
                   />
-                  <button
-                    type="button"
-                    className={styles.btnDanger}
-                    disabled={busy}
-                    aria-label={isArmed ? `Bekræft: slet ${c.name}` : `Slet ${c.name}`}
-                    onClick={(e) => {
-                      if (!isArmed) {
-                        confirm.arm(c.id, e.currentTarget);
-                        return;
-                      }
-                      confirm.disarm();
-                      onDelete(c);
-                    }}
-                    onBlur={() => isArmed && confirm.disarm()}
-                  >
-                    {isArmed ? 'Bekræft: slet' : 'Slet'}
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className={styles.btnDanger}
+                      disabled={busy}
+                      aria-label={isArmed ? `Bekræft: slet ${c.name}` : `Slet ${c.name}`}
+                      onClick={(e) => {
+                        if (!isArmed) {
+                          confirm.arm(c.id, e.currentTarget);
+                          return;
+                        }
+                        confirm.disarm();
+                        onDelete(c);
+                      }}
+                      onBlur={() => isArmed && confirm.disarm()}
+                    >
+                      {isArmed ? 'Bekræft: slet' : 'Slet'}
+                    </button>
+                  )}
                 </div>
                 {hasOptions(c.type) && (
                   <OptionsField
@@ -126,6 +141,7 @@ export function ColumnList({ columns, busy, errors, resets, onRename, onOptions,
                     current={c.options ?? []}
                     label="Valgmuligheder"
                     home={home}
+                    readOnly={!canEdit}
                     onCommit={(text) => onOptions(c, text)}
                   />
                 )}

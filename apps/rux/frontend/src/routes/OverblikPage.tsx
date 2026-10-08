@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ProjectInfo } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { saveErrorMessage } from '../app/saveError';
 import { useAsync } from '../app/useAsync';
 import { appWriteChain } from '../app/writeChain';
@@ -44,7 +45,7 @@ import styles from './OverblikPage.module.css';
  * Four reads at mount (project, survey summary, report versions, fractions —
  * the last only for Indberetning's blocking count, so its failure falls back
  * to the approved count rather than failing the page). The busy fix in
- * `rux gui` (Phase 5 R1) is what keeps them from racing into 503s.
+ * `ruxd --local` (Phase 5 R1) is what keeps them from racing into 503s.
  * Metadata edits run on the page's mutation queue, and each settles by
  * re-reading the shell's project summary, so the sidebar name follows.
  */
@@ -90,6 +91,7 @@ export function OverblikPage() {
   );
 
   const [editing, setEditing] = useState(false);
+  const canEdit = useCanEdit();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const closeEditor = useCallback(() => {
     setEditing(false);
@@ -124,7 +126,7 @@ export function OverblikPage() {
         onToggle={() => (editing ? closeEditor() : setEditing(true))}
         toggleRef={toggleRef}
       />
-      {editing && (
+      {canEdit && editing && (
         <ProjectMetaForm
           project={project}
           onCommit={commit}

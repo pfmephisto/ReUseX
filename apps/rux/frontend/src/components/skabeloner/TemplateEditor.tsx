@@ -5,6 +5,7 @@
 import { useRef, useState, type RefObject } from 'react';
 
 import type { ResourceKey, Template, TemplateMember } from '../../api/types';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import { fieldKeys, useTextDraft } from '../../app/useTextDraft';
 import {
   addKey,
@@ -39,16 +40,23 @@ interface NameFieldProps {
   inputRef: RefObject<HTMLInputElement | null>;
   home: RefObject<HTMLElement | null>;
   reset: number;
+  readOnly: boolean;
   onRename: (name: string) => void;
 }
 
 /** The name input. A failed rename snaps it back through `reset`, never by a remount. */
-function NameField({ name, inputRef, home, reset, onRename }: NameFieldProps) {
+function NameField({ name, inputRef, home, reset, readOnly, onRename }: NameFieldProps) {
   const draft = useTextDraft(name, onRename, { required: true, reset });
   return (
     <label className={styles.field}>
       <span className={styles.fieldLabel}>Navn</span>
-      <input ref={inputRef} className={styles.input} {...draft.props} onKeyDown={fieldKeys(draft, home)} />
+      <input
+        ref={inputRef}
+        className={styles.input}
+        {...draft.props}
+        readOnly={readOnly}
+        onKeyDown={fieldKeys(draft, home)}
+      />
     </label>
   );
 }
@@ -73,6 +81,8 @@ function rowKeys(members: readonly TemplateMember[]): string[] {
  */
 export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, onMembers }: TemplateEditorProps) {
   const members = template.members;
+  // A viewer reads the template; every control below changes it.
+  const canEdit = useCanEdit();
   const home = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState('');
   // The dragged row, by its row key (not its index, which a response could shift mid-drag).
@@ -108,7 +118,7 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
 
   return (
     <section ref={home} tabIndex={-1} className={styles.panel} aria-label={`Skabelon ${template.name}`}>
-      <NameField name={template.name} inputRef={nameRef} home={home} reset={nameReset} onRename={onRename} />
+      <NameField name={template.name} inputRef={nameRef} home={home} reset={nameReset} readOnly={!canEdit} onRename={onRename} />
 
       <p className={styles.count} aria-live="polite">
         {countLine(resolved.keys.length)}
@@ -123,6 +133,7 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
                 type="checkbox"
                 className={styles.checkbox}
                 checked={hasCategory(members, category)}
+                disabled={!canEdit}
                 onChange={() => onMembers(toggleCategory(members, category))}
               />
               <span>{category}</span>
@@ -132,36 +143,38 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
         </div>
       </fieldset>
 
-      <div className={styles.group}>
-        <h3 className={styles.heading}>Enkelte felter</h3>
-        <input
-          type="search"
-          className={styles.input}
-          placeholder="Søg i felter…"
-          aria-label="Søg i felter"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {hits.length > 0 && (
-          <ul className={styles.hits}>
-            {hits.map(({ key: k, covered }) => (
-              <li key={k.id} className={styles.hit}>
-                <span>
-                  {k.label} <span className={styles.muted}>· {k.category}</span>
-                </span>
-                {covered ? (
-                  <span className={styles.muted}>Dækket af kategori</span>
-                ) : (
-                  <button type="button" className={styles.textBtn} onClick={() => onMembers(addKey(members, k.id))}>
-                    Tilføj
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {query.trim() !== '' && hits.length === 0 && <p className={styles.muted}>Ingen felter matcher.</p>}
-      </div>
+      {canEdit && (
+        <div className={styles.group}>
+          <h3 className={styles.heading}>Enkelte felter</h3>
+          <input
+            type="search"
+            className={styles.input}
+            placeholder="Søg i felter…"
+            aria-label="Søg i felter"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {hits.length > 0 && (
+            <ul className={styles.hits}>
+              {hits.map(({ key: k, covered }) => (
+                <li key={k.id} className={styles.hit}>
+                  <span>
+                    {k.label} <span className={styles.muted}>· {k.category}</span>
+                  </span>
+                  {covered ? (
+                    <span className={styles.muted}>Dækket af kategori</span>
+                  ) : (
+                    <button type="button" className={styles.textBtn} onClick={() => onMembers(addKey(members, k.id))}>
+                      Tilføj
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {query.trim() !== '' && hits.length === 0 && <p className={styles.muted}>Ingen felter matcher.</p>}
+        </div>
+      )}
 
       <div className={styles.group}>
         <h3 className={styles.heading}>Rækkefølge</h3>
@@ -177,7 +190,7 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
                 <li
                   key={id}
                   className={`${styles.member} ${dragId === id ? styles.dragging : ''}`}
-                  draggable
+                  draggable={canEdit}
                   onDragStart={(e) => {
                     setDragId(id);
                     e.dataTransfer.effectAllowed = 'move';
@@ -200,36 +213,38 @@ export function TemplateEditor({ template, keys, nameRef, nameReset, onRename, o
                       {l.kind} · {l.detail}
                     </span>
                   </span>
-                  <span className={styles.memberActions}>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      aria-label={`Flyt ${l.label} op`}
-                      disabled={i === 0}
-                      ref={(el) => void moveRefs.current.set(`${id}:up`, el)}
-                      onClick={() => move(i, i - 1, 'up')}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      aria-label={`Flyt ${l.label} ned`}
-                      disabled={i === members.length - 1}
-                      ref={(el) => void moveRefs.current.set(`${id}:down`, el)}
-                      onClick={() => move(i, i + 1, 'down')}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      aria-label={`Fjern ${l.label}`}
-                      onClick={() => onMembers(removeMemberAt(members, i))}
-                    >
-                      ×
-                    </button>
-                  </span>
+                  {canEdit && (
+                    <span className={styles.memberActions}>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label={`Flyt ${l.label} op`}
+                        disabled={i === 0}
+                        ref={(el) => void moveRefs.current.set(`${id}:up`, el)}
+                        onClick={() => move(i, i - 1, 'up')}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label={`Flyt ${l.label} ned`}
+                        disabled={i === members.length - 1}
+                        ref={(el) => void moveRefs.current.set(`${id}:down`, el)}
+                        onClick={() => move(i, i + 1, 'down')}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label={`Fjern ${l.label}`}
+                        onClick={() => onMembers(removeMemberAt(members, i))}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
                 </li>
               );
             })}

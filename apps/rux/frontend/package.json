@@ -1,7 +1,7 @@
 {
   "name": "reusex-gui",
   "version": "0.0.5",
-  "description": "ReUseX GUI — React frontend for the `rux gui` server (issue #265)",
+  "description": "ReUseX GUI — React frontend served by `ruxd --local` (issue #265)",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",

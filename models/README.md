@@ -36,9 +36,9 @@ See `CLAUDE.md` ("Pre-trained Models" section) and `rux create annotate --help` 
 how the CLI locates and selects model backends
 (`vision/BackendFactory.hpp` picks a backend from the file extension).
 
-## Managed SAM3 model (automatic provisioning for `rux gui`)
+## Managed SAM3 model (automatic provisioning for `ruxd --local`)
 
-The `rux gui` segment endpoints provision SAM 3.1 automatically on first
+The web GUI's segment endpoints (`ruxd --local`) provision SAM 3.1 automatically on first
 use — no manual export or engine placement is required for GUI operation.
 
 ### Managed directory layout
@@ -68,7 +68,7 @@ TensorRT version combination; each machine builds its own set.
 
 ### Models-dir resolution precedence
 
-1. `--models-dir <dir>` flag passed to `rux gui` (highest priority)
+1. `--models-dir <dir>` flag passed to `ruxd --local` (highest priority)
 2. `$REUSEX_MODELS_DIR` environment variable
 3. `$XDG_CACHE_HOME/reusex/models` (falls back to `$HOME/.cache/reusex/models`)
 
@@ -76,7 +76,7 @@ TensorRT version combination; each machine builds its own set.
 
 | Variable / flag | Effect |
 |---|---|
-| `--sam3-model <dir>` | Point `rux gui` at a pre-built model dir (skips managed provisioning entirely; back-compatible with the old explicit path) |
+| `--sam3-model <dir>` | Point `ruxd --local` at a pre-built model dir (skips managed provisioning entirely; back-compatible with the old explicit path) |
 | `$REUSEX_SAM3_ONNX_DIR` | Point directly at a pre-exported ONNX bundle (e.g. `make -C python export` output) to skip download; engines are still built from it on-device |
 | `--sam3-manifest-url <url>` | Override the default ONNX bundle download URL |
 

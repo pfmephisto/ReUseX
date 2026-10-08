@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from 'react';
 
 import { api } from '../api/client';
 import type { CloudInfo } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { useAsync } from '../app/useAsync';
 import { formatCount } from '../data/format';
 import {
@@ -141,7 +142,11 @@ function LegendEditor({ cloud }: { cloud: string }) {
   const [failure, setFailure] = useState<WriteFailure | null>(null);
 
   const palette = useMemo(() => readLabelPalette(), []);
-  const editable = isLegendEditable(cloud);
+  const renamable = isLegendEditable(cloud);
+  // Read-only for a viewer of the case, as well as for the one cloud whose
+  // names are records rather than captions.
+  const canEdit = useCanEdit();
+  const editable = renamable && canEdit;
 
   if (legend.data && !loaded) {
     setStored(legend.data);
@@ -213,7 +218,7 @@ function LegendEditor({ cloud }: { cloud: string }) {
 
   return (
     <div className={styles.editor}>
-      {!editable && (
+      {!renamable && (
         <p className={styles.refusal}>
           The <span className="mono">{UNRENAMABLE_CLOUD}</span> cloud's names encode the
           semantic class and instance id (<span className="mono">SM&lt;class&gt;-&lt;id&gt;
@@ -287,11 +292,13 @@ function LegendEditor({ cloud }: { cloud: string }) {
         </div>
       )}
 
-      <p className={styles.note}>
-        {dirty
-          ? `${formatCount(Object.keys(patch).length)} renamed. Only those ids are sent; every other class is left alone.`
-          : 'Classes can be renamed, not created — an id that is not already in this legend is refused.'}
-      </p>
+      {editable && (
+        <p className={styles.note}>
+          {dirty
+            ? `${formatCount(Object.keys(patch).length)} renamed. Only those ids are sent; every other class is left alone.`
+            : 'Classes can be renamed, not created — an id that is not already in this legend is refused.'}
+        </p>
+      )}
     </div>
   );
 }

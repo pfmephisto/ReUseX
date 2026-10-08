@@ -22,7 +22,7 @@ void setup_subcommand_import_gsplat(CLI::App &app,
   sub->footer(R"(
 DESCRIPTION:
   Stores an INRIA-format 3D Gaussian Splatting .ply in the project, where
-  'rux gui' renders it as a viewport layer.
+  the web GUI (ruxd --local) renders it as a viewport layer.
 
   'rux create gsplat' already stores what it trains, so this is for splats
   that live outside a project: runs made before schema v12, and models trained

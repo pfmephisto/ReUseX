@@ -68,7 +68,7 @@ struct VisibilityQuery {
  *
  * Lives in `core` (not `vision`) deliberately: it depends only on `ProjectDB`
  * and `SensorIntrinsics` plus Eigen, and the GUI read endpoint that drives it
- * (`rux_gui_lib`) links `reusex_core` but NOT `reusex_vision`, which stays out
+ * (`ruxd_api_lib`) links `reusex_core` but NOT `reusex_vision`, which stays out
  * of the light test binary (#268). There is no PCL, CGAL, RTABMap or ML here,
  * so core's header-hygiene rule (STANDARDS §1) is respected.
  *

@@ -31,6 +31,7 @@ import type { KeyboardEvent } from 'react';
 
 import type { Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
 import { TREATMENTS } from '../../api/types';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import { trapTab } from '../../app/focusTrap';
 import type { EvidenceTab } from '../../kortlaegning/keys';
 import { dialogAction, EVIDENCE_LAST_KEY } from '../../kortlaegning/keys';
@@ -138,6 +139,8 @@ export function EditDialog(props: EditDialogProps) {
   // The entity whose quantity/note/star this dialog edits: the selected part
   // when one is selected, otherwise the type itself.
   const current = part ?? type;
+  // A viewer steps through the dialog read-only; the write actions are hidden.
+  const canEdit = useCanEdit();
   const titleId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -284,6 +287,7 @@ export function EditDialog(props: EditDialogProps) {
                   inputMode="decimal"
                   className={`${styles.input} mono`}
                   {...quantityProps}
+                  readOnly={!canEdit}
                   onKeyDown={(e) => {
                     // Back to the dialog root, which blurs (and so commits) the field
                     // and keeps the shortcuts live; a bare blur would drop focus to <body>.
@@ -310,6 +314,7 @@ export function EditDialog(props: EditDialogProps) {
                 id={`${titleId}-treatment`}
                 className={styles.select}
                 value={type.treatment}
+                disabled={!canEdit}
                 onChange={(e) => props.onTreatment(e.target.value as Treatment)}
               >
                 {TREATMENTS.map((t) => (
@@ -339,16 +344,19 @@ export function EditDialog(props: EditDialogProps) {
                 className={styles.textarea}
                 rows={3}
                 {...noteProps}
+                readOnly={!canEdit}
               />
             </div>
 
             <PhotoStrip type={type} part={part} fieldClassName={styles.field} labelClassName={styles.label} />
 
-            <div>
-              <button type="button" className={styles.ghost} onClick={props.onStar} disabled={busy}>
-                {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
-              </button>
-            </div>
+            {canEdit && (
+              <div>
+                <button type="button" className={styles.ghost} onClick={props.onStar} disabled={busy}>
+                  {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className={styles.evidence}>
@@ -362,18 +370,22 @@ export function EditDialog(props: EditDialogProps) {
             <Kbd>PgDn</Kbd> skift række/del · <Kbd>1</Kbd>–<Kbd>{EVIDENCE_LAST_KEY}</Kbd> skift visning · <Kbd>Tab</Kbd> rediger mængde · <Kbd>Esc</Kbd> luk
           </span>
           <div className={styles.spacer} />
-          {gateNote && <span className={styles.gateNote}>{gateNote}</span>}
-          <button type="button" className={styles.ghost} onClick={props.onReject} disabled={busy}>
-            Afvis
-          </button>
-          <button
-            type="button"
-            className={styles.primary}
-            onClick={props.onApproveNext}
-            disabled={primaryDisabled(type, busy)}
-          >
-            {primaryLabel(type)}
-          </button>
+          {canEdit && gateNote && <span className={styles.gateNote}>{gateNote}</span>}
+          {canEdit && (
+            <>
+              <button type="button" className={styles.ghost} onClick={props.onReject} disabled={busy}>
+                Afvis
+              </button>
+              <button
+                type="button"
+                className={styles.primary}
+                onClick={props.onApproveNext}
+                disabled={primaryDisabled(type, busy)}
+              >
+                {primaryLabel(type)}
+              </button>
+            </>
+          )}
         </footer>
       </div>
     </div>

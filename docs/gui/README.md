@@ -15,40 +15,219 @@ talking to.
 | File | What it is |
 |---|---|
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 description of every REST endpoint |
-| [`websocket-events.md`](websocket-events.md) | The `/api/v1/events` channel: envelope, event types, client messages |
+| [`websocket-events.md`](websocket-events.md) | The per-case `/api/v1/cases/{cid}/events` channel: envelope, event types, client messages |
 | [`events.schema.json`](events.schema.json) | JSON Schema for the WebSocket envelope, for client/test validation |
 
 > `docs/api/` is Doxygen output and is **not** related to this directory.
 
-## Two implementations, one contract
+## One server, one contract
 
 ```
                     ┌──── browser (React SPA) ────┐
                     │  one client, one contract   │
                     └──────┬───────────────┬──────┘
-                  localhost│               │LAN / cloud (Phase 6)
+                  localhost│               │LAN / cloud (next phases)
              ┌─────────────┴────┐   ┌──────┴──────────────┐
-             │ rux gui          │   │ ruxd                │
-             │ in-process jobs  │   │ queued jobs,        │
-             │ one ProjectDB    │   │ PG/Redis/S3 workers │
+             │ ruxd --local     │   │ ruxd (server mode)  │
+             │ in-process jobs  │   │ cases, users,       │
+             │ cases = .rux dir │   │ Postgres            │
              └──────────────────┘   └─────────────────────┘
 ```
 
-`rux gui` implements the contract today (Phase 1). `ruxd` will implement the
-same paths in Phase 6. Nothing in the contract assumes the client and server
-share a filesystem, and job identifiers are opaque server-generated strings, so
-a queued/remote implementation slots in without frontend changes.
+`ruxd --local <file.rux | dir>` implements the contract today; it replaced
+`rux gui` (2026-10-08). The API code is `ruxd_api_lib` (`apps/ruxd/src/api/`).
+Since phase S2 of spec
+`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`
+every `.rux` it is given is a **case**, and every project route lives under
+`/api/v1/cases/{cid}/…` — the events WebSocket too. Server-level routes are the
+case list and uploads (`/cases`, `/uploads`), `/health`, `/endpoints` and
+`/models/sam3/status`. Cases open lazily and close when idle
+(`ProjectRegistry`); jobs of every case share one worker pool
+(`--job-workers`, default 1, one running job per case). Without `--local`,
+ruxd is the multi-user server (phase S3): the same routes, plus users,
+sessions, API tokens and case membership in Postgres — they change who may
+call a route, not the routes. See *Server mode* below.
+Nothing in the contract assumes the client and server share a filesystem, and
+job identifiers are opaque server-generated strings, so a queued/remote
+implementation slots in without frontend changes.
 
-## Security model
+## Server mode: users, roles and deployment
 
-`rux gui` has **no authentication** and its `POST /jobs` endpoint executes
-pipeline stages. Two controls keep that from being reachable by any page the
-user happens to have open:
+`ruxd` without `--local` serves the same frontend and API to many people
+(spec `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`,
+phase S3):
 
-1. **Loopback bind by default.** `--bind` changes it; that is a deliberate act.
-2. **A server-side origin allowlist.** A request carrying an `Origin` that is
-   not loopback and not named with `--allow-origin` is refused with `403`
-   before any handler runs. This is enforcement, not a CORS hint — CORS alone
+- **Postgres** (`--pg-url` / `DATABASE_URL`) holds users, sessions, API
+  tokens, cases, case members, jobs and an audit log. The schema lives in
+  `apps/ruxd/migrations/NNN_*.sql`, is embedded in the binary, and is applied
+  at start (and by `ruxd admin`) in a `schema_migrations` table, each
+  migration in its own transaction, under an advisory lock.
+- **Case files** live in `--data-dir`, one directory per case
+  (`<data-dir>/<slug>/project.rux`); the `cases` table points at them.
+  Uploads and created cases land there; deleted ones move to
+  `<data-dir>/.ruxd/trash/`. `ruxd admin register-case --path <file.rux>`
+  serves an existing file where it is (never moved or deleted by the server).
+  Local mode's `.ruxd/cases.json` is not used.
+- **Roles per case**: *viewer* (GET only), *editor* (everything but deleting
+  the case and managing members), *owner* (everything). An administrator may
+  do everything everywhere and manages users. A case you are not a member of
+  answers **404**, exactly like one that does not exist. The creator of a case
+  is its owner; a case always keeps one owner. Every successful mutation is
+  written to `audit_log`.
+- **Sessions**: `POST /api/v1/auth/login` sets the `ruxd_session_<port>`
+  cookie — a random 32-byte token, stored server-side only as its SHA-256 —
+  HttpOnly, SameSite=Strict, and `Secure` unless the server binds loopback
+  (`--cookie-secure auto|always|never`; `auto` also sets it when a proxy sends
+  `X-Forwarded-Proto: https`). It expires 12 h after its last use (renewed at
+  most every 5 min) and 14 days after login regardless; logout deletes it.
+  When `Secure`, the cookie is named `__Host-ruxd_session_<port>`, so no
+  other service on the host can plant or shadow it.
+  Passwords are argon2id (OpenSSL 3 `EVP_KDF`, RFC 9106 parameters, in PHC
+  form). Failed logins back off: after 5 failures an account (from any
+  address), and after 20 a client address (an IPv6 address counts as its
+  /64), waits 1 s, doubling per further failure up to 15 min; failures are
+  forgotten after 30 quiet minutes and a successful login clears its
+  account's. Wrong Bearer tokens back off per address the same way.
+- **Events sockets** follow access: logout, a disabled account, a changed
+  password or removal from the case closes them, and the registry's sweep
+  re-checks every open socket every 30 s.
+- **Scripts** use `Authorization: Bearer rxt_…` API tokens, hashed like
+  sessions, expiring after 90 days by default (`--expires-days`, 0 = never),
+  optionally limited to one case. Create, list and revoke them in the user
+  menu's *Adgangstokens*, over `/api/v1/auth/tokens`, or with `ruxd admin
+  create-token | list-tokens | revoke-token`.
+  `--auth-token` is a superuser Bearer token for bootstrap and operations; it
+  must be at least 32 characters. Pass secrets as `--auth-token-file` /
+  `--pg-url-file` (or their environment variables), not on the command line,
+  where every local user can read them (ruxd warns).
+- **Adding members**: an owner can add only people they already share a case
+  with; an administrator adds anyone. Otherwise, and for an unknown email,
+  the answer is the same 404, so the form is no oracle for which accounts
+  exist.
+- **Case files are untrusted input.** Every ProjectDB connection ruxd opens
+  is hardened (`ProjectDB::OpenOptions::hardened`, set process-wide at
+  start): `SQLITE_DBCONFIG_DEFENSIVE`, `trusted_schema=OFF`, and triggers and
+  views disabled — a ReUseX project has neither. An upload, at
+  `uploads/{id}/complete`, and a registered file are first checked with
+  `PRAGMA quick_check` and refused (422, a Danish message) when it fails or
+  when the schema holds a trigger or a view. The check reads the whole file
+  on the request's worker thread: minutes for tens of GB, so keep
+  `--threads` above the number of concurrent large uploads you expect. The
+  `rux` CLI opens files as before.
+- **SAM3 in server mode** uses only the server's configured or managed model;
+  a request's `model_path` is refused (400).
+- **Audit retention**: `--audit-retention-days` (default 365), pruned
+  hourly.
+- **The access decision runs before the body is read**: Crow is patched
+  (`overlays/patches/crow-header-check.patch`) with a header-phase hook, so an
+  unauthenticated or forbidden upload is answered — and its connection closed
+  — without its body being buffered. A signed-in browser's mutation must also
+  carry an allowed `Origin`.
+- **Redis and S3 are reserved.** `--redis-url` and `--s3-*` (and the NixOS
+  module's `redisUrl` / `s3.*`) are accepted for the deferred S3-snapshot
+  phase but nothing uses them; setting one logs a warning at start.
+- `GET /api/v1/readyz` answers 200 when Postgres is reachable (503 otherwise),
+  for a load balancer or container health check.
+
+### First run
+
+```bash
+export DATABASE_URL=postgresql://ruxd@db.internal/ruxd
+ruxd admin create-user --email anna@firma.dk --name "Anna" --admin   # prompts for the password
+ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080
+# then, as Anna, add people in the case's Indstillinger → Medlemmer;
+# accounts are made by an administrator:
+ruxd admin create-user --email bo@firma.dk --name "Bo"               # or: … < password.txt
+ruxd admin create-token --email ci@firma.dk --name nightly --case kontor   # prints rxt_… once
+```
+
+### Container image
+
+`nix build .#ruxd-container` (CUDA) or `.#ruxd-container-cpu` builds an OCI
+image whose entrypoint is `ruxd` in server mode, configured through the
+environment: `RUXD_PORT=8080`, `RUXD_BIND=0.0.0.0` (ruxd binds loopback by
+default, which nothing outside the container can reach) and
+`RUXD_DATA_DIR=/data`, a volume. Supply Postgres yourself:
+
+```bash
+docker load < result
+docker run -p 8080:8080 -v ruxd-cases:/data \
+  -e DATABASE_URL_FILE=/run/secrets/pg-url -v ./pg-url:/run/secrets/pg-url:ro \
+  ruxd:latest
+```
+
+Every flag has its environment variable in `ruxd --help` (`--bind`
+`RUXD_BIND`, `--data-dir` `RUXD_DATA_DIR`, `--pg-url` `DATABASE_URL`,
+`--pg-url-file` `DATABASE_URL_FILE`, `--auth-token-file`
+`RUXD_AUTH_TOKEN_FILE`); a flag wins over its variable. Put the TLS proxy
+below in front of the published port.
+
+### TLS via a reverse proxy
+
+ruxd speaks plain HTTP; put TLS in front of it. With the proxy on the same
+host, bind ruxd to loopback and name the public origin, so its Host and the
+browser's `Origin` are accepted:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name ruxd.firma.dk;
+  client_max_body_size 80m;                 # upload chunks are ≤ 64 MiB
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_http_version 1.1;                 # the events WebSocket
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+```
+
+```bash
+ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080 \
+     --allow-origin https://ruxd.firma.dk --trusted-proxy 127.0.0.1
+```
+
+The session cookie is then `Secure` (`X-Forwarded-Proto: https`). Name the
+proxy with `--trusted-proxy 127.0.0.1` so the login back-off sees each
+client's own address (`X-Forwarded-For`, honoured only from trusted peers);
+without it every login seems to come from the proxy, and the per-address
+back-off is shared by everyone. Serving a
+non-loopback bind over plain HTTP is not supported: the cookie is `Secure`
+and a browser will not send it back (`--cookie-secure never` only for a
+closed test network).
+
+## Security model (local mode)
+
+On loopback, `ruxd --local` has **no authentication**, and its `POST /jobs`
+endpoint executes pipeline stages. Three controls keep that from being
+reachable by any page or host it should not be:
+
+1. **Loopback bind by default.** A `--bind` beyond loopback is refused unless
+   `--auth-token` is set. The token is then required on every HTTP request and
+   on the WebSocket upgrade, as `Authorization: Bearer <token>`, as the
+   `ruxd_token_<port>` cookie, or as `?token=<token>`. Any presented credential
+   that matches is accepted. A GET with a valid `?token=` answers `303` to the
+   same URL without the token and sets the cookie (HttpOnly, SameSite=Strict,
+   named per port so two servers on one host do not shadow each other), so a
+   browser opened at `http://<host>:8420/?token=<token>` stays signed in for
+   its `<img>`, `fetch` and WebSocket traffic — none of which can carry a
+   header — and the token leaves the address bar and history. Every response
+   carries `Referrer-Policy: no-referrer`, and the request log (spdlog, `-vv`)
+   redacts query strings.
+2. **A Host allowlist** (DNS rebinding). A page on `evil.example` that resolves
+   to 127.0.0.1 sends same-origin requests with no `Origin` header; only its
+   `Host` gives it away. On a loopback bind only `localhost`, `127.0.0.1` and
+   `[::1]` are served; on a specific address, that address or an
+   `--allow-origin` host; on a wildcard bind (`0.0.0.0`), any host, since the
+   token it requires cannot be presented by a rebinding page.
+3. **A server-side origin allowlist.** A request carrying an `Origin` that is
+   not loopback, not named with `--allow-origin` and — with a token — not the
+   request's own origin (`<scheme>://<Host>`, i.e. the page this server served
+   to a browser on another machine) is refused with `403` before any handler
+   runs. `--allow-origin` is therefore only needed for a frontend served from
+   somewhere else. This is enforcement, not a CORS hint — CORS alone
    would not help, because a `text/plain` POST is a *simple* request that the
    browser dispatches before it reads any response header. Mutating routes
    additionally require `Content-Type: application/json`, which a simple
@@ -61,10 +240,10 @@ The contract nevertheless **declares** a `bearerAuth` security scheme, while
 leaving the document-level requirement as `security: []`. That pair is a
 deliberate statement rather than an oversight: the empty list says every
 operation here needs no credential, and a generated client honours it by
-sending none. `ruxd` already takes `--auth-token` and will serve this same
-contract in Phase 6; declaring the scheme now means that deployment overrides
-one document-level field instead of forcing every client to be regenerated
-against a differently-shaped spec.
+sending none. `ruxd --local --auth-token` accepts that scheme, and so does the
+multi-user server (API tokens and the superuser token), which additionally
+accepts the `sessionCookie` scheme; which operations need which is described
+per tag rather than by per-operation `security` blocks.
 
 ### The frontend must be same-origin
 
@@ -77,7 +256,7 @@ and no opt-out.
 This costs nothing in practice, because the frontend is same-origin in both
 supported setups:
 
-- **Production** — `rux gui` serves the bundle itself, from the same origin as
+- **Production** — `ruxd --local` serves the bundle itself, from the same origin as
   the API.
 - **Development** — point the Vite dev server's proxy at it, which is the
   normal arrangement anyway:
@@ -190,7 +369,7 @@ keys.
 ## Implementation status (Phase 1)
 
 Read endpoints, the job endpoints and the WebSocket channel are implemented by
-`rux gui` (`apps/rux/src/gui/`). One documented gap, deliberate:
+`ruxd --local` (`apps/ruxd/src/api/`). One documented gap, deliberate:
 
 - **Runnable stages are `clouds`, `planes`, `rooms`, `instances`.** `mesh`,
   `texture` and the ML `annotate` stages are described by
@@ -277,7 +456,7 @@ Two edits are refused rather than attempted:
 
 #### One writer, enforced
 
-`rux gui` has two writers — the pipeline job worker and these endpoints — and
+`ruxd --local` has two writers — the pipeline job worker and these endpoints — and
 they exclude each other through a real lock, not through hope.
 `pipeline::JobRunner` owns the project's writer lock and **holds it for the
 whole of every stage**; an editor request takes the same lock or does not run:
@@ -396,11 +575,13 @@ right.
 ## Running it
 
 ```bash
-rux -p scan.rux gui --port 8420 --no-browser
-curl -s localhost:8420/api/v1/project | jq
+ruxd --local scan.rux            # 127.0.0.1:8420
+curl -s localhost:8420/api/v1/cases | jq           # the cases
+curl -s localhost:8420/api/v1/cases/<cid>/project | jq
 
 # What Gaussian splats does this project hold, and what do they cost to load?
 curl -s localhost:8420/api/v1/gsplats | jq
 ```
 
-See `rux gui --help` for the asset directory, bind address and browser flags.
+See `ruxd --help` ("Web GUI") for the asset directory, bind address, token
+and browser flags, and *Server mode* above for the multi-user server.

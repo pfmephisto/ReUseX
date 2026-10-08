@@ -53,7 +53,7 @@
   curl,
   crow,
   asio,
-  # Static React/Vite bundle served by `rux gui` (pkgs/reusex-gui-frontend).
+  # Static React/Vite bundle served by `ruxd --local` (pkgs/reusex-gui-frontend).
   # Not a link-time dependency: it is copied into share/reusex/gui by
   # postInstall below. Kept as its own derivation so the two build graphs stay
   # independent — an npm/lockfile change must not invalidate the multi-hour C++
@@ -301,10 +301,10 @@ in
     passthru.cudaToolkitPackages =
       lib.optionals cudaSupport ([cudaPackages.cuda_nvcc] ++ cudaLibraries);
 
-    # Drop the prebuilt GUI bundle next to the binaries. `rux gui` falls back to
-    # <install prefix>/share/reusex/gui when neither --assets nor
-    # $RUX_GUI_ASSETS is set (apps/rux/src/gui/assets.cpp), so this is what
-    # makes `nix run .#default -- gui` serve a UI at all.
+    # Drop the prebuilt GUI bundle next to the binaries. `ruxd --local` falls
+    # back to <install prefix>/share/reusex/gui when neither --assets nor
+    # $RUX_GUI_ASSETS is set (apps/ruxd/src/api/assets.cpp), so this is what
+    # makes `nix shell .#default -c ruxd --local scan.rux` serve a UI at all.
     #
     # Nothing here interacts with the postFixup runpath loop below: that loop
     # only walks $out/bin and $out/lib and additionally guards on isELF, while

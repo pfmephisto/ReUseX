@@ -10,7 +10,6 @@
 #include <edit.hpp>
 #include <export.hpp>
 #include <get.hpp>
-#include <gui.hpp>
 #include <import.hpp>
 #include <info.hpp>
 #include <log.hpp>
@@ -20,6 +19,7 @@
 #include <render.hpp>
 #include <rux_app.hpp>
 #include <set.hpp>
+#include <stage_executor.hpp>
 #include <validate.hpp>
 #include <view.hpp>
 
@@ -203,7 +203,6 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
   setup_subcommand_set(app, opt);
   setup_subcommand_del(app, opt);
 
-  setup_subcommand_gui(app, opt);
   setup_subcommand_info(app, opt);
   setup_subcommand_log(app, opt);
   setup_subcommand_validate(app, opt);
@@ -283,7 +282,7 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
       if (app.count("--project") > 0)
         request.project = opt->project_db;
       request.quit_after_ms = quit_after_ms;
-      request.stage_executor = make_gui_stage_executor();
+      request.stage_executor = make_stage_executor();
       const int rc = launch_gui(argc, argv, request);
       if (rux::qt::background_work_in_flight() > 0) {
         // run_app's bounded wait ran out while a detached thread (a project

@@ -13,6 +13,7 @@
 
 import { useState, useCallback } from 'react';
 import { api } from '../api/client';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { useJobs } from '../app/JobsContext';
 import type { IcpRefineResult, PoseGraphEdgeType } from '../api/types';
 import type { SelectedEdge } from '../viewport/PoseGraphScene';
@@ -46,6 +47,8 @@ export function PoseGraphEdgeInspector({
   const [optimizing, setOptimizing] = useState(false);
   const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const { active } = useJobs();
+  // A viewer sees the graph and the edges, not the controls that change them.
+  const canEdit = useCanEdit();
 
   const isJobActive = active.some((j) => j.stage === 'optimize');
 
@@ -80,14 +83,16 @@ export function PoseGraphEdgeInspector({
     return (
       <div className={styles.empty}>
         <p className={styles.emptyText}>Click an edge to inspect it.</p>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={() => setAddOpen(true)}
-        >
-          + Add manual edge
-        </button>
-        {addOpen && (
+        {canEdit && (
+          <button
+            type="button"
+            className={styles.addBtn}
+            onClick={() => setAddOpen(true)}
+          >
+            + Add manual edge
+          </button>
+        )}
+        {canEdit && addOpen && (
           <AddEdgeForm
             onAdded={() => {
               onAdded();
@@ -96,12 +101,14 @@ export function PoseGraphEdgeInspector({
             onCancel={() => setAddOpen(false)}
           />
         )}
-        <OptimizeSection
-          optimizing={optimizing}
-          isJobActive={isJobActive}
-          optimizeError={optimizeError}
-          onOptimize={handleOptimize}
-        />
+        {canEdit && (
+          <OptimizeSection
+            optimizing={optimizing}
+            isJobActive={isJobActive}
+            optimizeError={optimizeError}
+            onOptimize={handleOptimize}
+          />
+        )}
       </div>
     );
   }
@@ -148,25 +155,27 @@ export function PoseGraphEdgeInspector({
 
       {deleteError && <p className={styles.error}>{deleteError}</p>}
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.deleteBtn}
-          onClick={handleDelete}
-          disabled={deleting}
-        >
-          {deleting ? 'Deleting…' : 'Delete edge'}
-        </button>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={() => setAddOpen(true)}
-        >
-          + Add manual edge
-        </button>
-      </div>
+      {canEdit && (
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.deleteBtn}
+            onClick={handleDelete}
+            disabled={deleting}
+          >
+            {deleting ? 'Deleting…' : 'Delete edge'}
+          </button>
+          <button
+            type="button"
+            className={styles.addBtn}
+            onClick={() => setAddOpen(true)}
+          >
+            + Add manual edge
+          </button>
+        </div>
+      )}
 
-      {addOpen && (
+      {canEdit && addOpen && (
         <AddEdgeForm
           defaultFrom={edge.from}
           defaultTo={edge.to}
@@ -178,12 +187,14 @@ export function PoseGraphEdgeInspector({
         />
       )}
 
-      <OptimizeSection
-        optimizing={optimizing}
-        isJobActive={isJobActive}
-        optimizeError={optimizeError}
-        onOptimize={handleOptimize}
-      />
+      {canEdit && (
+        <OptimizeSection
+          optimizing={optimizing}
+          isJobActive={isJobActive}
+          optimizeError={optimizeError}
+          onOptimize={handleOptimize}
+        />
+      )}
     </div>
   );
 }

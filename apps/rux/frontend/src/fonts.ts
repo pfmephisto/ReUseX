@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * The GUI's two typefaces, bundled rather than fetched: `rux gui` is
+ * The GUI's two typefaces, bundled rather than fetched: `ruxd --local` is
  * local-first and must render the same on an offline laptop on site.
  *
  * Oswald (display) carries headings and large figures; Archivo (text) is the

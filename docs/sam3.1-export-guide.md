@@ -598,7 +598,7 @@ The C++ `EngineBuilder` in
 `engine-build.json` to build TensorRT engines on-device from the portable ONNX,
 without requiring `trtexec` or Python on the deployment machine. This means:
 
-- **For `rux gui` users**, the main deliverable of `make -C python export` is the
+- **For web GUI users (`ruxd --local`)**, the main deliverable of `make -C python export` is the
   ONNX bundle + `engine-build.json`, **not** per-machine `.engine` files. The GUI
   endpoint builds engines automatically on first use.
 - **For `rux create annotate` users** who want to pre-build engines, `make

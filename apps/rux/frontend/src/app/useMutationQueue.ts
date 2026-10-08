@@ -5,6 +5,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { ApiRequestError } from '../api/client';
+import { useCanEdit } from './CaseRoleContext';
 import type { SerialQueue } from './serialQueue';
 import { chainFor } from './writeChain';
 
@@ -19,6 +20,11 @@ export interface MutationQueueOptions {
    * own for writes that change no survey state and may run long (Rapport).
    */
   scope?: 'app' | 'page';
+  /**
+   * Writes that are not to the case (your own API tokens): not refused for a
+   * viewer of the open case.
+   */
+  ignoreCaseRole?: boolean;
 }
 
 export interface MutationQueue {
@@ -44,6 +50,11 @@ export function useMutationQueue(options: MutationQueueOptions): MutationQueue {
   }
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  // A viewer's write is refused here, before a request the server would
+  // answer 403 anyway (most edit controls are hidden for them too).
+  const allowed = useCanEdit();
+  const allowedRef = useRef(allowed);
+  allowedRef.current = allowed;
   const [inFlight, setInFlight] = useState(0);
 
   const mutate = useCallback(
@@ -51,6 +62,8 @@ export function useMutationQueue(options: MutationQueueOptions): MutationQueue {
       setInFlight((n) => n + 1);
       return queueRef.current!.enqueue(async () => {
         try {
+          if (!allowedRef.current && !optionsRef.current.ignoreCaseRole)
+            throw new ApiRequestError(403, 'Du har kun læseadgang til denne sag.', '');
           await run();
         } catch (cause) {
           if (cause instanceof ApiRequestError && cause.isUnprocessable && onUnprocessable) {

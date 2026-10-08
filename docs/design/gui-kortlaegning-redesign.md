@@ -121,11 +121,13 @@ The token system stays the mechanism: the prototype's values go into
 > now collapsible (closed by default, auto-opens on a tools route, choice
 > remembered per viewer in localStorage) rather than a flat always-open list.
 
-**Sager and one project per server.** `rux gui` serves one `.rux`. The Sager
-screen lists the open project as its card and says how to open another
-(`rux -p <fil>.rux gui`). Listing and switching between many cases is the
-remote/queued server's job (`ruxd`, #265 Phase 6) and gets its own issue; the
-screen is built so a longer list drops in without layout change.
+**Sager and one project per server.** `ruxd --local` (formerly `rux gui`)
+serves one `.rux`. The Sager screen lists the open project as its card and
+says how to open another (`ruxd --local <fil>.rux`). Listing and switching
+between many cases is the multi-case ruxd's job (spec
+`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`,
+phase S2); the screen is built so a longer list drops in without layout
+change.
 
 ## Kortlægning domain model
 
@@ -206,8 +208,9 @@ a user re-filed. It is exposed as `rux create survey` and
 `POST /api/v1/survey/sync`.
 
 **Evidence renders.** Plan / Punktsky / Rum-model images come from the existing
-headless `render_view()` with a new instance-highlight option. `rux_gui_lib`
-must not link VTK (same rule as for SAM3), so the rux app injects an
+headless `render_view()` with a new instance-highlight option. The API
+library (`rux_gui_lib` then, `ruxd_api_lib` now) must not link VTK (same rule
+as for SAM3), so the app injects an
 `IViewRenderer`, exactly like `IFrameSegmenter`; without one the endpoint
 answers 503.
 
@@ -405,8 +408,9 @@ v1 changes:
     `Gennemgået`);
   - the registration date in place of the deadline, which is not stored;
   - no `+ Nyt projekt` — instead an `Åbn en anden sag` panel with
-    `rux -p <fil>.rux gui` and the `--bind`/`--allow-origin` recipe for a
-    phone, with its no-authentication warning;
+    `ruxd --local <fil>.rux` and, for a phone, the
+    `--bind 0.0.0.0 --auth-token <token>` recipe (open
+    `http://<host>:8420/?token=<token>`);
   - the prototype's top tabs are not built; `← Alle sager` and an `On-site`
     sidebar entry replace them.
 - **On-site:**

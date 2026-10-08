@@ -261,7 +261,7 @@ export interface IdSource {
   random: () => number;
 }
 
-/** The browser's sources. `crypto.randomUUID` is absent over plain http on a LAN address (`rux gui --bind`). */
+/** The browser's sources. `crypto.randomUUID` is absent over plain http on a LAN address (`ruxd --local --bind`). */
 export function browserIdSource(): IdSource {
   const c = globalThis.crypto;
   return {

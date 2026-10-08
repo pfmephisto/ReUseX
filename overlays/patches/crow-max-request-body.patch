@@ -1,0 +1,45 @@
+--- a/include/crow/parser.h
++++ b/include/crow/parser.h
+@@ -7,6 +7,16 @@
+ #include "crow/http_request.h"
+ #include "crow/http_parser_merged.h"
+ 
++// ReUseX patch: largest request body accepted, in bytes; 0 = unlimited
++// (upstream behaviour). A request over it is a parse error: the connection is
++// closed without reading the body.
++#ifndef CROW_MAX_REQUEST_BODY
++#define CROW_MAX_REQUEST_BODY 0
++#endif
++// ReUseX patch sentinel: ruxd refuses to compile against a Crow without this
++// patch (a stale Crow_DIR would otherwise drop the cap silently).
++#define CROW_REUSEX_MAX_BODY_PATCH 1
++
+ namespace crow
+ {
+     /// A wrapper for `nodejs/http-parser`.
+@@ -75,6 +85,13 @@
+         static int on_headers_complete(http_parser* self_)
+         {
+             HTTPParser* self = static_cast<HTTPParser*>(self_);
++#if CROW_MAX_REQUEST_BODY > 0
++            // ReUseX patch: refuse a declared body over the cap before reading
++            // it, so one request cannot exhaust memory (Crow buffers bodies).
++            if (self->content_length != static_cast<uint64_t>(-1) &&
++                self->content_length > static_cast<uint64_t>(CROW_MAX_REQUEST_BODY))
++                return -1; // not 1: from here, 1 means "skip the body"
++#endif
+             if (!self->header_field.empty())
+             {
+                 self->req.headers.emplace(std::move(self->header_field), std::move(self->header_value));
+@@ -88,6 +105,11 @@
+         static int on_body(http_parser* self_, const char* at, size_t length)
+         {
+             HTTPParser* self = static_cast<HTTPParser*>(self_);
++#if CROW_MAX_REQUEST_BODY > 0
++            // ReUseX patch: the same cap for a chunked (length-less) body.
++            if (self->req.body.size() + length > static_cast<size_t>(CROW_MAX_REQUEST_BODY))
++                return -1;
++#endif
+             self->req.body.insert(self->req.body.end(), at, at + length);
+             return 0;
+         }

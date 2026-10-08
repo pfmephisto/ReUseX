@@ -16,7 +16,7 @@
   for its active entry, so it also previews via PreviewProviders (MemoryRouter,
   in src/preview-support.tsx via extraEntries). JobToaster keeps the FLOOR CARD
   deliberately: its JobsContext is not externally injectable and feeding it
-  requires a live rux gui server — do not chase this on re-sync.
+  requires a live ruxd --local server — do not chase this on re-sync.
 - .d.ts contracts come from `npm run build:types` (tsc -p tsconfig.decl.json ->
   dist-types/, wired as package.json "types" + src/index.ts barrel). Re-run it
   (cfg.buildCmd) whenever component props change.

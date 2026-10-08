@@ -543,7 +543,7 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
       return rc;
 
     // Flags -> options, then the stage parameters through the same reader
-    // the in-process optimize stage uses (Qt client, rux gui): the two paths
+    // the in-process optimize stage uses (Qt client, ruxd): the two paths
     // cannot read min_observations / assoc_rounds / no_gnc / dry_run apart.
     reusex::geometry::PlaneGraphOptions options = plane_graph_options(opt);
     bool dry_run = opt.dry_run;

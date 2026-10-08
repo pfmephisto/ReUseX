@@ -674,7 +674,7 @@ Dynamic axes: `batch` (axis 0); `prompt_len` (axis 1) on `prompt_features`/`prom
   time) whenever the engine dir has one.
 - Box labels: 1 for `pos`, 0 for `neg`; boxes are normalised `cxcywh`.
 - **A box is an exemplar**: SAM3 returns every object like the boxed one.
-  Single-image selection callers (`segment_image`, i.e. `rux gui` and
+  Single-image selection callers (`segment_image`, i.e. the web GUI and
   `rux create segment-frame`) set `select_box_instances` and keep only the
   detections the geometry points at (`sam3_detection_selected`).
 - **Points** (`Sam3Prompt::points`): the exported detector has no point input,
@@ -787,12 +787,12 @@ rux -p <project.rux> create annotate --net <model_dir> --video
 # single-threaded processing (shuffle/batch/workers are disabled).
 ```
 
-For `rux gui` usage, engines no longer need to be built manually — see §9
+For web GUI (`ruxd --local`) usage, engines no longer need to be built manually — see §9
 (managed provisioning).
 
 ---
 
-## 9. Managed provisioning for `rux gui`
+## 9. Managed provisioning for the web GUI (`ruxd --local`)
 
 This section covers the automatic model lifecycle introduced alongside the GUI
 segment endpoints. It is not relevant to the `rux create annotate` CLI path.
@@ -844,7 +844,7 @@ update rather than the first-run download-and-build copy.
 
 The managed model root is resolved in this precedence order:
 
-1. `--models-dir <dir>` flag to `rux gui`
+1. `--models-dir <dir>` flag to `ruxd --local`
 2. `$REUSEX_MODELS_DIR` environment variable
 3. `$XDG_CACHE_HOME/reusex/models` (falls back to `$HOME/.cache/reusex/models`)
 

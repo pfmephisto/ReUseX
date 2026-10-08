@@ -11,32 +11,37 @@ info:
     The shared contract between the ReUseX web frontend and its backends
     (issue #265).
 
-    Two implementations serve this contract:
-
-    * `rux gui` — a localhost Crow server embedded in the `rux` CLI. It opens
-      one `.rux` project directly and runs pipeline stages **in-process** on a
-      single worker thread.
-    * `ruxd` — the headless daemon (Phase 6). It will implement the same paths
-      backed by a persistent job queue and remote workers.
+    `ruxd` serves this contract. Today that is `ruxd --local <file.rux | dir>`
+    (formerly `rux gui`): a Crow server that serves every `.rux` it is given
+    as a **case** and runs pipeline stages **in-process** on a bounded worker
+    pool (`--job-workers`, default 1; at most one running job per case).
 
     The frontend is a pure client and must not be able to tell them apart.
     Consequently: job ids are opaque strings, no path ever carries a
     server-side filesystem location, and every long-running action goes through
     `/jobs` + the `/events` WebSocket rather than a blocking request.
 
-    A server instance is bound to exactly ONE project for its lifetime — the
-    project is selected when the server starts (`rux -p scan.rux gui`), not per
-    request. Multi-project browsing is intentionally out of scope for v1.
+    **Cases.** Every project route lives under `/api/v1/cases/{cid}/...`,
+    including the events WebSocket (`/cases/{cid}/events`): `{cid}` picks the
+    `.rux` project. ("Project" is taken: `/cases/{cid}/projects` are the
+    building records *inside* one `.rux`.) Server-level routes are the case
+    list (`/cases`, `/cases/{cid}`), uploads (`/uploads`), `/health`,
+    `/endpoints` and `/models/sam3/status`. Cases open lazily on the first
+    request that names them and close again when idle; a missing case is a
+    `404` everywhere.
   license:
     name: GPL-3.0-or-later
     identifier: GPL-3.0-or-later
 
 servers:
   - url: http://localhost:8420/api/v1
-    description: Default `rux gui` bind address
+    description: Default `ruxd --local` bind address
 
 security: []
-# No authentication in v1: `rux gui` binds to loopback and is single-user.
+# No authentication in v1: `ruxd --local` binds to loopback and is single-user
+# (beyond loopback it requires --auth-token, presented as bearerAuth, the
+# `ruxd_token_<port>` cookie or `?token=`, which redirects to the URL without
+# it).
 # Access control is an Origin allowlist enforced server-side (403 for a
 # non-allowlisted browser origin) plus `Content-Type: application/json` on
 # mutating routes. See docs/gui/README.md.
@@ -44,15 +49,28 @@ security: []
 # The empty list is a real statement, not an omission: it says "this operation
 # needs no credential", and a generated client honours it by sending none.
 # `components.securitySchemes.bearerAuth` is nevertheless declared, because
-# ruxd already takes `--auth-token` and will serve this same contract in
-# Phase 6. A remote deployment overrides this document's top-level `security`
-# with `[{bearerAuth: []}]`; the operations themselves do not change, so
-# Phase 6 is a client *configuration* change rather than a regenerate-
-# everything event.
+# `ruxd --local --auth-token` accepts it, and so does the multi-user server
+# (`ruxd` without --local, phase S3), which also accepts `sessionCookie`. There
+# every operation but `/health`, `/readyz`, `/endpoints` and `/auth/login`
+# needs one of the two; every `/cases/{cid}/…` operation also needs membership
+# of that case (a non-member gets 404, as for a missing case), GET needs any
+# role, other methods `editor` or `owner`, deleting the case and changing its
+# members `owner`; `/users` needs an administrator. A client of a remote
+# deployment overrides this document's top-level `security` with
+# `[{sessionCookie: []}, {bearerAuth: []}]`; the operations themselves do not
+# change.
 
 tags:
   - name: meta
     description: Service health and self-description
+  - name: auth
+    description: Signing in and out (server mode); who a request is (both modes)
+  - name: users
+    description: User accounts (server mode, administrators only)
+  - name: members
+    description: Who may see and change a case, and how (server mode)
+  - name: cases
+    description: The server's cases (one `.rux` each) — list, create, upload, rename, delete
   - name: project
     description: Project summary and metadata
   - name: clouds
@@ -96,14 +114,34 @@ paths:
   /health:
     get:
       tags: [meta]
-      operationId: getHealth
+      operationId: getServerHealth
       summary: Liveness probe and version handshake
+      description: Server level; opens no case.
+      responses:
+        "200":
+          description: The server is up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerHealth" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /cases/{cid}/health:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+    get:
+      tags: [meta]
+      operationId: getHealth
+      summary: Version handshake plus this case's project state
+      description: |
+        Never fails for a known case: when the project cannot be opened the
+        answer says so (`project.open == false`) in the documented shape.
       responses:
         "200":
           description: The server is up
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+        "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   /endpoints:
@@ -129,8 +167,663 @@ paths:
                     items: { $ref: "#/components/schemas/EndpointInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  # --------------------------------------------------------------- cases ----
+  /cases:
+    get:
+      tags: [cases]
+      operationId: listCases
+      summary: Every case this server serves
+      description: |
+        Not paged: a server's case list is short and the frontend shows all of
+        it. `ruxd --local <dir>` lists every `.rux` directly in the directory
+        plus every `<id>/project.rux` case directory; a lone `.rux` is one
+        read-only case.
+      responses:
+        "200":
+          description: The cases
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CaseList" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [cases]
+      operationId: createCase
+      summary: Create an empty case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        "201":
+          description: Created; the new project is migrated and openable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: The server has no data dir (it serves one file)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /cases/{cid}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+    get:
+      tags: [cases]
+      operationId: getCase
+      summary: One case
+      responses:
+        "200":
+          description: The case
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    patch:
+      tags: [cases]
+      operationId: updateCase
+      summary: Rename or archive a case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                archived: { type: boolean }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [cases]
+      operationId: deleteCase
+      summary: Delete a case (its files move to the server's trash)
+      description: |
+        Nothing is removed: the case is closed (its WAL checkpointed) and its
+        files move to `<data-dir>/.ruxd/trash/`. For the whole delete the case
+        is tombstoned: its routes answer `409` meanwhile, and a failed move
+        rolls the tombstone back. Open tabs get `case.closed` on the events
+        socket once the close is certain. The case's job history is dropped,
+        so a new case that reuses the id starts clean.
+      responses:
+        "204": { description: Moved to the trash }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: |
+            A job of the case is queued or running, a request still holds it,
+            or the case lives outside the data dir (a served file).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /readyz:
+    get:
+      tags: [meta]
+      operationId: getReadiness
+      summary: "Readiness probe: the server's backends are reachable"
+      description: |
+        Server mode: Postgres answers `SELECT 1` on a fresh connection. Local
+        mode has no backends and is always ready. Needs no credential.
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [ready] } }
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties: { status: { type: string, enum: [not_ready] } }
+
+  # ---------------------------------------------------------------- auth ----
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in; sets the session cookie
+      description: |
+        Server mode. Sets `ruxd_session_<port>` (HttpOnly, SameSite=Strict,
+        Secure unless the server binds loopback, Max-Age the session's
+        absolute lifetime). Rate limited: 5 attempts per minute per client IP
+        and email, 30 per IP. An unknown email, a wrong password and a
+        disabled account give the same 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Signed in
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthMe" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: Local mode has no login
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Too many attempts; wait `Retry-After` seconds
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out; ends the session
+      description: Deletes the session server-side and clears the cookie.
+      responses:
+        "204": { description: Signed out }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Who this request is signed in as
+      description: |
+        Server mode: the session's (or token's) user, or 401. Local mode: the
+        implicit user `local` (an administrator who owns every case), so a
+        client never shows a login page there.
+      responses:
+        "200":
+          description: The signed-in principal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthMe" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/tokens:
+    get:
+      tags: [auth]
+      operationId: listApiTokens
+      summary: Your API tokens (never the tokens)
+      description: |
+        Server mode, from a signed-in session (an API token may not manage
+        tokens: 403).
+      responses:
+        "200":
+          description: Your tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: "#/components/schemas/ApiToken" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [auth]
+      operationId: createApiToken
+      summary: Create an API token; it is shown once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                case: { type: string, description: Limit it to this case. }
+                expires_days:
+                  type: integer
+                  minimum: 0
+                  maximum: 3650
+                  description: "Days until it stops working; 0 = never; default 90."
+      responses:
+        "201":
+          description: |
+            Created. `token` (`rxt_…`) is in this answer only; the server
+            keeps its SHA-256.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/ApiToken" }
+                  - type: object
+                    required: [token]
+                    properties: { token: { type: string } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/tokens/{tid}:
+    parameters:
+      - name: tid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    delete:
+      tags: [auth]
+      operationId: revokeApiToken
+      summary: Revoke an API token
+      description: Your own; an administrator may revoke anyone's.
+      responses:
+        "204": { description: Revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # --------------------------------------------------------------- users ----
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: Every user (administrators)
+      responses:
+        "200":
+          description: The users, by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Local mode has no users
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Create a user (administrators)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                display_name: { type: string, maxLength: 200 }
+                password: { type: string, minLength: 8 }
+                is_admin: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: The email is taken (or local mode)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /users/{uid}:
+    parameters:
+      - name: uid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: One user (administrators)
+      responses:
+        "200":
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Rename, promote, disable or reset the password of a user (administrators)
+      description: Disabling or a new password ends every session of the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, maxLength: 200 }
+                is_admin: { type: boolean }
+                disabled: { type: boolean }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  # ------------------------------------------------------------- members ----
+  /cases/{cid}/members:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+    get:
+      tags: [members]
+      operationId: listCaseMembers
+      summary: "A case's members"
+      description: Any member may read the list. Administrators need no membership.
+      responses:
+        "200":
+          description: The members, by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items: { $ref: "#/components/schemas/CaseMember" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [members]
+      operationId: addCaseMember
+      summary: Add a member to a case by email (owners)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string }
+                role: { $ref: "#/components/schemas/CaseRole" }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CaseMember" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: |
+            No such case, or no user with that email whom the caller may add:
+            an owner finds only people they already share a case with, an
+            administrator anyone. Both misses read the same.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already a member (change the role instead)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /cases/{cid}/members/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
+      - name: uid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    patch:
+      tags: [members]
+      operationId: updateCaseMember
+      summary: "Change a member's role (owners)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/CaseRole" }
+      responses:
+        "200":
+          description: Changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CaseMember" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The case would be left without an owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [members]
+      operationId: removeCaseMember
+      summary: Remove a member from a case (owners)
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The case would be left without an owner
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /uploads:
+    post:
+      tags: [cases]
+      operationId: beginUpload
+      summary: Start uploading a .rux file as a new case
+      description: |
+        Uploads are chunked because the server buffers each request body in
+        memory: `PUT /uploads/{id}?offset=` the file in chunks of at most
+        `chunk_bytes`, then `POST /uploads/{id}/complete`. A request whose
+        body exceeds the server's hard cap (72 MiB) is refused at its headers
+        by closing the connection, before any of it is read. A chunk is
+        written at its offset (bytes past the acknowledged size are cut
+        away), so a client may resume with `GET /uploads/{id}`. An unfinished
+        upload is discarded after hours of inactivity or on restart.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, size]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                size: { type: integer, minimum: 1, description: File size in bytes }
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Upload" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: The server has no data dir (it serves one file)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Larger than the server accepts (`CaseList.upload.max_bytes`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Too many uploads in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: |
+            Not enough free space for this file and the uploads already in
+            progress (plus a margin for the migration adopting it runs)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /uploads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The upload's id (32 hex digits).
+        schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    get:
+      tags: [cases]
+      operationId: getUpload
+      summary: An upload's progress
+      description: How far the server got — where a resumed upload continues.
+      responses:
+        "200":
+          description: The upload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Upload" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    put:
+      tags: [cases]
+      operationId: appendUpload
+      summary: Append one chunk to an upload
+      parameters:
+        - name: offset
+          in: query
+          required: true
+          description: Must equal the bytes received so far.
+          schema: { type: integer, minimum: 0 }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Appended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Upload" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The offset does not continue the upload (the message names the expected one)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Chunk over `chunk_bytes`, or past the declared size
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    delete:
+      tags: [cases]
+      operationId: abortUpload
+      summary: Abandon an upload
+      responses:
+        "204": { description: Abandoned (unknown ids too) }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /uploads/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    post:
+      tags: [cases]
+      operationId: completeUpload
+      summary: Finish an upload and create its case
+      responses:
+        "201":
+          description: The new case (the file was opened and migrated once)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Case" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Not every byte has arrived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: |
+            The file is not a ReUseX project (a SQLite database with ReUseX's
+            `schema_version` table), or it could not be migrated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # ------------------------------------------------------------- project ----
-  /project:
+  /cases/{cid}/project:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [project]
       operationId: getProjectSummary
@@ -147,7 +840,9 @@ paths:
         "503": { $ref: "#/components/responses/ProjectUnavailable" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /projects:
+  /cases/{cid}/projects:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [project]
       operationId: listProjects
@@ -177,7 +872,9 @@ paths:
                         items: { $ref: "#/components/schemas/ProjectInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /projects/{id}:
+  /cases/{cid}/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     patch:
       tags: [project]
       operationId: patchProject
@@ -245,7 +942,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- clouds ----
-  /clouds:
+  /cases/{cid}/clouds:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [clouds]
       operationId: listClouds
@@ -273,7 +972,9 @@ paths:
                         items: { $ref: "#/components/schemas/CloudInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /clouds/{name}:
+  /cases/{cid}/clouds/{name}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [clouds]
       operationId: getCloud
@@ -289,7 +990,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /clouds/{name}/points:
+  /cases/{cid}/clouds/{name}/points:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [clouds]
       operationId: getCloudPoints
@@ -451,7 +1154,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- meshes ----
-  /clouds/{name}/labels:
+  /cases/{cid}/clouds/{name}/labels:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [clouds]
       operationId: getCloudLabels
@@ -526,7 +1231,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /clouds/{name}/tiles:
+  /cases/{cid}/clouds/{name}/tiles:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [clouds]
       operationId: getCloudTiles
@@ -573,7 +1280,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /meshes:
+  /cases/{cid}/meshes:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [meshes]
       operationId: listMeshes
@@ -599,7 +1308,9 @@ paths:
                         items: { $ref: "#/components/schemas/MeshInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /meshes/{name}:
+  /cases/{cid}/meshes/{name}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [meshes]
       operationId: getMesh
@@ -615,7 +1326,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /meshes/{name}/data:
+  /cases/{cid}/meshes/{name}/data:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [meshes]
       operationId: getMeshData
@@ -634,7 +1347,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /meshes/{name}/textures:
+  /cases/{cid}/meshes/{name}/textures:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [meshes]
       operationId: listMeshTextures
@@ -656,7 +1371,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /meshes/{name}/textures/{texture}:
+  /cases/{cid}/meshes/{name}/textures/{texture}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [meshes]
       operationId: getMeshTexture
@@ -680,7 +1397,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------- gsplats ----
-  /gsplats:
+  /cases/{cid}/gsplats:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [gsplats]
       operationId: listGsplats
@@ -715,7 +1434,9 @@ paths:
                     items: { $ref: "#/components/schemas/GsplatInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /gsplats/{name}:
+  /cases/{cid}/gsplats/{name}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [gsplats]
       operationId: getGsplat
@@ -731,7 +1452,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /gsplats/{name}/data:
+  /cases/{cid}/gsplats/{name}/data:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [gsplats]
       operationId: getGsplatData
@@ -761,7 +1484,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- frames ----
-  /frames:
+  /cases/{cid}/frames:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [frames]
       operationId: listFrames
@@ -808,7 +1533,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /frames/visibility:
+  /cases/{cid}/frames/visibility:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [frames]
       operationId: pointVisibility
@@ -870,7 +1597,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /frames/{id}:
+  /cases/{cid}/frames/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [frames]
       operationId: getFrame
@@ -886,7 +1615,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /frames/{id}/image:
+  /cases/{cid}/frames/{id}/image:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [frames]
       operationId: getFrameImage
@@ -970,7 +1701,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /frames/{id}/segment:
+  /cases/{cid}/frames/{id}/segment:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [frames]
       operationId: segmentFrame
@@ -994,8 +1727,8 @@ paths:
         point keeps the one object under it.
 
         **503 without a model registered:** the endpoint returns 503 when the
-        server was started without `rux gui` (e.g. from a test harness) because
-        `rux_gui_lib` never links the ML backends directly.
+        server was started without `ruxd --local` (e.g. from a test harness) because
+        `ruxd_api_lib` never links the ML backends directly.
       parameters:
         - name: id
           in: path
@@ -1012,7 +1745,9 @@ paths:
                   type: string
                   description: |
                     Optional filesystem path to the SAM3 model (TRT engine
-                    directory or ONNX directory). Reloaded when the path
+                    directory or ONNX directory). **Local mode only**: the
+                    multi-user server refuses it with 400 and uses its own
+                    configured or managed model. Reloaded when the path
                     changes between calls; cached otherwise. Omitted, null or
                     empty ⟹ the server resolves its managed SAM3 model (see
                     `GET /models/sam3/status`); a server with no managed
@@ -1168,7 +1903,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "503":
           description: |
-            No SAM3 segmenter is registered (server not started via `rux gui`,
+            No SAM3 segmenter is registered (server not started via `ruxd --local`,
             or model unavailable), or the managed SAM3 model is still being
             prepared — poll `GET /models/sam3/status`.
           content:
@@ -1176,7 +1911,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /frames/{id}/segment/resource:
+  /cases/{cid}/frames/{id}/segment/resource:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [frames]
       operationId: segmentFrameResource
@@ -1305,7 +2042,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- panoramas ----
-  /panoramas:
+  /cases/{cid}/panoramas:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [panoramas]
       operationId: listPanoramas
@@ -1331,7 +2070,9 @@ paths:
                         items: { $ref: "#/components/schemas/PanoramaInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /panoramas/{id}:
+  /cases/{cid}/panoramas/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [panoramas]
       operationId: getPanorama
@@ -1347,7 +2088,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /panoramas/{id}/image:
+  /cases/{cid}/panoramas/{id}/image:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [panoramas]
       operationId: getPanoramaImage
@@ -1390,7 +2133,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /panoramas/{id}/segment:
+  /cases/{cid}/panoramas/{id}/segment:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [panoramas]
       operationId: segmentPanorama
@@ -1407,7 +2152,7 @@ paths:
         list.
 
         **503 without a model registered:** the endpoint returns 503 when the
-        server was started without `rux gui` because `rux_gui_lib` never links
+        server was started without `ruxd --local` because `ruxd_api_lib` never links
         the ML backends directly.
 
         `model_path` is optional exactly as for `POST /frames/{id}/segment`:
@@ -1425,7 +2170,9 @@ paths:
                   type: string
                   description: |
                     Optional filesystem path to the SAM3 model (TRT engine
-                    directory or ONNX directory). Reloaded when the path
+                    directory or ONNX directory). **Local mode only**: the
+                    multi-user server refuses it with 400 and uses its own
+                    configured or managed model. Reloaded when the path
                     changes between calls; cached otherwise. Omitted, null or
                     empty ⟹ the server resolves its managed SAM3 model (see
                     `GET /models/sam3/status`); a server with no managed
@@ -1526,7 +2273,7 @@ paths:
         "503":
           description: |
             No SAM3 panorama segmenter is registered (server not started via
-            `rux gui`, or model unavailable), or the managed SAM3 model is
+            `ruxd --local`, or model unavailable), or the managed SAM3 model is
             still being prepared — poll `GET /models/sam3/status`.
           content:
             application/json:
@@ -1607,7 +2354,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------- components ----
-  /components:
+  /cases/{cid}/components:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [components]
       operationId: listComponents
@@ -1638,7 +2387,9 @@ paths:
                         items: { $ref: "#/components/schemas/ComponentInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /components/{name}:
+  /cases/{cid}/components/{name}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [components]
       operationId: getComponent
@@ -1658,7 +2409,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- materials ----
-  /materials:
+  /cases/{cid}/materials:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [materials]
       operationId: listMaterials
@@ -1704,7 +2457,9 @@ paths:
               schema: { $ref: "#/components/schemas/MaterialDetail" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /materials/{guid}:
+  /cases/{cid}/materials/{guid}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [materials]
       operationId: getMaterial
@@ -1790,7 +2545,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /materials/{guid}/thumbnail:
+  /cases/{cid}/materials/{guid}/thumbnail:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [materials]
       operationId: getMaterialThumbnail
@@ -1836,7 +2593,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------- resources (v25) ----
-  /resources/columns:
+  /cases/{cid}/resources/columns:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [resources]
       operationId: listResourceColumns
@@ -1897,7 +2656,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /resources/columns/{id}:
+  /cases/{cid}/resources/columns/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     patch:
       tags: [resources]
       operationId: updateResourceColumn
@@ -1971,7 +2732,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /resources/keys:
+  /cases/{cid}/resources/keys:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [resources]
       operationId: listResourceKeys
@@ -1989,7 +2752,9 @@ paths:
                 items: { $ref: "#/components/schemas/ResourceKey" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /resources:
+  /cases/{cid}/resources:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [resources]
       operationId: listResources
@@ -2059,8 +2824,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /resources/{code}:
+  /cases/{cid}/resources/{code}:
     parameters:
+      - $ref: "#/components/parameters/CaseId"
       - name: code
         in: path
         required: true
@@ -2134,7 +2900,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /resources/export.csv:
+  /cases/{cid}/resources/export.csv:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [resources]
       operationId: exportResourcesCsv
@@ -2163,7 +2931,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- instances ----
-  /instances/{cloud}:
+  /cases/{cid}/instances/{cloud}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [instances]
       operationId: listInstances
@@ -2201,7 +2971,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /instances/{cloud}/{id}/frames:
+  /cases/{cid}/instances/{cloud}/{id}/frames:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [instances]
       operationId: instanceVisibility
@@ -2277,7 +3049,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /instances/{cloud}/{id}/panoramas:
+  /cases/{cid}/instances/{cloud}/{id}/panoramas:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [instances]
       operationId: instancePanoramas
@@ -2337,7 +3111,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /instances/{cloud}/{id}/material:
+  /cases/{cid}/instances/{cloud}/{id}/material:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     put:
       tags: [instances]
       operationId: linkInstanceMaterial
@@ -2393,7 +3169,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------ pipeline ----
-  /stages:
+  /cases/{cid}/stages:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [pipeline]
       operationId: listStages
@@ -2420,7 +3198,9 @@ paths:
                     items: { $ref: "#/components/schemas/StageInfo" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /stages/{stage}/validation:
+  /cases/{cid}/stages/{stage}/validation:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [pipeline]
       operationId: validateStage
@@ -2459,7 +3239,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /pipeline-log:
+  /cases/{cid}/pipeline-log:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [pipeline]
       operationId: getPipelineLog
@@ -2504,7 +3286,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------- pose graph ----
-  /posegraph:
+  /cases/{cid}/posegraph:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [slam]
       operationId: getPoseGraph
@@ -2588,7 +3372,9 @@ paths:
                             time. Absent when not extractable.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /posegraph/edges:
+  /cases/{cid}/posegraph/edges:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [slam]
       operationId: addPoseGraphEdge
@@ -2647,7 +3433,9 @@ paths:
             or a pipeline job is running.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /posegraph/edges/{from}/{to}:
+  /cases/{cid}/posegraph/edges/{from}/{to}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     delete:
       tags: [slam]
       operationId: deletePoseGraphEdge
@@ -2703,7 +3491,9 @@ paths:
           description: A pipeline job is running; edits are refused.
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /posegraph/icp:
+  /cases/{cid}/posegraph/icp:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [slam]
       operationId: refinePoseGraphIcp
@@ -2781,7 +3571,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # --------------------------------------------------------------- reports ----
-  /reports/ressourcekortlaegning:
+  /cases/{cid}/reports/ressourcekortlaegning:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [reports]
       operationId: listReportVersions
@@ -2854,7 +3646,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /reports/ressourcekortlaegning/{id}:
+  /cases/{cid}/reports/ressourcekortlaegning/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [reports]
       operationId: getReportPdf
@@ -2875,7 +3669,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- exports ----
-  /exports/csv:
+  /cases/{cid}/exports/csv:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [exports]
       operationId: exportCsv
@@ -2910,7 +3706,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ------------------------------------------------------------- templates ----
-  /templates:
+  /cases/{cid}/templates:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [templates]
       operationId: listTemplates
@@ -2952,7 +3750,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /templates/restore-seeds:
+  /cases/{cid}/templates/restore-seeds:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [templates]
       operationId: restoreSeedTemplates
@@ -2978,8 +3778,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /templates/{id}:
+  /cases/{cid}/templates/{id}:
     parameters:
+      - $ref: "#/components/parameters/CaseId"
       - name: id
         in: path
         required: true
@@ -3015,8 +3816,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /templates/{id}/duplicate:
+  /cases/{cid}/templates/{id}/duplicate:
     parameters:
+      - $ref: "#/components/parameters/CaseId"
       - name: id
         in: path
         required: true
@@ -3040,7 +3842,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # -------------------------------------------------------------- survey ----
-  /survey:
+  /cases/{cid}/survey:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: getSurvey
@@ -3061,7 +3865,9 @@ paths:
                   types: { type: array, items: { $ref: "#/components/schemas/SurveyType" } }
                   counts: { $ref: "#/components/schemas/SurveyCounts" }
         default: { $ref: "#/components/responses/UnexpectedError" }
-  /survey/summary:
+  /cases/{cid}/survey/summary:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: getSurveySummary
@@ -3073,7 +3879,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SurveySummary" }
         default: { $ref: "#/components/responses/UnexpectedError" }
-  /survey/fractions:
+  /cases/{cid}/survey/fractions:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: getSurveyFractions
@@ -3093,7 +3901,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SurveyFractions" }
         default: { $ref: "#/components/responses/UnexpectedError" }
-  /survey/photos:
+  /cases/{cid}/survey/photos:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: getSurveyPhotos
@@ -3112,7 +3922,7 @@ paths:
         warning, not an error.
 
         Computing it decodes every relevant depth image once (about 3.5–3.9 s
-        on a 3876-frame, 155-instance, 1.2M-point project), so `rux gui`
+        on a 3876-frame, 155-instance, 1.2M-point project), so `ruxd --local`
         computes it in the background at startup and keeps the per-instance
         result in memory until a pipeline job finishes, the newest
         pipeline-log entry or the sensor-frame count changes, or a part refers
@@ -3124,7 +3934,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SurveyPhotos" }
         default: { $ref: "#/components/responses/UnexpectedError" }
-  /survey/sync:
+  /cases/{cid}/survey/sync:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [survey]
       operationId: syncSurvey
@@ -3203,7 +4015,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /survey/types:
+  /cases/{cid}/survey/types:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [survey]
       operationId: createSurveyType
@@ -3241,7 +4055,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /survey/types/{id}:
+  /cases/{cid}/survey/types/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     patch:
       tags: [survey]
       operationId: patchSurveyType
@@ -3330,7 +4146,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /survey/parts/{code}:
+  /cases/{cid}/survey/parts/{code}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     patch:
       tags: [survey]
       operationId: patchSurveyPart
@@ -3372,7 +4190,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /samples:
+  /cases/{cid}/samples:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: listSamples
@@ -3429,7 +4249,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /samples/{id}:
+  /cases/{cid}/samples/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     patch:
       tags: [survey]
       operationId: patchSample
@@ -3495,7 +4317,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /samples/{id}/links:
+  /cases/{cid}/samples/{id}/links:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     put:
       tags: [survey]
       operationId: setSampleLinks
@@ -3535,7 +4359,9 @@ paths:
         "503": { $ref: "#/components/responses/WriterBusy" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /renders:
+  /cases/{cid}/renders:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [survey]
       operationId: getRender
@@ -3610,7 +4436,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ---------------------------------------------------------------- jobs ----
-  /jobs:
+  /cases/{cid}/jobs:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [jobs]
       operationId: listJobs
@@ -3666,7 +4494,7 @@ paths:
         contract immediately) is equally valid. Never assert on it; drive the UI
         from the events or from a poll.
 
-        `rux gui` executes jobs one at a time on a single worker thread, so a
+        `ruxd --local` executes jobs one at a time on a single worker thread, so a
         submission may sit in `queued` behind another job. A remote
         implementation is free to run them in parallel — clients must not assume
         either.
@@ -3698,7 +4526,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /jobs/{id}:
+  /cases/{cid}/jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [jobs]
       operationId: getJob
@@ -3730,7 +4560,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
-  /jobs/{id}/cancel:
+  /cases/{cid}/jobs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     post:
       tags: [jobs]
       operationId: cancelJob
@@ -3759,7 +4591,9 @@ paths:
         default: { $ref: "#/components/responses/UnexpectedError" }
 
   # ----------------------------------------------------------- websocket ----
-  /events:
+  /cases/{cid}/events:
+    parameters:
+      - $ref: "#/components/parameters/CaseId"
     get:
       tags: [jobs]
       operationId: openEventStream
@@ -3782,6 +4616,17 @@ paths:
 components:
 
   securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: ruxd_session_<port>
+      description: |
+        Server mode: the login session set by `POST /auth/login` — a random
+        32-byte token, stored server-side only as its SHA-256. Named per port
+        (the literal name is `ruxd_session_` + the server's port, with the
+        `__Host-` prefix when the cookie is Secure). A
+        cookie-authenticated request that changes something must carry an
+        allowed `Origin` (403 otherwise).
     bearerAuth:
       type: http
       scheme: bearer
@@ -3789,14 +4634,27 @@ components:
         Bearer token in the `Authorization` header, matching ruxd's
         `--auth-token`.
 
-        **No implementation requires this today.** `rux gui` binds to loopback,
-        has no notion of a user, and leaves the document-level `security: []`
-        in force — sending a token to it is harmless and ignored. The scheme is
-        declared now so that the Phase 6 remote deployment (ruxd) is a change
-        of *which* security requirement applies, not a change to the operations
-        themselves.
+        **Required only beyond loopback.** `ruxd --local` binds to loopback by
+        default, has no notion of a user, and there leaves the document-level
+        `security: []` in force — sending a token to it is harmless and
+        ignored. Started with `--bind <non-loopback> --auth-token <t>`, it
+        requires the token on every request (this scheme, the `ruxd_token_<port>`
+        cookie, or `?token=`).
+
+        **Server mode** accepts two kinds of Bearer token: an API token
+        (`rxt_…`, from `ruxd admin create-token`, acting as its user and
+        optionally limited to one case) and the `--auth-token` superuser
+        token. Neither needs an `Origin`.
 
   parameters:
+    CaseId:
+      name: cid
+      in: path
+      required: true
+      description: |
+        The case: a slug of its file (or directory) name, `[a-z0-9-]`, with
+        `-2`, `-3` … on collisions. From `GET /cases`.
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
     Offset:
       name: offset
       in: query
@@ -3854,6 +4712,24 @@ components:
       schema: { type: string }
 
   responses:
+    Unauthorized:
+      description: |
+        Server mode: no valid session cookie or Bearer token (sign in first).
+        Local mode with `--auth-token`: the token is missing or wrong.
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        Signed in, but this role may not do this (a viewer's write, an
+        editor deleting the case or changing members, a non-administrator on
+        `/users`), or a signed-in browser request that changes something came
+        without an allowed `Origin`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     UnexpectedError:
       description: |
         Any failure that is not specific to this operation. Three can come back
@@ -3962,6 +4838,153 @@ components:
           type: integer
           description: The HTTP status, repeated for convenience.
 
+    ServerHealth:
+      type: object
+      required: [status, api_version, version, cases]
+      properties:
+        status: { type: string, enum: [ok] }
+        api_version: { type: string, examples: ["1.0.0"] }
+        version: { type: string, description: ReUseX build version. }
+        implementation: { type: string, enum: [rux-gui, ruxd] }
+        cases: { type: integer, description: How many cases the server serves. }
+
+    Case:
+      type: object
+      required: [id, name, file_name, created_at, archived, size_bytes, deletable, open]
+      properties:
+        id: { type: string, description: "The `{cid}` of every per-case route." }
+        name: { type: string }
+        file_name:
+          type: string
+          description: The `.rux` file name (never a server path).
+        created_at: { type: string, format: date-time }
+        archived: { type: boolean }
+        size_bytes: { type: integer }
+        deletable:
+          type: boolean
+          description: The case lives in the server's data dir, so it may be deleted.
+        open: { type: boolean, description: The server has it open right now. }
+        role:
+          description: |
+            The caller's role in this case (server mode; an administrator is
+            `owner` everywhere). Local mode's implicit user is `owner`.
+          oneOf:
+            - type: "null"
+            - { $ref: "#/components/schemas/CaseRole" }
+        summary:
+          description: |
+            The card's figures, read with a short read-only connection and
+            cached until the project file changes — the case is NOT opened
+            for it. `null` when the project cannot be read. On a project with
+            an older schema `survey` and `fractions` are `null` until the
+            case is opened once (a read-only probe never migrates).
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [project, survey, fractions]
+              properties:
+                project:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/ProjectInfo" }
+                survey:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/SurveySummary" }
+                fractions:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/SurveyFractions" }
+
+    ApiToken:
+      type: object
+      required: [id, name, case, created_at, expires_at, last_used_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        case:
+          oneOf: [{ type: "null" }, { type: string }]
+        created_at: { type: string }
+        expires_at:
+          description: "`null`: never expires."
+          oneOf: [{ type: "null" }, { type: string }]
+        last_used_at:
+          oneOf: [{ type: "null" }, { type: string }]
+
+    CaseRole:
+      type: string
+      enum: [viewer, editor, owner]
+      description: |
+        viewer: GET only. editor: everything in the case but deleting it and
+        managing members. owner: everything.
+
+    User:
+      type: object
+      required: [id, email, display_name, is_admin, disabled, created_at]
+      properties:
+        id: { type: integer, description: "0 for local mode's and the superuser's synthetic user." }
+        email: { type: string, description: Lower-cased; the login. }
+        display_name: { type: string }
+        is_admin: { type: boolean }
+        disabled: { type: boolean }
+        created_at: { type: string, description: "ISO-8601 UTC; empty for a synthetic user." }
+
+    AuthMe:
+      type: object
+      required: [mode, via, user]
+      properties:
+        mode:
+          type: string
+          enum: [local, server]
+          description: "`local`: `ruxd --local`, no login."
+        via:
+          type: string
+          enum: [local, session, token, superuser]
+        user: { $ref: "#/components/schemas/User" }
+        case_scope:
+          type: string
+          description: An API token limited to this case.
+
+    CaseMember:
+      type: object
+      required: [user, role]
+      properties:
+        user:
+          type: object
+          required: [id, email, display_name]
+          properties:
+            id: { type: integer }
+            email: { type: string }
+            display_name: { type: string }
+        role: { $ref: "#/components/schemas/CaseRole" }
+
+    CaseList:
+      type: object
+      required: [cases, writable, upload]
+      properties:
+        cases:
+          type: array
+          items: { $ref: "#/components/schemas/Case" }
+        writable:
+          type: boolean
+          description: Cases can be created, uploaded and deleted (the server has a data dir).
+        upload:
+          type: object
+          required: [max_bytes, chunk_bytes]
+          properties:
+            max_bytes: { type: integer }
+            chunk_bytes: { type: integer }
+
+    Upload:
+      type: object
+      required: [id, name, size, received, chunk_bytes]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        size: { type: integer }
+        received: { type: integer }
+        chunk_bytes: { type: integer, description: Largest chunk the server accepts. }
+
     Health:
       type: object
       required: [status, api_version, version, project]
@@ -3978,9 +5001,12 @@ components:
           type: string
           description: Which backend is answering.
           enum: [rux-gui, ruxd]
+        case:
+          type: string
+          description: The case id.
         project:
           type: object
-          description: The single project this server is bound to.
+          description: The case's project file.
           required: [name, open]
           properties:
             name:
@@ -4766,7 +5792,7 @@ components:
           description: >-
             Project this job is meant for, as reported by `GET /health` under
             `project.name`. Optional against a single-project server such as
-            `rux gui`, which answers 409 if it names anything other than the
+            `ruxd --local`, which answers 409 if it names anything other than the
             project it has open. A multi-project backend (ruxd, Phase 6) will
             require it. Send it: it costs nothing, and it is what stops a
             client pointed at the wrong server from quietly running a stage
@@ -4793,7 +5819,7 @@ components:
           description: >-
             The project this job belongs to. Always present, so a client can
             key its state on it whether it is talking to a single-project
-            `rux gui` or a multi-project ruxd.
+            `ruxd --local` or a multi-project ruxd.
         stage: { type: string }
         status:
           type: string

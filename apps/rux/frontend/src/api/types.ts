@@ -25,11 +25,115 @@ export interface Health {
   api_version: string;
   version: string;
   implementation?: 'rux-gui' | 'ruxd';
+  /** The case id (`GET /cases/{cid}/health`). */
+  case?: string;
   project: {
     name: string;
     open: boolean;
     schema_version?: number;
   };
+}
+
+/** `Case` — one project the server serves (`GET /api/v1/cases`). */
+export interface CaseSummary {
+  /** URL-safe id, the `{cid}` of every per-case route. */
+  id: string;
+  name: string;
+  /** The `.rux` file name; never a server path. */
+  file_name: string;
+  /** ISO-8601 UTC. */
+  created_at: string;
+  archived: boolean;
+  size_bytes: number;
+  /** The server may delete it (it lives in the server's data dir). */
+  deletable: boolean;
+  /** Open on the server right now. */
+  open: boolean;
+  /**
+   * The card's figures, read by the server without opening the case: the
+   * building record and the survey summary/fractions (same shapes as
+   * `/projects`, `/survey/summary`, `/survey/fractions`). `null` when the
+   * project cannot be read; `survey` is `null` on an older schema until the
+   * case is opened once.
+   */
+  summary?: CaseCardFigures | null;
+  /**
+   * The caller's role in this case (server mode); local mode's implicit user
+   * owns every case. `null` never reaches a client (it could not see the
+   * case), but an older server omits the field.
+   */
+  role?: CaseRole | null;
+}
+
+/** A member's role in one case (ruxd server mode, phase S3). */
+export type CaseRole = 'viewer' | 'editor' | 'owner';
+
+/** `User` — an account (never its password). */
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+  disabled: boolean;
+  created_at: string;
+}
+
+/** `AuthMe` — `GET /api/v1/auth/me` and the answer to a login. */
+export interface AuthMe {
+  /** `local`: `ruxd --local`, one implicit user, no login. */
+  mode: 'local' | 'server';
+  /** How this request authenticated. */
+  via: 'local' | 'session' | 'token' | 'superuser' | 'anonymous';
+  user: AuthUser;
+  /** An API token limited to one case. */
+  case_scope?: string;
+}
+
+/** `ApiToken` — one of your API tokens (never the token itself). */
+export interface ApiToken {
+  id: number;
+  name: string;
+  /** Limited to this case, or null for every case you may see. */
+  case: string | null;
+  created_at: string;
+  /** null = never expires. */
+  expires_at: string | null;
+  last_used_at: string | null;
+}
+
+/** The answer to creating a token: the token, shown once. */
+export interface NewApiToken extends ApiToken {
+  token: string;
+}
+
+/** `CaseMember` — `GET /api/v1/cases/{cid}/members`. */
+export interface CaseMember {
+  user: { id: number; email: string; display_name: string };
+  role: CaseRole;
+}
+
+export interface CaseCardFigures {
+  project: ProjectInfo | null;
+  survey: SurveySummary | null;
+  fractions: SurveyFractions | null;
+}
+
+/** `CaseList` — `GET /api/v1/cases`. Not paged: a server's list is short. */
+export interface CaseList {
+  cases: CaseSummary[];
+  /** Cases can be created and uploaded. */
+  writable: boolean;
+  upload: { max_bytes: number; chunk_bytes: number };
+}
+
+/** `Upload` — a chunked `.rux` upload in progress (`/api/v1/uploads`). */
+export interface UploadSession {
+  id: string;
+  name: string;
+  size: number;
+  received: number;
+  /** Largest chunk the server accepts. */
+  chunk_bytes: number;
 }
 
 /** `EndpointInfo` — one row of the server's self-described route table. */

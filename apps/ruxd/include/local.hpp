@@ -1,0 +1,55 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// `ruxd --local <file.rux | dir>`: the single-user web GUI.
+//
+// Serves the bundled frontend and the REST + WebSocket API
+// (docs/gui/openapi.yaml) for every case the target names, with no Postgres,
+// Redis or S3.
+// Formerly `rux gui`.
+
+#include <api/Server.hpp>
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
+namespace ruxd {
+
+struct LocalOptions {
+  /// The file or directory given to --local (see api::LocalCaseStore).
+  std::filesystem::path target;
+
+  /// Server settings. `target` is filled from `target`; the CLI binds the
+  /// rest of the fields directly so its defaults are the library's
+  /// (STANDARDS §4). `open_browser` defaults to false for a daemon.
+  api::ServerOptions server;
+
+  /// Explicit SAM3 model directory (a TRT engine dir or an ONNX dir). Empty =
+  /// resolve and, on first use, prepare the managed model.
+  std::string sam3_model_dir;
+  /// Base directory for managed models (else $REUSEX_MODELS_DIR / XDG cache).
+  std::string models_dir;
+  /// Release manifest URL for the portable ONNX bundle (else built-in).
+  std::string sam3_manifest_url;
+
+  /// `--case-idle-minutes`; copied into server.case_idle_timeout.
+  int case_idle_minutes = 10;
+  /// `--max-upload-mb`; copied into server.upload_limits.max_bytes.
+  std::uint64_t max_upload_mb = 32 * 1024;
+};
+
+/// Resolve the project, wire the injected pieces (SAM3 segmenters, managed
+/// model provider, renderer, ICP, optimize) and serve until SIGINT/SIGTERM.
+/// @return process exit code; startup errors are logged, not thrown.
+int run_local(LocalOptions options);
+
+/// The web GUI for either mode: wire the injected pieces into
+/// `options.server` (whatever stores it already carries) and serve until
+/// SIGINT/SIGTERM. @throws on a startup error.
+int serve_web(LocalOptions options);
+
+} // namespace ruxd

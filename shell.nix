@@ -162,6 +162,11 @@ in
         # PDF generation (used at runtime by ruxd for Ressourcekortlægning #456)
         typst
 
+        # initdb / pg_ctl / postgres for ruxd's [postgres] integration tests
+        # (tests/unit/ruxd_pg), which start an ephemeral server and skip
+        # without one, and for a local server-mode smoke run.
+        postgresql
+
         # DevOps tools
         nix-update
         sqlitebrowser

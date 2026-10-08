@@ -156,6 +156,10 @@ target_link_libraries(reusex_unit_tests
         ruxd_api_lib
         # ruxd's option parsing (tests/unit/ruxd_cli): CLI11 + ruxd_api_lib.
         ruxd_cli_lib
+        # Server mode's Postgres stores (tests/unit/ruxd_pg): libpqxx only;
+        # the [postgres] tests start an ephemeral server with initdb and skip
+        # when it is not on PATH.
+        ruxd_pg_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto

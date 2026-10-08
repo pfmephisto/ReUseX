@@ -14,6 +14,9 @@ find_package(SQLite3 REQUIRED)
 # The web API encodes images with cv::imencode, which lives in imgcodecs — the
 # reusex umbrella only carries core/imgproc/highgui, so name it explicitly.
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+# Password hashing (argon2id via EVP_KDF, OpenSSL >= 3.2), session tokens and
+# SHA-256 (src/api/credentials.cpp).
+find_package(OpenSSL 3.2 REQUIRED COMPONENTS Crypto)
 
 # Backend clients.
 # libpqxx and redis++ are imported via pkg-config: libpqxx ships no CMake
@@ -33,8 +36,12 @@ find_package(AWSSDK REQUIRED COMPONENTS s3)
 #                 `rux gui`'s rux_gui_lib). Links reusex_core and
 #                 reusex_pipeline ONLY      -> the LIGHT test binary
 #                                              (tests/unit/ruxd_api/)
-#   ruxd_lib      everything else: backend clients, auth, the
-#                 service routes, the CLI (ruxd::run), and the heavy pieces
+#   ruxd_pg_lib   src/pg/: server mode's Postgres stores, migrations and
+#                 `ruxd admin`. Links ruxd_api_lib + libpqxx
+#                                           -> the LIGHT test binary
+#                                              (tests/unit/ruxd_pg/)
+#   ruxd_lib      everything else: backend clients, the server and local
+#                 entry points, the CLI (ruxd::run), and the heavy pieces
 #                 injected into the API (SAM3, renderer, ICP,
 #                 optimize). Links the `reusex` umbrella
 #                                           -> the HEAVY test binary
@@ -49,9 +56,11 @@ find_package(AWSSDK REQUIRED COMPONENTS s3)
 # src/api/ or src/cli/ only if it links no further than core + pipeline.
 file(GLOB_RECURSE ruxd_api_SOURCES CONFIGURE_DEPENDS "src/api/*.cpp")
 file(GLOB_RECURSE ruxd_cli_SOURCES CONFIGURE_DEPENDS "src/cli/*.cpp")
+file(GLOB_RECURSE ruxd_pg_SOURCES CONFIGURE_DEPENDS "src/pg/*.cpp")
 file(GLOB_RECURSE ruxd_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 list(REMOVE_ITEM ruxd_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
-list(REMOVE_ITEM ruxd_SOURCES ${ruxd_api_SOURCES} ${ruxd_cli_SOURCES})
+list(REMOVE_ITEM ruxd_SOURCES ${ruxd_api_SOURCES} ${ruxd_cli_SOURCES}
+     ${ruxd_pg_SOURCES})
 
 # Crow buffers request bodies with no limit of its own; overlays/crow.nix
 # patches in CROW_MAX_REQUEST_BODY. It must have ONE value in every TU that
@@ -89,6 +98,8 @@ target_link_libraries(ruxd_api_lib
         opencv_imgcodecs
         # cases.cpp checks an upload is a ReUseX project before adopting it.
         SQLite3::SQLite3
+        # credentials.cpp: argon2id, random tokens, SHA-256.
+        OpenSSL::Crypto
 )
 
 # ---------------------------------------------------------------------------
@@ -105,9 +116,39 @@ target_link_libraries(ruxd_cli_lib
         spdlog::spdlog
 )
 
+# ---------------------------------------------------------------------------
+# ruxd_pg_lib -- server mode's Postgres stores, migrations and `ruxd admin`
+# ---------------------------------------------------------------------------
+# Light: ruxd_api_lib + libpqxx, so tests/unit/ruxd_pg runs in the light test
+# binary. The schema (migrations/NNN_*.sql) is embedded into a generated
+# source, regenerated whenever a migration file changes.
+file(GLOB ruxd_MIGRATIONS CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/migrations/*.sql")
+set(ruxd_MIGRATIONS_CPP "${CMAKE_CURRENT_BINARY_DIR}/migrations_embedded.cpp")
+add_custom_command(
+    OUTPUT "${ruxd_MIGRATIONS_CPP}"
+    COMMAND "${CMAKE_COMMAND}"
+            -DMIGRATIONS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/migrations
+            -DOUTPUT=${ruxd_MIGRATIONS_CPP}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedMigrations.cmake"
+    DEPENDS ${ruxd_MIGRATIONS}
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedMigrations.cmake"
+    COMMENT "Embedding ruxd's Postgres migrations"
+    VERBATIM)
+add_library(ruxd_pg_lib STATIC ${ruxd_pg_SOURCES} "${ruxd_MIGRATIONS_CPP}")
+target_include_directories(ruxd_pg_lib PUBLIC include)
+target_link_libraries(ruxd_pg_lib
+    PUBLIC
+        ruxd_api_lib
+        # PUBLIC: pg/database.hpp holds a ConnectionPool (connection_pool.hpp
+        # logs through spdlog); callers of Database::with() dereference pqxx.
+        PkgConfig::LIBPQXX
+        spdlog::spdlog
+)
+
 add_library(ruxd_lib STATIC ${ruxd_SOURCES})
-# PUBLIC: consumers (ruxd, tests) include auth.hpp/endpoints.hpp, which pull in
-# Crow and nlohmann_json headers.
+# PUBLIC: consumers (ruxd, tests) include clients.hpp / connection_pool.hpp
+# and the CLI and server headers.
 target_include_directories(ruxd_lib PUBLIC include)
 target_link_libraries(ruxd_lib
     PUBLIC
@@ -119,6 +160,7 @@ target_link_libraries(ruxd_lib
         spdlog::spdlog
         ruxd_api_lib
         ruxd_cli_lib
+        ruxd_pg_lib
     PRIVATE
         reusex
         opencv_imgcodecs

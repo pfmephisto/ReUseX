@@ -107,9 +107,12 @@ class JobQueue {
 
   /// Enqueue a stage run. Returns the new job id.
   /// @param parameters JSON object string; "" means "stage defaults".
+  /// @param submitted_by Who asked for it (JobRecord::submitted_by); "" when
+  ///        nobody in particular did (the CLI, local mode).
   /// @throws std::runtime_error if @p parameters is not a JSON object, or the
   ///         queue or its scheduler is shutting down.
-  std::string submit(JobStage stage, std::string parameters = {});
+  std::string submit(JobStage stage, std::string parameters = {},
+                     std::string submitted_by = {});
 
   /// Request cancellation (queued: cancelled now; running: cancel token set;
   /// terminal: no-op). @return false if this queue has no such job.

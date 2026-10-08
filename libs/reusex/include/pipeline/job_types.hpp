@@ -59,6 +59,9 @@ struct JobRecord {
   std::string submitted_at; ///< ISO-8601 UTC.
   std::string started_at;   ///< ISO-8601 UTC; empty while queued.
   std::string finished_at;  ///< ISO-8601 UTC; empty until terminal.
+  /// Who submitted it — an opaque id the caller chose (ruxd: the user id);
+  /// empty when nobody in particular did. Stored, never interpreted here.
+  std::string submitted_by;
   bool cancel_requested = false;
 
   /// Live progress, mirrored from the stage's core::ProgressObserver.

@@ -553,7 +553,8 @@ const std::filesystem::path &JobQueue::project() const noexcept {
   return state_->project;
 }
 
-std::string JobQueue::submit(JobStage stage, std::string parameters) {
+std::string JobQueue::submit(JobStage stage, std::string parameters,
+                             std::string submitted_by) {
   // Validate up front so a malformed request fails at submit time with a
   // useful message instead of dying inside the worker (STANDARDS §5).
   if (!parameters.empty()) {
@@ -570,6 +571,7 @@ std::string JobQueue::submit(JobStage stage, std::string parameters) {
   record.status = JobStatus::queued;
   record.parameters = std::move(parameters);
   record.submitted_at = iso8601_utc_now();
+  record.submitted_by = std::move(submitted_by);
 
   auto &core = *core_;
   JobEvent event;

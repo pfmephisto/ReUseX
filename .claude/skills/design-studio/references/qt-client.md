@@ -176,7 +176,11 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   `NavItem::escape_mnemonic()` (`&` -> `&&`). A plain `QLabel` is safe.
 - **Locale**: `QApplication` calls `setlocale(LC_ALL, "")`; under `da_DK`
   `std::stod("0.75")` is 0. Parse numbers with `std::from_chars` (the token
-  parser does; a unit test pins it). Found as "every font size is 0".
+  parser does; a unit test pins it). Found as "every font size is 0" — and
+  again in Q2 as wrong intrinsics and a fake ICP result, because the
+  LIBRARY parsed with strtod. Now `run_app` and the gallery set
+  `LC_NUMERIC` back to "C" right after the QApplication, and library code
+  uses `reusex/utils/parse_number.hpp`. Never add a `stod`/`strtod`.
 - **QVTKOpenGLNativeWidget is blank under `QT_QPA_PLATFORM=offscreen`** (no GL
   context) and `minimalegl` core-dumps. Screenshot mode therefore renders 3D
   through `reusex::visualize::render_view()` — VTK's EGL offscreen window —

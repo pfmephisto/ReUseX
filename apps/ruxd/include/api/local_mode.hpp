@@ -11,6 +11,7 @@
 // unit-tested in the light binary (tests/unit/ruxd_api/test_api_local_mode.cpp)
 // rather than only through a listening server.
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -65,7 +66,9 @@ bool origin_matches_host(std::string_view origin, std::string_view host);
 
 /// Whether the request's Host header names this server (DNS-rebinding guard).
 ///
-/// - loopback @p bind_address: only `localhost`, `127.0.0.1` or `[::1]`;
+/// - loopback @p bind_address: `localhost`, `127.0.0.1` or `[::1]`, or the
+///   host of an @p allowed_origins entry (a reverse proxy on the same host
+///   that passes the public Host through);
 /// - wildcard bind (`0.0.0.0`, `::`): any host — such a bind always has an
 ///   access token, which a rebinding page cannot present;
 /// - any other bind: the bind address itself or the host of an
@@ -73,6 +76,25 @@ bool origin_matches_host(std::string_view origin, std::string_view host);
 /// The port is not compared. An empty Host is refused.
 bool host_allowed(std::string_view host_header, std::string_view bind_address,
                   const std::vector<std::string> &allowed_origins);
+
+/// Every value of the cookie @p name in a `Cookie:` header (a browser may
+/// send several with one name, for different paths or domains).
+std::vector<std::string_view> cookie_values(std::string_view cookie_header,
+                                            std::string_view name);
+
+/// The token of an `Authorization: Bearer <token>` header, or "" when the
+/// header is absent or another scheme.
+std::string_view bearer_token(std::string_view authorization_header);
+
+/// Name of the login session cookie: `ruxd_session_<port>` (per port for the
+/// same reason as token_cookie_name()).
+std::string session_cookie_name(std::uint16_t port);
+
+/// A `Set-Cookie` value for the session: HttpOnly, SameSite=Strict, Path=/,
+/// Max-Age, and `Secure` when @p secure. Max-Age 0 (with an empty value)
+/// deletes it.
+std::string session_cookie(std::string_view name, std::string_view value,
+                           std::chrono::seconds max_age, bool secure);
 
 /// Compare a presented token against the configured one in time that does not
 /// depend on where they differ. An empty @p expected never matches.

@@ -20,12 +20,14 @@
 
 #include <api/api.hpp>
 #include <api/cases.hpp>
+#include <reusex/pipeline/JobStore.hpp>
 #include <reusex/pipeline/stages.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -41,7 +43,19 @@ class IViewRenderer;
 
 namespace ruxd::api {
 
-/// Everything `ruxd --local` needs to stand a server up.
+class AuthService;
+
+/// When the session cookie carries `Secure`.
+enum class CookieSecure {
+  /// Unless the server binds loopback — but always when the request arrived
+  /// through a TLS proxy that says so (`X-Forwarded-Proto: https`).
+  automatic,
+  always,
+  never,
+};
+
+/// Everything a server — `ruxd --local`, or the multi-user server — needs to
+/// stand up.
 struct ServerOptions {
   /// What `ruxd --local` serves: one `.rux` file, or a directory whose `.rux`
   /// files (and `<id>/project.rux` case directories) are the cases. See
@@ -76,8 +90,27 @@ struct ServerOptions {
   /// beyond loopback is refused unless `auth_token` is set.
   std::string bind_address = "127.0.0.1";
 
-  /// Shared access token. Empty = no authentication, which is allowed only on
-  /// a loopback bind (the constructor throws otherwise).
+  /// Server mode (phase S3): users, sessions, API tokens and case
+  /// membership. nullptr = local mode, whose one implicit user (`local`)
+  /// owns every case and never logs in. With it, every API route but
+  /// health, readiness, the route table and login needs a session or a
+  /// token; every case route checks membership; mutations are audited.
+  std::shared_ptr<AuthService> auth;
+
+  /// Where job records go (server mode: Postgres). nullptr = in memory.
+  std::shared_ptr<reusex::pipeline::IJobStore> job_store;
+
+  /// Whether the session cookie is `Secure` (server mode).
+  CookieSecure cookie_secure = CookieSecure::automatic;
+
+  /// Backs `GET /api/v1/readyz`: true when the server's backends are
+  /// reachable. Empty = always ready (local mode has no backends).
+  std::function<bool()> readiness;
+
+  /// Local mode: a shared access token. Empty = no authentication, which is
+  /// allowed only on a loopback bind (the constructor throws otherwise). In
+  /// server mode: the superuser token (AuthOptions::superuser_token), which
+  /// the server takes from `auth` — this field is then ignored.
   ///
   /// When set, every HTTP request and the WebSocket upgrade must present it:
   /// as `Authorization: Bearer <token>` (scripts), as the `ruxd_token` cookie,

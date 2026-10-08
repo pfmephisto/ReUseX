@@ -747,10 +747,12 @@ std::optional<CaseInfo> LocalCaseStore::find(std::string_view id) const {
 }
 bool LocalCaseStore::writable() const { return impl_->writable(); }
 fs::path LocalCaseStore::staging_dir() const { return impl_->staging_dir(); }
-CaseInfo LocalCaseStore::create(const std::string &name) {
+CaseInfo LocalCaseStore::create(const std::string &name,
+                                std::optional<std::int64_t>) {
   return impl_->create(name);
 }
-CaseInfo LocalCaseStore::adopt(const std::string &name, const fs::path &file) {
+CaseInfo LocalCaseStore::adopt(const std::string &name, const fs::path &file,
+                               std::optional<std::int64_t>) {
   return impl_->adopt(name, file);
 }
 CaseInfo LocalCaseStore::update(std::string_view id, const CasePatch &patch) {

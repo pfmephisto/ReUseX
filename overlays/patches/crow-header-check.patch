@@ -42,7 +42,7 @@ diff -ru a/include/crow/app.h b/include/crow/app.h
 diff -ru a/include/crow/http_connection.h b/include/crow/http_connection.h
 --- a/include/crow/http_connection.h
 +++ b/include/crow/http_connection.h
-@@ -121,8 +121,25 @@
+@@ -121,8 +121,31 @@
              }
          }
  
@@ -54,10 +54,16 @@ diff -ru a/include/crow/http_connection.h b/include/crow/http_connection.h
 +            // refuses (say, an unauthenticated upload) never gets its body
 +            // buffered. A refusal is written synchronously and the connection
 +            // is closed: the unread body makes it unusable for keep-alive.
-+            // Only for a request that found a route: handle_url has already
-+            // answered one that did not (404) and must not be answered twice.
++            // Only for a request that declares a body (a bodyless one costs
++            // nothing to read, and middleware refuses it without closing the
++            // connection), and only for one that found a route: handle_url
++            // has already answered one that did not (404).
++            const bool has_body = (parser_.flags & F_CHUNKED) ||
++                                  (parser_.content_length != static_cast<uint64_t>(-1) &&
++                                   parser_.content_length > 0);
 +            req_.remote_ip_address = adaptor_.address();
-+            if ((routing_handle_result_->rule_index || routing_handle_result_->catch_all) &&
++            if (has_body &&
++                (routing_handle_result_->rule_index || routing_handle_result_->catch_all) &&
 +                !handler_->check_headers(req_, res))
 +            {
 +                close_connection_ = true;
@@ -69,7 +75,7 @@ diff -ru a/include/crow/http_connection.h b/include/crow/http_connection.h
              // HTTP 1.1 Expect: 100-continue
              if (req_.http_ver_major == 1 && req_.http_ver_minor == 1 && get_header_value(req_.headers, "expect") == "100-continue")
              {
-@@ -142,6 +159,7 @@
+@@ -142,6 +165,7 @@
                  need_to_call_after_handlers_ = true;
                  complete_request();
              }

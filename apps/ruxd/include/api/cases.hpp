@@ -97,15 +97,19 @@ class ICaseStore {
   /// the cases, so adopting an upload is a rename.
   virtual std::filesystem::path staging_dir() const = 0;
 
-  /// Create a new, empty case: a fresh, migrated project file.
+  /// Create a new, empty case: a fresh, migrated project file. @p created_by
+  /// is the user who asked (server mode records it; nullopt = nobody in
+  /// particular).
   /// @throws HttpError(409) when not writable.
-  virtual CaseInfo create(const std::string &name) = 0;
+  virtual CaseInfo create(const std::string &name,
+                          std::optional<std::int64_t> created_by) = 0;
   /// Create a case from a complete `.rux` at @p staged_file, which is moved
   /// into place and then opened (and migrated) once to prove it is a project.
   /// @throws HttpError(409) when not writable, HttpError(422) when the file
   ///         is not a usable project (the case is then removed again).
   virtual CaseInfo adopt(const std::string &name,
-                         const std::filesystem::path &staged_file) = 0;
+                         const std::filesystem::path &staged_file,
+                         std::optional<std::int64_t> created_by) = 0;
   /// Apply @p patch. @throws HttpError(404) for an unknown id.
   virtual CaseInfo update(std::string_view id, const CasePatch &patch) = 0;
   /// Move the case's files (the `.rux`, its `-wal`/`-shm`, and its case
@@ -144,9 +148,12 @@ class LocalCaseStore final : public ICaseStore {
   std::optional<CaseInfo> find(std::string_view id) const override;
   bool writable() const override;
   std::filesystem::path staging_dir() const override;
-  CaseInfo create(const std::string &name) override;
+  /// @p created_by is not recorded: local mode has one implicit user.
+  CaseInfo create(const std::string &name,
+                  std::optional<std::int64_t> created_by = {}) override;
   CaseInfo adopt(const std::string &name,
-                 const std::filesystem::path &staged_file) override;
+                 const std::filesystem::path &staged_file,
+                 std::optional<std::int64_t> created_by = {}) override;
   CaseInfo update(std::string_view id, const CasePatch &patch) override;
   std::filesystem::path move_to_trash(std::string_view id) override;
 

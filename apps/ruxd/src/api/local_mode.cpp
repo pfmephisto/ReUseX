@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -196,15 +197,18 @@ bool host_allowed(std::string_view host_header, std::string_view bind_address,
   if (host.empty())
     return false;
 
-  if (is_loopback_bind(bind_address))
-    return iequals(host, "localhost") || host == "127.0.0.1" || host == "::1";
-
-  const auto bind = unbracket(bind_address);
-  if (bind == "0.0.0.0" || bind == "::")
-    return true;
-
-  if (iequals(host, bind))
-    return true;
+  if (is_loopback_bind(bind_address)) {
+    if (iequals(host, "localhost") || host == "127.0.0.1" || host == "::1")
+      return true;
+    // Behind a reverse proxy on the same host that passes the public Host
+    // through: that name is the one --allow-origin named.
+  } else {
+    const auto bind = unbracket(bind_address);
+    if (bind == "0.0.0.0" || bind == "::")
+      return true;
+    if (iequals(host, bind))
+      return true;
+  }
   for (const auto &origin : allowed_origins) {
     const auto scheme_end = origin.find("://");
     const std::string_view authority =
@@ -215,6 +219,45 @@ bool host_allowed(std::string_view host_header, std::string_view bind_address,
       return true;
   }
   return false;
+}
+
+std::vector<std::string_view> cookie_values(std::string_view cookie_header,
+                                            std::string_view name) {
+  std::vector<std::string_view> out;
+  std::size_t pos = 0;
+  while (pos < cookie_header.size()) {
+    const auto end =
+        std::min(cookie_header.find(';', pos), cookie_header.size());
+    const auto pair = trim(cookie_header.substr(pos, end - pos));
+    const auto eq = pair.find('=');
+    if (eq != std::string_view::npos && trim(pair.substr(0, eq)) == name)
+      out.push_back(trim(pair.substr(eq + 1)));
+    pos = end + 1;
+  }
+  return out;
+}
+
+std::string_view bearer_token(std::string_view authorization_header) {
+  const auto auth = trim(authorization_header);
+  constexpr std::string_view kBearer = "Bearer ";
+  if (auth.size() > kBearer.size() &&
+      iequals(auth.substr(0, kBearer.size()), kBearer))
+    return trim(auth.substr(kBearer.size()));
+  return {};
+}
+
+std::string session_cookie_name(std::uint16_t port) {
+  return "ruxd_session_" + std::to_string(port);
+}
+
+std::string session_cookie(std::string_view name, std::string_view value,
+                           std::chrono::seconds max_age, bool secure) {
+  std::string out = std::string(name) + "=" + std::string(value) +
+                    "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" +
+                    std::to_string(std::max<long long>(0, max_age.count()));
+  if (secure)
+    out += "; Secure";
+  return out;
 }
 
 bool token_matches(std::string_view presented, std::string_view expected) {

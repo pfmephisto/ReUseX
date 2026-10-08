@@ -25,6 +25,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <api/AuthService.hpp>
 #include <api/Server.hpp>
 #include <api/assets.hpp>
 #include <api/cases.hpp>
@@ -1278,4 +1279,271 @@ TEST_CASE("RunningServer_CaseList_CarriesCardsWithoutOpeningCases",
   const auto jobs =
       nlohmann::json::parse(connection.get("/api/v1/cases/ny/jobs").body);
   CHECK(jobs["jobs"].empty());
+}
+
+// ===========================================================================
+// Server mode (phase S3): logins, roles, membership, the header-phase check
+// ===========================================================================
+
+namespace {
+
+/// The cookie pair ("name=value") out of a Set-Cookie header.
+std::string cookie_pair(const std::string &set_cookie) {
+  return set_cookie.substr(0, set_cookie.find(';'));
+}
+
+/// What an unauthenticated request with a big declared body gets back while
+/// its body has NOT been sent: the header-phase check answers it at once.
+std::string reply_before_body(std::uint16_t port, const std::string &head) {
+  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  REQUIRE(fd >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+  addr.sin_port = ::htons(port);
+  REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+          0);
+  timeval timeout{};
+  timeout.tv_sec = 10;
+  ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  ::send(fd, head.data(), head.size(), MSG_NOSIGNAL);
+  std::string reply;
+  char chunk[1024];
+  for (;;) {
+    const ssize_t n = ::recv(fd, chunk, sizeof(chunk), 0);
+    if (n <= 0)
+      break;
+    reply.append(chunk, static_cast<std::size_t>(n));
+  }
+  ::close(fd);
+  return reply;
+}
+
+} // namespace
+
+TEST_CASE("RunningServer_ServerMode_LoginRolesAndMembership",
+          "[ruxd_api][server][socket][auth]") {
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_auth");
+  for (const char *name : {"alpha.rux", "beta.rux"})
+    reusex::ProjectDB(dir.path / name, /*readOnly=*/false);
+
+  auto stores = in_memory_auth_stores();
+  AuthOptions auth_options;
+  auth_options.argon2.iterations = 1;
+  auth_options.argon2.memory_kib = 256;
+  auth_options.argon2.lanes = 1;
+  auto auth = std::make_shared<AuthService>(stores, auth_options);
+  const auto root =
+      auth->create_user("root@example.dk", "Root", "hemmeligt1", true);
+  const auto vera =
+      auth->create_user("vera@example.dk", "Vera", "hemmeligt2", false);
+  stores.members->set_role("alpha", vera.id, Role::viewer);
+
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.auth = auth;
+  RunningServer server(std::move(options));
+  const std::string port = std::to_string(server.port());
+  const std::string origin = "Origin: http://127.0.0.1:" + port + "\r\n";
+  // A fresh connection per request: a request refused in the header phase
+  // (before its body is read) closes its connection, as a browser expects.
+  const auto fresh = [&] { return KeepAliveConnection(server.port()); };
+
+  // Signed out: the page loads (the login page is part of it); the API
+  // does not.
+  CHECK(fresh().get("/").status == 200);
+  CHECK(fresh().get("/api/v1/health").status == 200);
+  CHECK(fresh().get("/api/v1/auth/me").status == 401);
+  CHECK(fresh().get("/api/v1/cases").status == 401);
+  CHECK(fresh().get("/api/v1/cases/alpha/project").status == 401);
+
+  // A refused upload is answered before its body is read (header phase).
+  const auto early = reply_before_body(
+      server.port(),
+      "PUT /api/v1/uploads/0123456789abcdef0123456789abcdef?offset=0 "
+      "HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: "
+      "application/octet-stream\r\nContent-Length: 50000000\r\n\r\n");
+  CHECK(early.find(" 401 ") != std::string::npos);
+
+  // Wrong password; then the right one sets an HttpOnly, SameSite=Strict
+  // session cookie (not Secure: loopback).
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/auth/login",
+                       R"({"email":"vera@example.dk","password":"nej"})",
+                       origin)
+            .status == 401);
+  const auto login = fresh().send_json(
+      "POST", "/api/v1/auth/login",
+      R"({"email":"Vera@example.dk","password":"hemmeligt2"})", origin);
+  REQUIRE(login.status == 200);
+  CHECK(login.set_cookie.rfind("ruxd_session_" + port + "=", 0) == 0);
+  CHECK(login.set_cookie.find("HttpOnly") != std::string::npos);
+  CHECK(login.set_cookie.find("SameSite=Strict") != std::string::npos);
+  CHECK(login.set_cookie.find("Secure") == std::string::npos);
+  const std::string vera_cookie =
+      "Cookie: " + cookie_pair(login.set_cookie) + "\r\n";
+
+  const auto me = fresh().get("/api/v1/auth/me", vera_cookie);
+  REQUIRE(me.status == 200);
+  CHECK(nlohmann::json::parse(me.body)["user"]["email"] == "vera@example.dk");
+  CHECK(nlohmann::json::parse(me.body)["mode"] == "server");
+
+  // She sees only her case, with her role.
+  const auto list =
+      nlohmann::json::parse(fresh().get("/api/v1/cases", vera_cookie).body);
+  REQUIRE(list["cases"].size() == 1);
+  CHECK(list["cases"][0]["id"] == "alpha");
+  CHECK(list["cases"][0]["role"] == "viewer");
+
+  // Viewer: reads, never writes (403); another case does not exist (404).
+  CHECK(fresh().get("/api/v1/cases/alpha/project", vera_cookie).status == 200);
+  CHECK(fresh().get("/api/v1/cases/beta/project", vera_cookie).status == 404);
+  CHECK(fresh().get("/api/v1/cases/beta", vera_cookie).status == 404);
+  CHECK(fresh().get("/api/v1/cases/nonexistent/project", vera_cookie).status ==
+        404);
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases/alpha/jobs",
+                       R"({"stage":"planes"})", vera_cookie + origin)
+            .status == 403);
+  CHECK(fresh()
+            .send_json("PATCH", "/api/v1/cases/alpha", R"({"name":"x"})",
+                       vera_cookie + origin)
+            .status == 403);
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases/alpha/members",
+                       R"({"email":"root@example.dk","role":"viewer"})",
+                       vera_cookie + origin)
+            .status == 403);
+  CHECK(fresh().get("/api/v1/users", vera_cookie).status == 403);
+  // The events socket follows membership too.
+  CHECK(websocket_upgrade_status(server.port(), "/api/v1/cases/beta/events",
+                                 vera_cookie)
+            .find("101") == std::string::npos);
+  CHECK(websocket_upgrade_status(server.port(), "/api/v1/cases/alpha/events",
+                                 vera_cookie)
+            .find("101") != std::string::npos);
+
+  // The admin makes her an editor of beta; she can then write there.
+  const auto root_login = fresh().send_json(
+      "POST", "/api/v1/auth/login",
+      R"({"email":"root@example.dk","password":"hemmeligt1"})", origin);
+  REQUIRE(root_login.status == 200);
+  const std::string root_cookie =
+      "Cookie: " + cookie_pair(root_login.set_cookie) + "\r\n";
+  // A signed-in mutation without an Origin is refused.
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases/beta/members",
+                       R"({"email":"vera@example.dk","role":"editor"})",
+                       root_cookie)
+            .status == 403);
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases/beta/members",
+                       R"({"email":"vera@example.dk","role":"editor"})",
+                       root_cookie + origin)
+            .status == 201);
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases/beta/members",
+                       R"({"email":"nobody@example.dk","role":"editor"})",
+                       root_cookie + origin)
+            .status == 404);
+  const auto members = nlohmann::json::parse(
+      fresh().get("/api/v1/cases/beta/members", root_cookie).body);
+  REQUIRE(members["members"].size() == 1);
+  CHECK(members["members"][0]["role"] == "editor");
+  CHECK(fresh()
+            .send_json("PATCH", "/api/v1/cases/beta", R"({"name":"Beta"})",
+                       vera_cookie + origin)
+            .status == 200);
+  // Editors cannot delete the case or manage members.
+  CHECK(fresh()
+            .send_json("DELETE", "/api/v1/cases/beta", "", vera_cookie + origin)
+            .status == 403);
+  CHECK(fresh()
+            .send_json("PATCH",
+                       "/api/v1/cases/beta/members/" + std::to_string(vera.id),
+                       R"({"role":"owner"})", vera_cookie + origin)
+            .status == 403);
+
+  // A case the admin creates is owned by them; members can be changed and
+  // the last owner cannot be removed.
+  const auto created = fresh().send_json(
+      "POST", "/api/v1/cases", R"({"name":"Gamma"})", root_cookie + origin);
+  REQUIRE(created.status == 201);
+  CHECK(stores.members->role_of("gamma", root.id) == Role::owner);
+  CHECK(fresh()
+            .send_json("DELETE",
+                       "/api/v1/cases/gamma/members/" + std::to_string(root.id),
+                       "", root_cookie + origin)
+            .status == 409);
+
+  // Every mutation that went through is in the audit log.
+  const auto audit =
+      std::dynamic_pointer_cast<InMemoryAuditLog>(stores.audit)->entries();
+  const auto has = [&](const std::string &action) {
+    return std::any_of(audit.begin(), audit.end(),
+                       [&](const AuditEntry &e) { return e.action == action; });
+  };
+  CHECK(has("auth.login"));
+  CHECK(has("auth.login_failed"));
+  CHECK(has("POST /api/v1/cases/beta/members"));
+  CHECK(has("PATCH /api/v1/cases/beta"));
+  CHECK(has("POST /api/v1/cases"));
+  CHECK_FALSE(has("PATCH /api/v1/cases/alpha")); // refused: not audited
+
+  // Logout ends the session server-side and clears the cookie.
+  const auto out = fresh().send_json("POST", "/api/v1/auth/logout", "",
+                                     vera_cookie + origin);
+  CHECK(out.status == 204);
+  CHECK(out.set_cookie.find("Max-Age=0") != std::string::npos);
+  CHECK(fresh().get("/api/v1/auth/me", vera_cookie).status == 401);
+}
+
+TEST_CASE("RunningServer_ServerMode_ApiTokenAndSuperuser",
+          "[ruxd_api][server][socket][auth]") {
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_token");
+  for (const char *name : {"alpha.rux", "beta.rux"})
+    reusex::ProjectDB(dir.path / name, /*readOnly=*/false);
+  auto stores = in_memory_auth_stores();
+  AuthOptions auth_options;
+  auth_options.argon2.iterations = 1;
+  auth_options.argon2.memory_kib = 256;
+  auth_options.argon2.lanes = 1;
+  auth_options.superuser_token = "root-token-0123456789";
+  auto auth = std::make_shared<AuthService>(stores, auth_options);
+  const auto ci = auth->create_user("ci@example.dk", "CI", "hemmeligt1", false);
+  stores.members->set_role("alpha", ci.id, Role::editor);
+  stores.members->set_role("beta", ci.id, Role::editor);
+  const auto token = auth->create_api_token(ci.id, "ci", std::string("alpha"));
+
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.auth = auth;
+  // Server mode authenticates every request: any bind goes.
+  options.bind_address = "0.0.0.0";
+  RunningServer server(std::move(options));
+  const auto fresh = [&] { return KeepAliveConnection(server.port()); };
+  const std::string bearer = "Authorization: Bearer " + token + "\r\n";
+
+  // A scoped token: its case only, no Origin needed (no cookie to abuse).
+  CHECK(fresh().get("/api/v1/cases/alpha/project", bearer).status == 200);
+  CHECK(fresh().get("/api/v1/cases/beta/project", bearer).status == 404);
+  CHECK(
+      fresh()
+          .send_json("PATCH", "/api/v1/cases/alpha", R"({"name":"A"})", bearer)
+          .status == 200);
+  CHECK(fresh()
+            .send_json("POST", "/api/v1/cases", R"({"name":"x"})", bearer)
+            .status == 403);
+  CHECK(fresh()
+            .get("/api/v1/cases/alpha/project",
+                 "Authorization: Bearer rxt_wrong\r\n")
+            .status == 401);
+
+  // The superuser token may do everything.
+  const std::string su = "Authorization: Bearer root-token-0123456789\r\n";
+  CHECK(fresh().get("/api/v1/users", su).status == 200);
+  CHECK(fresh().get("/api/v1/cases/beta/project", su).status == 200);
+  const auto me =
+      nlohmann::json::parse(fresh().get("/api/v1/auth/me", su).body);
+  CHECK(me["via"] == "superuser");
 }

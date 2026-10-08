@@ -4,11 +4,13 @@
 
 #include "api/Server.hpp"
 
+#include "api/AuthService.hpp"
 #include "api/FrameSegmenter.hpp"
 #include "api/ModelProvider.hpp"
 #include "api/ProjectContext.hpp"
 #include "api/ProjectRegistry.hpp"
 #include "api/ViewRenderer.hpp"
+#include "api/access.hpp"
 #include "api/api.hpp"
 #include "api/assets.hpp"
 #include "api/case_meta.hpp"
@@ -43,6 +45,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -261,21 +264,55 @@ class RedactingCrowLog final : public crow::ILogHandler {
 ///
 /// Middleware rather than per-route code so it cannot be forgotten on a route
 /// added later.
+/// The access decision for one request (Server::Impl::evaluate): who it is,
+/// what it touches, and whether it may.
+struct Gate {
+  AccessDecision decision;
+  Principal principal;
+  RouteAccess route;
+  std::optional<Role> role;
+  /// Local mode: the token came as `?token=` (set the cookie, redirect).
+  bool token_via_query = false;
+};
+
 class SecurityMiddleware {
     public:
   struct context {
     /// The request proved the token with `?token=`; answer with the cookie so
     /// the browser's later <img>/fetch/WebSocket requests carry it.
     bool set_token_cookie = false;
+    /// Who the request is (server mode: a user, a token, the superuser;
+    /// local mode: the implicit user) and what it touches.
+    Principal principal;
+    RouteAccess route;
+    std::optional<Role> role;
   };
 
+  using Evaluate = std::function<Gate(const crow::request &)>;
+
   void configure(std::vector<std::string> extra_origins, std::string auth_token,
-                 std::string bind_address, uint16_t port) {
+                 std::string bind_address, uint16_t port, bool server_mode,
+                 Evaluate evaluate, std::shared_ptr<AuthService> auth) {
     extra_origins_ = std::move(extra_origins);
     auth_token_ = std::move(auth_token);
     bind_address_ = std::move(bind_address);
     cookie_name_ = token_cookie_name(port);
+    server_mode_ = server_mode;
+    evaluate_ = std::move(evaluate);
+    auth_ = std::move(auth);
   }
+
+  /// The JSON error response for a refused gate, with its headers.
+  static crow::response refusal(const AccessDecision &decision) {
+    auto res = error_response(decision.status, decision.message);
+    if (decision.status == 401)
+      res.set_header("WWW-Authenticate", "Bearer");
+    res.set_header("Referrer-Policy", "no-referrer");
+    return res;
+  }
+
+  /// Run the access decision (also the Crow header-phase check).
+  Gate evaluate(const crow::request &req) const { return evaluate_(req); }
 
   /// The token check for @p req. Always ok when no token is configured.
   /// Shared with the WebSocket onaccept, which middleware cannot guard.
@@ -295,14 +332,14 @@ class SecurityMiddleware {
                         extra_origins_);
   }
 
-  /// Loopback, an --allow-origin entry, or — when a token is configured —
-  /// the request's own origin (`Origin` equal to `<scheme>://<Host>`), which
-  /// is what a browser on another machine sends for the page this server
-  /// served it.
+  /// Loopback, an --allow-origin entry, or — when a token is configured, or
+  /// in server mode, where authentication is mandatory — the request's own
+  /// origin (`Origin` equal to `<scheme>://<Host>`), which is what a browser
+  /// on another machine sends for the page this server served it.
   bool origin_ok(const crow::request &req, const std::string &origin) const {
     if (is_allowed(origin))
       return true;
-    return !auth_token_.empty() &&
+    return (server_mode_ || !auth_token_.empty()) &&
            origin_matches_host(origin, req.get_header_value("Host"));
   }
 
@@ -318,42 +355,26 @@ class SecurityMiddleware {
     if (req.upgrade)
       return;
 
-    if (!host_ok(req)) {
-      spdlog::warn("Refused a request for host '{}'",
-                   req.get_header_value("Host"));
-      res = error_response(403, "host '" + req.get_header_value("Host") +
-                                    "' is not served here");
-      res.end();
-      return;
-    }
-
+    // Host, origin, authentication and authorization, all in one decision
+    // (Server::Impl::evaluate). Crow's header phase ran the same decision
+    // before the body was read, so a refusal here is the rare request whose
+    // standing changed in between (a session revoked mid-upload, say).
     // OPTIONS never reaches here — see the note in after_handle.
-    const std::string origin = req.get_header_value("Origin");
-    if (!origin.empty() && !origin_ok(req, origin)) {
-      spdlog::warn("Refused a cross-origin request from '{}' to {}", origin,
-                   req.url);
-      res = error_response(403, "origin '" + origin +
-                                    "' is not allowed; pass --allow-origin to "
-                                    "permit it");
+    const Gate gate = evaluate(req);
+    if (!gate.decision.allowed()) {
+      res = refusal(gate.decision);
       res.end();
       return;
     }
-
-    // Access token (`ruxd --local --auth-token`, required beyond loopback).
-    // After the origin check so a foreign page learns nothing either way.
-    const TokenCheck token = check(req);
-    if (!token.ok) {
-      res = error_response(401, "missing or wrong access token");
-      res.set_header("WWW-Authenticate", "Bearer");
-      res.end();
-      return;
-    }
-    ctx.set_token_cookie = token.via_query;
+    ctx.principal = gate.principal;
+    ctx.route = gate.route;
+    ctx.role = gate.role;
+    ctx.set_token_cookie = gate.token_via_query;
 
     // A browser that arrived with `?token=`: set the cookie and send it on to
     // the same URL without the token, so the secret leaves the address bar,
     // the history and any Referer.
-    if (token.via_query && req.method == crow::HTTPMethod::Get) {
+    if (gate.token_via_query && req.method == crow::HTTPMethod::Get) {
       res = crow::response(303);
       res.set_header("Location", strip_query_param(req.raw_url, "token"));
       res.set_header("Set-Cookie", token_cookie());
@@ -399,6 +420,19 @@ class SecurityMiddleware {
     // No page this server sends may leak its URL to another site.
     res.set_header("Referrer-Policy", "no-referrer");
     apply_cors(req.get_header_value("Origin"), res);
+
+    // Every mutation that went through is audited (server mode). Central, so
+    // a route added later cannot forget it. Login and logout are audited by
+    // AuthService itself (the principal is not known here for a login).
+    const std::string method = crow::method_name(req.method);
+    if (auth_ && !is_safe_method(method) && res.code < 400 &&
+        ctx.principal.authenticated() && req.url != "/api/v1/auth/login" &&
+        req.url != "/api/v1/auth/logout")
+      auth_->audit(ctx.principal,
+                   ctx.route.kind == RouteAccess::Kind::case_route
+                       ? std::optional<std::string>(ctx.route.cid)
+                       : std::nullopt,
+                   method + " " + req.url, std::to_string(res.code));
   }
 
   bool is_allowed(const std::string &origin) const {
@@ -428,6 +462,9 @@ class SecurityMiddleware {
   std::string auth_token_;
   std::string bind_address_;
   std::string cookie_name_;
+  bool server_mode_ = false;
+  Evaluate evaluate_;
+  std::shared_ptr<AuthService> auth_;
 };
 
 /// The concrete Crow application type for `ruxd --local`, with the security
@@ -450,9 +487,16 @@ class Server::Impl {
           "--port 0 is not supported: Crow cannot report back which ephemeral "
           "port it bound, so nothing could tell you where to connect");
 
+    auth_ = options_.auth;
+    // In server mode the superuser token lives in AuthService; the local
+    // access-token machinery (cookie, ?token=) is off.
+    if (auth_)
+      options_.auth_token.clear();
+
     // Before any project is touched: a refused bind must not create or
-    // migrate anything.
-    if (options_.auth_token.empty() && !is_loopback_bind(options_.bind_address))
+    // migrate anything. Server mode always authenticates, so any bind goes.
+    if (!auth_ && options_.auth_token.empty() &&
+        !is_loopback_bind(options_.bind_address))
       throw std::runtime_error(
           "--bind '" + options_.bind_address +
           "' reaches beyond this machine, and the API can read and change the "
@@ -476,10 +520,32 @@ class Server::Impl {
 
     options_.asset_dir = resolve_asset_dir(options_.asset_dir);
 
+    session_cookie_name_ = session_cookie_name(options_.port);
     app_.get_middleware<SecurityMiddleware>().configure(
         options_.allowed_origins, options_.auth_token, options_.bind_address,
-        options_.port);
-    if (!options_.auth_token.empty())
+        options_.port, auth_ != nullptr,
+        [this](const crow::request &req) { return evaluate(req); }, auth_);
+    // The same decision once the headers are in and BEFORE the body is read
+    // (the Crow patch in overlays/crow.nix): an unauthenticated or forbidden
+    // upload is refused without its body ever being buffered.
+    app_.header_check([this](const crow::request &req, crow::response &res) {
+      const Gate gate = evaluate(req);
+      if (gate.decision.allowed())
+        return true;
+      res = SecurityMiddleware::refusal(gate.decision);
+      return false;
+    });
+    if (auth_)
+      spdlog::info("Server mode: users and sessions ({} cookie{}); "
+                   "superuser token {}",
+                   session_cookie_name_,
+                   options_.cookie_secure == CookieSecure::never
+                       ? ", not Secure"
+                   : options_.cookie_secure == CookieSecure::always
+                       ? ", Secure"
+                       : ", Secure unless on loopback",
+                   auth_->options().superuser_token.empty() ? "off" : "on");
+    else if (!options_.auth_token.empty())
       spdlog::info("Access token required (Bearer header, '{}' cookie or "
                    "?token=)",
                    token_cookie_name(options_.port));
@@ -489,7 +555,8 @@ class Server::Impl {
     executor_ = options_.stage_executor ? options_.stage_executor
                                         : pipeline::default_stage_executor();
     scheduler_ = std::make_unique<pipeline::JobScheduler>(
-        pipeline::JobSchedulerOptions{options_.job_workers});
+        pipeline::JobSchedulerOptions{options_.job_workers},
+        options_.job_store);
     spdlog::info("Job workers: {}", scheduler_->workers());
 
     RegistryOptions registry_options;
@@ -515,6 +582,13 @@ class Server::Impl {
       } catch (const std::exception &e) {
         spdlog::warn("Expiring uploads failed: {}", e.what());
       }
+      if (auth_)
+        try {
+          if (const auto n = auth_->purge_expired(); n > 0)
+            spdlog::debug("Purged {} expired session(s)", n);
+        } catch (const std::exception &e) {
+          spdlog::warn("Purging expired sessions failed: {}", e.what());
+        }
     });
 
     register_routes();
@@ -622,6 +696,113 @@ class Server::Impl {
     throw HttpError(503, "SAM3 model is being prepared (" + st.state +
                              "): " + st.message +
                              " — poll GET /api/v1/models/sam3/status");
+  }
+
+  // --- access ----------------------------------------------------------------
+
+  /// The one access decision for @p req: Host, Origin, who it is, what it
+  /// touches and whether that is allowed (access.hpp holds the matrix). Runs
+  /// twice per request — in Crow's header phase, before the body is read,
+  /// and again in SecurityMiddleware — and must therefore be side-effect
+  /// free apart from a session's sliding renewal.
+  Gate evaluate(const crow::request &req) {
+    const auto &security = app_.get_middleware<SecurityMiddleware>();
+    Gate gate;
+    const std::string method = crow::method_name(req.method);
+    gate.route = classify_route(method, req.url);
+
+    if (!security.host_ok(req)) {
+      spdlog::warn("Refused a request for host '{}'",
+                   req.get_header_value("Host"));
+      gate.decision = {403, "host '" + req.get_header_value("Host") +
+                                "' is not served here"};
+      return gate;
+    }
+    const std::string origin = req.get_header_value("Origin");
+    if (!origin.empty() && !security.origin_ok(req, origin)) {
+      spdlog::warn("Refused a cross-origin request from '{}' to {}", origin,
+                   req.url);
+      gate.decision = {403, "origin '" + origin +
+                                "' is not allowed; pass --allow-origin to "
+                                "permit it"};
+      return gate;
+    }
+
+    if (!auth_) {
+      // Local mode: the optional access token guards everything, static
+      // files included; whoever has it is the implicit owner of every case.
+      // After the origin check so a foreign page learns nothing either way.
+      const TokenCheck token = security.check(req);
+      if (!token.ok) {
+        gate.decision = {401, "missing or wrong access token"};
+        return gate;
+      }
+      gate.token_via_query = token.via_query;
+      gate.principal = local_principal();
+      gate.role = Role::owner;
+      gate.decision = decide_access(gate.principal, gate.route, gate.role);
+      return gate;
+    }
+
+    // Server mode.
+    PresentedCredentials credentials;
+    const std::string authorization = req.get_header_value("Authorization");
+    const std::string cookies = req.get_header_value("Cookie");
+    credentials.bearer = bearer_token(authorization);
+    credentials.session_cookies = cookie_values(cookies, session_cookie_name_);
+    try {
+      gate.principal = auth_->authenticate(credentials);
+      if (gate.route.kind == RouteAccess::Kind::case_route)
+        gate.role = auth_->role_in(gate.principal, gate.route.cid);
+    } catch (const std::exception &e) {
+      spdlog::error("Authentication failed: {}", e.what());
+      gate.decision = {503, "the user database is unavailable; retry shortly"};
+      return gate;
+    }
+    gate.decision = decide_access(gate.principal, gate.route, gate.role);
+    // A signed-in browser's mutation must say where it came from: browsers
+    // send Origin on every non-GET request, so its absence means a forged
+    // or non-browser request riding on the cookie. Bearer clients (scripts)
+    // are exempt — they carry no ambient credential to abuse.
+    if (gate.decision.allowed() &&
+        gate.principal.kind == PrincipalKind::session &&
+        !is_safe_method(method) && origin.empty())
+      gate.decision = {403, "a signed-in request that changes something must "
+                            "carry an Origin header"};
+    return gate;
+  }
+
+  /// Who @p req is (set by SecurityMiddleware).
+  const Principal &principal_of(const crow::request &req) {
+    return app_.get_context<SecurityMiddleware>(req).principal;
+  }
+
+  /// Whether the session cookie set in answer to @p req is `Secure`.
+  bool cookie_secure_for(const crow::request &req) const {
+    switch (options_.cookie_secure) {
+    case CookieSecure::always:
+      return true;
+    case CookieSecure::never:
+      return false;
+    case CookieSecure::automatic:
+      break;
+    }
+    // Over TLS terminated by a proxy the bind is often loopback, so the
+    // proxy's word counts too. Trusting it is harmless: it only adds Secure.
+    std::string proto = req.get_header_value("X-Forwarded-Proto");
+    std::transform(proto.begin(), proto.end(), proto.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return proto == "https" || !is_loopback_bind(options_.bind_address);
+  }
+
+  /// The JSON for a user (never the password hash).
+  static json user_json(const User &user) {
+    return json{{"id", user.id},
+                {"email", user.email},
+                {"display_name", user.display_name},
+                {"is_admin", user.is_admin},
+                {"disabled", user.disabled},
+                {"created_at", user.created_at}};
   }
 
   // --- cases ---------------------------------------------------------------
@@ -754,10 +935,37 @@ class Server::Impl {
 
   /// The JSON for one case, with whether it is open right now and its card
   /// figures (`summary`), read without opening it (case_meta.hpp).
-  nlohmann::json case_of(const CaseInfo &info) {
+  nlohmann::json case_of(const CaseInfo &info, const Principal &who) {
     auto out = case_json(info, registry_->find_open(info.id) != nullptr);
     out["summary"] = summaries_.get(info);
+    // The caller's role, so the UI can hide what it may not do.
+    std::optional<Role> role =
+        auth_ ? auth_->role_in(who, info.id) : std::optional(Role::owner);
+    out["role"] = role ? json(std::string(to_string(*role))) : json(nullptr);
     return out;
+  }
+
+  /// Whether @p who may see case @p id in a list.
+  bool can_see(const Principal &who, const std::string &id) {
+    return !auth_ || auth_->role_in(who, id).has_value();
+  }
+
+  /// Make @p who the owner of the case they just created (server mode).
+  void make_owner(const Principal &who, const std::string &cid) {
+    if (auth_)
+      if (const auto uid = who.user_id())
+        auth_->stores().members->set_role(cid, *uid, Role::owner);
+  }
+
+  /// Who started an upload: only they may continue, inspect or finish it.
+  std::string uploader_key(const Principal &who) const {
+    return std::string(to_string(who.kind)) + ":" + std::to_string(who.user.id);
+  }
+  void check_uploader(const crow::request &req, const std::string &id) {
+    std::lock_guard<std::mutex> lock(uploaders_mutex_);
+    auto it = uploaders_.find(id);
+    if (it == uploaders_.end() || it->second != uploader_key(principal_of(req)))
+      throw HttpError(404, "no such upload");
   }
 
   // --- server-level routes: cases and uploads -------------------------------
@@ -767,18 +975,23 @@ class Server::Impl {
         .methods(crow::HTTPMethod::GET,
                  crow::HTTPMethod::POST)([this](const crow::request &req) {
           return guarded([&] {
+            const Principal &who = principal_of(req);
             if (req.method == crow::HTTPMethod::GET) {
+              // Only the cases the caller may see: a member's, or all for
+              // an admin. The rest do not exist, as far as they can tell.
               json list = json::array();
               for (const auto &info : cases_->list())
-                list.push_back(case_of(info));
+                if (can_see(who, info.id))
+                  list.push_back(case_of(info, who));
               return json_response(200, cases_list_json(std::move(list),
                                                         cases_->writable(),
                                                         uploads_->limits()));
             }
             const std::string name = parse_case_create(req.body);
-            const CaseInfo info = cases_->create(name);
-            spdlog::info("Case '{}' created", info.id);
-            return json_response(201, case_of(info));
+            const CaseInfo info = cases_->create(name, who.user_id());
+            make_owner(who, info.id);
+            spdlog::info("Case '{}' created by {}", info.id, who.user.email);
+            return json_response(201, case_of(info, who));
           });
         });
 
@@ -787,15 +1000,17 @@ class Server::Impl {
                  crow::HTTPMethod::DELETE)([this](const crow::request &req,
                                                   std::string cid) {
           return guarded([&] {
+            const Principal &who = principal_of(req);
             if (req.method == crow::HTTPMethod::GET) {
               auto info = cases_->find(cid);
               if (!info)
                 throw HttpError(404, "no such case '" + cid + "'");
-              return json_response(200, case_of(*info));
+              return json_response(200, case_of(*info, who));
             }
             if (req.method == crow::HTTPMethod::PATCH) {
               const auto patch = parse_case_patch(req.body);
-              return json_response(200, case_of(cases_->update(cid, patch)));
+              return json_response(200,
+                                   case_of(cases_->update(cid, patch), who));
             }
             const auto info = cases_->find(cid);
             if (!info)
@@ -827,9 +1042,12 @@ class Server::Impl {
               registry_->end_delete(cid); // Rolled back: openable again.
               throw;
             }
-            // A new case may reuse the id; it must not inherit this history.
+            // A new case may reuse the id; it must not inherit this history
+            // — nor its members.
             scheduler_->store()->forget(cid);
             summaries_.forget(info->path);
+            if (auth_)
+              auth_->stores().members->forget_case(cid);
             registry_->end_delete(cid);
             return crow::response(204);
           });
@@ -840,6 +1058,10 @@ class Server::Impl {
           return guarded([&] {
             const auto request = parse_upload_request(req.body);
             const auto session = uploads_->begin(request.name, request.size);
+            {
+              std::lock_guard<std::mutex> lock(uploaders_mutex_);
+              uploaders_[session.id] = uploader_key(principal_of(req));
+            }
             return json_response(201, upload_json(session, uploads_->limits()));
           });
         });
@@ -849,11 +1071,13 @@ class Server::Impl {
                  crow::HTTPMethod::DELETE)([this](const crow::request &req,
                                                   std::string id) {
           return guarded([&] {
+            check_uploader(req, id);
             if (req.method == crow::HTTPMethod::GET)
               return json_response(
                   200, upload_json(uploads_->status(id), uploads_->limits()));
             if (req.method == crow::HTTPMethod::DELETE) {
               uploads_->abort(id);
+              forget_uploader(id);
               return crow::response(204);
             }
             const auto offset =
@@ -865,9 +1089,11 @@ class Server::Impl {
 
     app_.route_dynamic("/api/v1/uploads/<string>/complete")
         .methods(crow::HTTPMethod::POST)(
-            [this](const crow::request &, std::string id) {
+            [this](const crow::request &req, std::string id) {
               return guarded([&] {
+                check_uploader(req, id);
                 auto [session, staged] = uploads_->finish(id);
+                forget_uploader(id);
                 // From here the staging file is ours alone (the session is
                 // gone): it must not outlive a failure.
                 auto discard = [path = staged] {
@@ -880,18 +1106,284 @@ class Server::Impl {
                   throw HttpError(
                       422, "the uploaded file is not a ReUseX project: " + why);
                 }
+                const Principal &who = principal_of(req);
                 CaseInfo info;
                 try {
-                  info = cases_->adopt(session.name, staged);
+                  info = cases_->adopt(session.name, staged, who.user_id());
                 } catch (...) {
                   discard();
                   throw;
                 }
+                make_owner(who, info.id);
                 spdlog::info("Case '{}' created from an upload of {} bytes",
                              info.id, session.size);
-                return json_response(201, case_of(info));
+                return json_response(201, case_of(info, who));
               });
             });
+  }
+
+  // --- server-level routes: auth, users, members ---------------------------
+
+  /// 409 for a route that only makes sense with users (server mode).
+  void require_server_mode() const {
+    if (!auth_)
+      throw HttpError(409, "local mode has no users: it serves one person, "
+                           "who owns every case (run ruxd without --local "
+                           "for users and members)");
+  }
+
+  static json parse_body_object(const std::string &body) {
+    auto parsed = json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (parsed.is_discarded() || !parsed.is_object())
+      throw HttpError(400, "the body must be a JSON object");
+    return parsed;
+  }
+
+  static std::string string_field(const json &body, const char *key,
+                                  bool required) {
+    if (!body.contains(key) || body[key].is_null()) {
+      if (required)
+        throw HttpError(400, std::string("'") + key + "' is required");
+      return {};
+    }
+    if (!body[key].is_string())
+      throw HttpError(400, std::string("'") + key + "' must be a string");
+    return body[key].get<std::string>();
+  }
+
+  static std::optional<bool> bool_field(const json &body, const char *key) {
+    if (!body.contains(key) || body[key].is_null())
+      return std::nullopt;
+    if (!body[key].is_boolean())
+      throw HttpError(400, std::string("'") + key + "' must be true or false");
+    return body[key].get<bool>();
+  }
+
+  static Role role_field(const json &body) {
+    const auto name = string_field(body, "role", true);
+    const auto role = parse_role(name);
+    if (!role)
+      throw HttpError(400, "'role' must be viewer, editor or owner");
+    return *role;
+  }
+
+  static std::int64_t parse_id(const std::string &text) {
+    try {
+      std::size_t used = 0;
+      const auto id = std::stoll(text, &used);
+      if (used == text.size() && id > 0)
+        return id;
+    } catch (const std::exception &) {
+    }
+    throw HttpError(404, "no such user");
+  }
+
+  static json member_json(const Member &member) {
+    return json{{"user", json{{"id", member.user.id},
+                              {"email", member.user.email},
+                              {"display_name", member.user.display_name}}},
+                {"role", std::string(to_string(member.role))}};
+  }
+
+  /// Refuse a change that would leave case @p cid without an owner.
+  void keep_an_owner(const std::string &cid, std::int64_t changing,
+                     std::optional<Role> new_role) {
+    if (new_role == Role::owner)
+      return;
+    const auto members = auth_->stores().members->members(cid);
+    const bool was_owner =
+        std::any_of(members.begin(), members.end(), [&](const Member &m) {
+          return m.user.id == changing && m.role == Role::owner;
+        });
+    const auto owners =
+        std::count_if(members.begin(), members.end(),
+                      [](const Member &m) { return m.role == Role::owner; });
+    if (was_owner && owners <= 1)
+      throw HttpError(409, "a case must keep at least one owner; make someone "
+                           "else owner first");
+  }
+
+  void register_auth_routes() {
+    app_.route_dynamic("/api/v1/auth/login")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          if (!auth_)
+            return error_response(409, "local mode has no login");
+          try {
+            const auto body = parse_body_object(req.body);
+            const auto result = auth_->login(
+                string_field(body, "email", true),
+                string_field(body, "password", true), req.remote_ip_address);
+            auto res =
+                json_response(200, json{{"mode", "server"},
+                                        {"via", "session"},
+                                        {"user", user_json(result.user)}});
+            res.set_header("Set-Cookie",
+                           session_cookie(session_cookie_name_,
+                                          result.session_token, result.max_age,
+                                          cookie_secure_for(req)));
+            res.set_header("Cache-Control", "no-store");
+            return res;
+          } catch (const LoginRateLimited &e) {
+            auto res = error_response(e.status(), e.what());
+            res.set_header("Retry-After",
+                           std::to_string(e.retry_after().count()));
+            return res;
+          } catch (const HttpError &e) {
+            return error_response(e.status(), e.what());
+          } catch (const std::exception &e) {
+            spdlog::error("Login failed: {}", e.what());
+            return error_response(503, "the user database is unavailable");
+          }
+        });
+
+    app_.route_dynamic("/api/v1/auth/logout")
+        .methods(crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return guarded([&] {
+            if (auth_)
+              auth_->logout(principal_of(req));
+            crow::response res(204);
+            if (auth_)
+              res.set_header("Set-Cookie",
+                             session_cookie(session_cookie_name_, "",
+                                            std::chrono::seconds(0),
+                                            cookie_secure_for(req)));
+            return res;
+          });
+        });
+
+    app_.route_dynamic("/api/v1/auth/me")
+        .methods(crow::HTTPMethod::GET)([this](const crow::request &req) {
+          const Principal &who = principal_of(req);
+          json out{{"mode", auth_ ? "server" : "local"},
+                   {"via", std::string(to_string(who.kind))},
+                   {"user", user_json(who.user)}};
+          if (who.case_scope)
+            out["case_scope"] = *who.case_scope;
+          auto res = json_response(200, out);
+          res.set_header("Cache-Control", "no-store");
+          return res;
+        });
+
+    // ---- users (admin) ----
+    app_.route_dynamic("/api/v1/users")
+        .methods(crow::HTTPMethod::GET,
+                 crow::HTTPMethod::POST)([this](const crow::request &req) {
+          return guarded([&] {
+            require_server_mode();
+            if (req.method == crow::HTTPMethod::GET) {
+              json list = json::array();
+              for (const auto &user : auth_->stores().users->list())
+                list.push_back(user_json(user));
+              return json_response(200, json{{"users", std::move(list)}});
+            }
+            const auto body = parse_body_object(req.body);
+            const auto user = auth_->create_user(
+                string_field(body, "email", true),
+                string_field(body, "display_name", false),
+                string_field(body, "password", true),
+                bool_field(body, "is_admin").value_or(false));
+            return json_response(201, user_json(user));
+          });
+        });
+
+    app_.route_dynamic("/api/v1/users/<string>")
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::PATCH)(
+            [this](const crow::request &req, std::string raw_id) {
+              return guarded([&] {
+                require_server_mode();
+                const auto id = parse_id(raw_id);
+                auto &users = *auth_->stores().users;
+                if (!users.find_by_id(id))
+                  throw HttpError(404, "no such user");
+                if (req.method == crow::HTTPMethod::PATCH) {
+                  const auto body = parse_body_object(req.body);
+                  if (body.contains("display_name"))
+                    users.set_display_name(
+                        id, string_field(body, "display_name", true));
+                  if (const auto admin = bool_field(body, "is_admin"))
+                    users.set_admin(id, *admin);
+                  if (const auto disabled = bool_field(body, "disabled"))
+                    auth_->set_disabled(id, *disabled);
+                  if (body.contains("password"))
+                    auth_->set_password(id,
+                                        string_field(body, "password", true));
+                }
+                return json_response(200, user_json(*users.find_by_id(id)));
+              });
+            });
+
+    // ---- case members ----
+    app_.route_dynamic(C("/members"))
+        .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)(
+            [this](const crow::request &req, std::string cid) {
+              return guarded([&] {
+                require_server_mode();
+                if (!cases_->find(cid))
+                  throw HttpError(404, "no such case '" + cid + "'");
+                auto &members = *auth_->stores().members;
+                if (req.method == crow::HTTPMethod::POST) {
+                  const auto body = parse_body_object(req.body);
+                  const auto email =
+                      normalize_email(string_field(body, "email", true));
+                  const auto role = role_field(body);
+                  const auto user = auth_->stores().users->find_by_email(email);
+                  if (!user)
+                    throw HttpError(404, "no user has the email '" + email +
+                                             "'; an administrator creates "
+                                             "users");
+                  if (members.role_of(cid, user->id))
+                    throw HttpError(409, "'" + email +
+                                             "' is already a member; change "
+                                             "their role instead");
+                  members.set_role(cid, user->id, role);
+                  return json_response(201, member_json(Member{*user, role}));
+                }
+                json list = json::array();
+                for (const auto &member : members.members(cid))
+                  list.push_back(member_json(member));
+                return json_response(200, json{{"members", std::move(list)}});
+              });
+            });
+
+    app_.route_dynamic(C("/members/<string>"))
+        .methods(crow::HTTPMethod::PATCH, crow::HTTPMethod::DELETE)(
+            [this](const crow::request &req, std::string cid,
+                   std::string raw_id) {
+              return guarded([&] {
+                require_server_mode();
+                if (!cases_->find(cid))
+                  throw HttpError(404, "no such case '" + cid + "'");
+                const auto id = parse_id(raw_id);
+                auto &members = *auth_->stores().members;
+                if (!members.role_of(cid, id))
+                  throw HttpError(404,
+                                  "that user is not a member of '" + cid + "'");
+                if (req.method == crow::HTTPMethod::DELETE) {
+                  keep_an_owner(cid, id, std::nullopt);
+                  members.remove(cid, id);
+                  return crow::response(204);
+                }
+                const auto role = role_field(parse_body_object(req.body));
+                keep_an_owner(cid, id, role);
+                members.set_role(cid, id, role);
+                const auto user = auth_->stores().users->find_by_id(id);
+                return json_response(200, member_json(Member{*user, role}));
+              });
+            });
+
+    // ---- readiness ----
+    app_.route_dynamic("/api/v1/readyz")
+        .methods(crow::HTTPMethod::GET)([this](const crow::request &) {
+          bool ready = true;
+          try {
+            ready = !options_.readiness || options_.readiness();
+          } catch (const std::exception &e) {
+            spdlog::warn("Readiness probe failed: {}", e.what());
+            ready = false;
+          }
+          return json_response(ready ? 200 : 503,
+                               json{{"status", ready ? "ready" : "not_ready"}});
+        });
   }
 
   // --- routes --------------------------------------------------------------
@@ -902,6 +1394,7 @@ class Server::Impl {
     };
 
     register_case_routes();
+    register_auth_routes();
 
     // ---- meta ----
     // Server-level: answers without opening any case.
@@ -1767,8 +2260,10 @@ class Server::Impl {
 
               const auto submission = parse_job_request(req.body);
               check_job_project(submission, project);
+              const auto who = principal_of(req).user_id();
               const auto id =
-                  ctx.jobs().submit(submission.stage, submission.parameters);
+                  ctx.jobs().submit(submission.stage, submission.parameters,
+                                    who ? std::to_string(*who) : std::string());
               auto record = ctx.jobs().job(id);
               if (!record)
                 throw HttpError(500, "job vanished immediately after submit");
@@ -1993,25 +2488,15 @@ class Server::Impl {
           // handshake is therefore the only place this can be enforced, and
           // Crow ignores a middleware response on the upgrade path, so the
           // checks live here rather than in SecurityMiddleware.
-          const auto &security = app_.get_middleware<SecurityMiddleware>();
-          if (!security.host_ok(req)) {
-            spdlog::warn("Refused a WebSocket upgrade for host '{}'",
-                         req.get_header_value("Host"));
-            res = error_response(403, "host is not served here");
-            return;
-          }
-          if (!security.check(req).ok) {
-            spdlog::warn("Refused a WebSocket upgrade without the access "
-                         "token");
-            res = error_response(401, "missing or wrong access token");
-            return;
-          }
-          const std::string origin = req.get_header_value("Origin");
-          // An empty Origin is a non-browser client (curl, the CLI, a test).
-          if (!origin.empty() && !security.origin_ok(req, origin)) {
-            spdlog::warn("Refused a WebSocket upgrade from origin '{}'",
-                         origin);
-            res = error_response(403, "origin is not allowed");
+          // Host, origin, authentication and membership: the same decision
+          // as every HTTP request (the header phase already ran it; this is
+          // the guard Crow's upgrade path does honour). An empty Origin is a
+          // non-browser client (curl, the CLI, a test).
+          const Gate gate = evaluate(req);
+          if (!gate.decision.allowed()) {
+            spdlog::warn("Refused a WebSocket upgrade: {}",
+                         gate.decision.message);
+            res = SecurityMiddleware::refusal(gate.decision);
             return;
           }
           const auto cid = case_id_of_events_url(req.url);
@@ -2080,6 +2565,11 @@ class Server::Impl {
           spdlog::debug("WebSocket error: {}", reason);
           drop_socket(conn);
         });
+  }
+
+  void forget_uploader(const std::string &id) {
+    std::lock_guard<std::mutex> lock(uploaders_mutex_);
+    uploaders_.erase(id);
   }
 
   /// The subscriber hub of the case a socket subscribed to.
@@ -2209,6 +2699,12 @@ class Server::Impl {
   /// Card figures and renders, read without opening a case.
   CaseSummaryCache summaries_;
   RenderCache renders_;
+  /// Server mode; nullptr in local mode.
+  std::shared_ptr<AuthService> auth_;
+  std::string session_cookie_name_;
+  /// Upload id -> who started it (uploader_key).
+  std::mutex uploaders_mutex_;
+  std::unordered_map<std::string, std::string> uploaders_;
   /// Renders that may run at once (cache misses only).
   std::counting_semaphore<kMaxConcurrentRenders> render_slots_{
       kMaxConcurrentRenders};

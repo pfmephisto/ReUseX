@@ -432,6 +432,15 @@ struct PlaneGraphOptions {
   /// 0.29 collapse the absolute 0.50 m gate produced there by admitting only
   /// the most-disagreeing (wrong) edges. Set 0 to use the floor alone.
   double loop_edges_min_seed_disagreement_fraction = 0.0278;
+
+  /// Memberwise, covering every field above AND every field of `surfel`,
+  /// `loop_closure` and `panorama_loops` (their own defaulted operator==).
+  /// Relied on by CliCommandRoundTrip_OptimizeFlagDefaults_MatchTheStageBase
+  /// (tests/unit/rux_app/test_cli_command_roundtrip.cpp) to compare the whole
+  /// struct through one comparison, so a field added here without a matching
+  /// CLI default is caught instead of silently skipped by a hand-maintained
+  /// field list (integration review finding 4).
+  bool operator==(const PlaneGraphOptions &) const = default;
 };
 
 /// One pose-graph edge produced by the optimizer, indexed by position in the

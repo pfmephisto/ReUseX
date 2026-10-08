@@ -189,6 +189,15 @@ describe('filterByStatus', () => {
     expect(filterByStatus(rows, 'failed').map((row) => row.entry.id)).toEqual([3]);
     expect(filterByStatus(rows, 'running').map((row) => row.entry.id)).toEqual([1]);
   });
+
+  it('treats cancelled as its own status, distinct from failed', () => {
+    const rows = historyRows([
+      entry({ id: 2, status: 'cancelled', error_msg: 'cancelled (user request)' }),
+      entry({ id: 1, status: 'failed', error_msg: 'disk full' }),
+    ]);
+    expect(filterByStatus(rows, 'cancelled').map((row) => row.entry.id)).toEqual([2]);
+    expect(filterByStatus(rows, 'failed').map((row) => row.entry.id)).toEqual([1]);
+  });
 });
 
 describe('rowHaystack / searchRows', () => {

@@ -63,7 +63,19 @@ class ProjectDB {
    * - pipeline_log: Pipeline provenance log
    *
    * @param dbPath Path to the database file
-   * @param readOnly If true, opens database in read-only mode
+   * @param readOnly If true, opens database in read-only mode. In a
+   *        directory the user cannot write (a read-only mount), and with no
+   *        live `-wal` beside the file, the open is sqlite-immutable: a
+   *        WAL-mode file is unreadable there otherwise (sqlite must create
+   *        `-shm` even to read), and nobody can be writing it through that
+   *        directory. Elsewhere a read-only open is a plain one and, like any
+   *        WAL reader, may create the `-shm` / `-wal` sidecars.
+   *        Trade-off: "nobody can be writing" holds for THIS user only. On a
+   *        shared drive where a colleague has write access, an immutable
+   *        connection never sees their WAL and takes no locks, so it can
+   *        read stale data or a page mid-checkpoint (SQLITE_CORRUPT). Reopen
+   *        to see their changes. A non-empty `-wal` in such a directory
+   *        (an unfinished write) cannot be read at all and fails to open.
    * @throws std::runtime_error if database cannot be opened or schema is
    * invalid
    */
@@ -126,6 +138,29 @@ class ProjectDB {
   const std::filesystem::path &path() const noexcept;
   int schema_version() const;
   static int latest_schema_version() noexcept;
+
+  /// What probe() found, without opening a full ProjectDB.
+  struct ProbeResult {
+    bool is_project = false; ///< sqlite with the ReUseX core tables
+    int schema_version = -1; ///< MAX(schema_version.version); -1 if absent
+    std::string error;       ///< sqlite / validation message when not a project
+  };
+
+  /// Is @p path a ReUseX project, and at which schema? Opens the file
+  /// read-only, checks the tables validate_schema() requires and reads the
+  /// recorded version. Never writes, creates, migrates or logs — so a GUI can
+  /// vet a foreign or empty sqlite file before a read-write open would give
+  /// it ReUseX tables.
+  ///
+  /// The open is sqlite-immutable (`?mode=ro&immutable=1`) unless a non-empty
+  /// `-wal` sits beside the file: no locks, no `-shm` / `-wal` created, and it
+  /// works in a read-only directory. Trade-off: a writer's in-flight
+  /// transaction is not seen, which a table check can live with. With a live
+  /// WAL it is a plain read-only open (the WAL's pages count), which may wait
+  /// on and report a lock in `error` (is_project false). Under
+  /// hardened_by_default() the connection is hardened like any other open;
+  /// `rux` leaves that off, so its probe is the plain open described here.
+  static ProbeResult probe(const std::filesystem::path &path) noexcept;
 
   /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless
   /// commit() is called. ProjectDB methods that open their own transaction
@@ -655,6 +690,16 @@ class ProjectDB {
   int log_pipeline_start(std::string_view stage,
                          std::string_view paramsJson = "");
 
+  /// How a pipeline stage run ended. `cancelled` is distinct from `failed`
+  /// so a user-requested cancel is never shown as an error.
+  enum class PipelineOutcome { success, failed, cancelled };
+
+  void log_pipeline_end(int logId, PipelineOutcome outcome,
+                        std::string_view errorMsg = "");
+
+  /// Shim for the two-outcome form: `success` maps to `PipelineOutcome::
+  /// success`, `!success` to `PipelineOutcome::failed`. Prefer the
+  /// `PipelineOutcome` overload when a cancel is possible.
   void log_pipeline_end(int logId, bool success,
                         std::string_view errorMsg = "");
 
@@ -664,11 +709,70 @@ class ProjectDB {
     std::string started_at;
     std::string finished_at; // Empty if still running
     std::string parameters;  // JSON string
-    std::string status;      // "running", "success", "failed"
+    std::string status;      // "running", "success", "failed", "cancelled"
     std::string error_msg;   // Empty if no error
   };
 
   std::vector<PipelineLogEntry> pipeline_log(int limit = 0) const;
+
+  // --- Raw table browsing (read-only) ---
+  //
+  // A generic, read-only window onto every table of the file, for a database
+  // viewer (the Qt client's table view, `rux get`-style tooling). Typed
+  // accessors above remain the way to *use* the data; these exist to *show*
+  // what the file contains, including tables no accessor covers.
+  //
+  // Blob cells never carry their bytes: only their size and the first few
+  // bytes (enough to sniff PNG / JPEG / PLY), read by incremental blob I/O,
+  // which touches one page — so paging through `sensor_frames` costs
+  // kilobytes, not the images. (A table WITHOUT ROWID has no blob I/O; its
+  // blob heads come from substr(), which does read the whole value.) Long text
+  // is truncated to `text_limit` bytes with its full size reported.
+
+  /// One user table and its row count. `sqlite_*` internals are excluded.
+  struct TableInfo {
+    std::string name;
+    std::int64_t row_count = 0;
+  };
+
+  /// One column of a table, as `PRAGMA table_info` reports it.
+  struct TableColumn {
+    std::string name;
+    std::string declared_type; ///< e.g. "INTEGER", "BLOB"; may be empty
+    bool primary_key = false;
+    bool not_null = false;
+  };
+
+  /// One cell of table_rows().
+  struct TableCell {
+    enum class Kind { null, integer, real, text, blob };
+    Kind kind = Kind::null;
+    std::int64_t integer = 0;
+    double real = 0.0;
+    std::string text;       ///< text (possibly truncated), or blob head bytes
+    std::uint64_t size = 0; ///< full byte size of text or blob
+    bool truncated = false; ///< text shorter than `size`
+  };
+
+  /// Every user table, sorted by name, with its row count.
+  std::vector<TableInfo> list_tables() const;
+
+  /// Rows in @p table now (COUNT(*)).
+  /// @throws std::invalid_argument when @p table is not a user table.
+  std::int64_t table_row_count(std::string_view table) const;
+
+  /// The columns of @p table, in declaration order.
+  /// @throws std::invalid_argument when @p table is not a user table.
+  std::vector<TableColumn> table_columns(std::string_view table) const;
+
+  /// Rows [@p offset, @p offset + @p limit) of @p table in rowid order (or
+  /// primary-key order for a WITHOUT ROWID table), one TableCell per column of
+  /// table_columns(). Blob cells carry at most 16 head bytes in `text`.
+  /// @throws std::invalid_argument when @p table is not a user table or
+  ///         @p offset / @p limit is negative.
+  std::vector<std::vector<TableCell>>
+  table_rows(std::string_view table, std::int64_t offset, std::int64_t limit,
+             std::size_t text_limit = 256) const;
 
   // --- Project Summary ---
 

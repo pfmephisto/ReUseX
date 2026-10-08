@@ -166,6 +166,13 @@ target_link_libraries(reusex_unit_tests
         SQLite3::SQLite3
 )
 
+# The Qt client's Qt-free half: tokens.css parsing, the gallery's command
+# line, palette ranking, the recent list, what plain `rux` launches.
+# Standard library only and built even with BUILD_QT_CLIENT=OFF
+# (apps/rux/qt/CMakeLists.txt), so tests/unit/rux_qt always runs and costs
+# this binary no Qt start-up.
+target_link_libraries(reusex_unit_tests PRIVATE rux_qt_core)
+
 target_include_directories(reusex_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/libs/reusex/include
     ${CMAKE_BINARY_DIR}/generated

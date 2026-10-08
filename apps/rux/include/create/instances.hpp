@@ -50,6 +50,10 @@ struct SubcommandSegInstancesOptions {
 /**
  * @brief Setup CLI11 subcommand for instance segmentation
  */
+/// The stage parameters (pipeline_log / run_stage JSON) these options mean.
+std::string
+instances_stage_parameters(const SubcommandSegInstancesOptions &opt);
+
 void setup_subcommand_create_instances(CLI::App &app,
                                        std::shared_ptr<RuxOptions> global_opt);
 

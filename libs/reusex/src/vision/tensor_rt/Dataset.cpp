@@ -5,6 +5,7 @@
 #include "vision/tensor_rt/Dataset.hpp"
 #include "core/ProjectDB.hpp"
 #include "core/logging.hpp"
+#include "utils/parse_number.hpp"
 #include "vision/IData.hpp"
 #include "vision/IDataset.hpp"
 #include "vision/glass_filter.hpp"
@@ -42,7 +43,7 @@ std::pair<std::string, float> parse_prompt_spec(const std::string &spec) {
       pos != std::string::npos && pos + 1 < spec.size()) {
     try {
       size_t used = 0;
-      float v = std::stof(spec.substr(pos + 1), &used);
+      float v = reusex::utils::to_float(spec.substr(pos + 1), &used);
       if (used == spec.size() - pos - 1 && v >= 0.0f && v <= 1.0f)
         return {spec.substr(0, pos), v};
     } catch (const std::exception &) {

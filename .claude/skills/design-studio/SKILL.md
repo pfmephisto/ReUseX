@@ -1,6 +1,6 @@
 ---
 name: design-studio
-description: The design workflow for the ReUseX rux GUI — its web frontend (React/Vite/TS + three.js, in apps/rux/frontend) and its planned native Qt client, which share one token-based design system. Use this whenever you design, build, restyle, redesign, or "make it look better/more polished" for any rux GUI screen, page, panel, route or component (Dashboard, Viewport, Pipeline, Graph view, Image/annotation view, Materials, …); whenever you touch a *.module.css or add a new component; whenever you work from docs/Design Review.md; and for one-off mockups, prototypes, slide decks or one-pagers. Also use when matching the existing rux GUI look. Reach for it even when the user only says "build a page", "add a panel" or "wire up a view" — visual quality and token discipline still apply.
+description: The design workflow for the ReUseX rux GUI — its web frontend (React/Vite/TS + three.js, in apps/rux/frontend) and its native Qt client (apps/rux/qt, in progress: QSS generated from the same tokens, screenshot loop via qt_shot.sh), which share one token-based design system. Use this whenever you design, build, restyle, redesign, or "make it look better/more polished" for any rux GUI screen, page, panel, route or component (Dashboard, Viewport, Pipeline, Graph view, Image/annotation view, Materials, …); whenever you touch a *.module.css, app.qss or a Qt widget/page, or add a new component; whenever you work from docs/Design Review.md; and for one-off mockups, prototypes, slide decks or one-pagers. Also use when matching the existing rux GUI look. Reach for it even when the user only says "build a page", "add a panel" or "wire up a view" — visual quality and token discipline still apply.
 ---
 
 # Design Studio — ReUseX rux GUI
@@ -13,9 +13,10 @@ important step is §5 — never ship a screen you haven't seen, in both themes.
 This project has **two surfaces, one design system**:
 - **Now:** the web frontend in `apps/rux/frontend/` — React 19 + Vite + TypeScript
   + three.js, CSS Modules.
-- **Later:** a native **Qt 6** client (issue #265 runner-up). It does not exist
-  yet, but every visual decision you make today is expressed as a *token* so the
-  Qt port inherits the same look instead of re-picking it. See §Qt.
+- **In progress:** a native **Qt 6** client in `apps/rux/qt/` (Stream Q). Its
+  QSS and QPalette are generated at run time from the *same* `tokens.css`, so
+  every visual decision is still a token; it has its own screenshot loop
+  (`qt_shot.sh`). See §Qt and `references/qt-client.md`.
 
 The system itself — every colour, size, radius, type step — lives in
 **`apps/rux/frontend/src/tokens.css`**, which is **owned by the Claude Design
@@ -177,16 +178,46 @@ one instance with a literal. Either it's already a token (re-sync territory,
 flag it) or it reveals a missing token (note it for the design project). Keeping
 the fix at the token layer is what keeps the two surfaces (web + Qt) in step.
 
-## Qt (the second surface)
+## Qt (the second surface) — in progress
 
-The native Qt client does not exist yet, but design *for* it now by keeping every
-decision in a token. When it lands, its palette/QSS is meant to be **generated
-from the same token names**, never re-chosen by eye — that is the entire reason
-the web side forbids literals. So when you add a visual concept the system can't
-yet express, add it as a *named token/role* (and flag it for the design
-project), not as a one-off value that only the web build knows about. A colour or
-radius that lives only in a `.module.css` literal is invisible to the Qt
-generator and breaks the shared look. See `references/reusex-frontend.md` §Qt.
+The native client lives in `apps/rux/qt/` and is styled by **`styles/app.qss`,
+a QSS template written with the same `var(--token)` syntax as the CSS
+Modules**. `rux::qt::Theme` reads `tokens.css` at run time, fills the template,
+generates the QPalette and loads the bundled fonts. One design system, two
+renderers: a token change reaches both surfaces with no code edit. Read
+`references/qt-client.md` before your first Qt change.
+
+**The Qt loop** (same shape as §4–§6; Brief/Locate are unchanged):
+1. **Build**: compose the shared widgets in `rux_qt/widgets.hpp`; style by
+   `objectName` / `kind` / `tone` / `role` properties in `app.qss`; read any
+   value code needs from the Theme (`theme().color("--…")`, `px`, `font`).
+2. **Look**: `bash <skill-dir>/scripts/qt_shot.sh --page <name>` (or `--all`)
+   renders both themes at 1440x900, 2x, headless (`QT_QPA_PLATFORM=offscreen`;
+   3D panes through VTK's EGL offscreen window; `--gl` runs the real VTK
+   widget under xvfb). It **fails on any missing token**. Read every PNG.
+   A QSS/token edit re-shoots in ~1.3 s with no build; a C++ edit rebuilds
+   only `rux-qt-gallery` (~10 s inside `nix develop`).
+3. **Critique**: `references/critique-checklist.md`, including its Qt section.
+4. **Lint**: `python <skill-dir>/scripts/token_lint.py apps/rux/qt --qt` —
+   literals in `.qss`, unknown `var(--x)` names, and Qt C++ literals
+   (`QColor(…)`, `Qt::red`, hex strings, `setPixelSize(12)`,
+   `setStyleSheet("…")`).
+
+**Gotchas** (details in `references/qt-client.md` §5):
+- `&` in a button/action/checkbox label is a **mnemonic marker** — write
+  `&&` (`NavItem::escape_mnemonic()`), or "Miljø & prøver" shows "Miljø _prøver".
+- **QSS cannot do** `letter-spacing`, `text-transform`, `box-shadow`,
+  transitions, `calc()`/`color-mix()`, line-height or `:focus-visible`. Caps
+  and tracking are `CapsLabel` (painted from `--tracking-*`); elevation is a
+  border, not a shadow; per-instance colours are painted (`Swatch`), never a
+  per-widget `setStyleSheet`.
+- A dynamic property changed after polish needs `repolish(widget)`.
+- Never hardcode a colour or size in C++: a value only Qt knows breaks the
+  shared look exactly like a literal in a `.module.css` does.
+
+When you add a visual concept the system cannot yet express, add it as a
+*named token/role* (flag it for the design project) — never a value that
+only one renderer knows about. See `references/reusex-frontend.md` §7.
 
 ## Correctness constraints (not taste)
 

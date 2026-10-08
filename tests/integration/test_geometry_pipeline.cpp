@@ -24,8 +24,10 @@
 #include <pcl/conversions.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <map>
+#include <vector>
 
 using reusex::test_support::TempPath;
 
@@ -173,4 +175,67 @@ TEST_CASE("RunStageMesh_SyntheticRoom_ProducesMeshViaJobRunner",
   CHECK(result.outputs.front().kind == "mesh");
   CHECK(result.outputs.front().name == "mesh");
   CHECK(result.outputs.front().count > 0);
+}
+
+// Integration review finding 5: run_mesh() gained a "filter" parameter
+// (mesh_parameters(), resolve_filter() exactly as planes and rooms use it),
+// but nothing had ever driven it to completion — coverage was only the
+// descriptor round-trip. This exercises the real path: resolve_filter() ->
+// evaluate_filter_expression() -> geometry::MeshOptions::filter ->
+// geometry::mesh().
+TEST_CASE("RunStageMesh_SyntheticRoom_FilterRestrictsStageAndIsRecorded",
+          "[integration][pipeline]") {
+  // Identical seeding to RunStageMesh_SyntheticRoom_ProducesMeshViaJobRunner.
+  const auto scene = reusex::test_support::make_room();
+
+  TempPath project("test_run_stage_mesh_filter");
+  reusex::ProjectDB db(project.path);
+
+  db.save_point_cloud("cloud", *scene.cloud, "test");
+  db.save_point_cloud("normals", *scene.normals, "test");
+
+  auto [plane_labels, plane_centroids, plane_normals] =
+      reusex::geometry::segment_planes(scene.cloud, scene.normals);
+  db.save_point_cloud("planes", *plane_labels, "test");
+  db.save_point_cloud("plane_centroids", *plane_centroids, "test");
+  db.save_point_cloud("plane_normals", *plane_normals, "test");
+
+  auto rooms =
+      reusex::geometry::segment_rooms(scene.cloud, scene.normals, plane_labels);
+  db.save_point_cloud("rooms", *rooms, "test");
+
+  reusex::pipeline::StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = reusex::pipeline::JobStage::mesh;
+  // Restrict to labeled room points (label 0 = unlabeled, STANDARDS §3). On a
+  // clean single-room box this keeps effectively every point — chosen so the
+  // solid still reconstructs reliably — while genuinely routing through the
+  // filter expression evaluator rather than special-casing an always-true
+  // predicate.
+  ctx.parameters = R"({"filter":"rooms != 0"})";
+
+  const auto result = reusex::pipeline::run_stage(db, ctx);
+
+  INFO(result.message);
+  REQUIRE(result.ok);
+  CHECK_FALSE(result.invalid_input);
+  CHECK(db.has_mesh("mesh"));
+
+  const auto log = db.pipeline_log();
+  const auto mesh_rows = [&] {
+    std::vector<reusex::ProjectDB::PipelineLogEntry> rows;
+    for (const auto &entry : log)
+      if (entry.stage == "mesh_generation")
+        rows.push_back(entry);
+    return rows;
+  }();
+  REQUIRE(mesh_rows.size() == 1);
+  CHECK(mesh_rows.front().status == "success");
+
+  // The filter that produced this mesh is durable, so the run is
+  // reproducible from its own history — the same guarantee planes/rooms
+  // already have (RunStage_FilterExpression_RestrictsStageAndIsRecorded in
+  // tests/unit/pipeline/test_stages.cpp).
+  const auto params = nlohmann::json::parse(mesh_rows.front().parameters);
+  CHECK(params.at("filter") == "rooms != 0");
 }

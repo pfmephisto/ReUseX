@@ -163,7 +163,16 @@ by name; never write the value.**
 - **Status (job/stage lifecycle, distinct in luminance too):**
   `--color-status-queued|running|succeeded|failed|cancelled`
 - **Categorical labels (Okabe-Ito, colourblind-safe — a correctness constraint):**
-  `--label-0`…`--label-7`, `--label-count`, `--label-unlabeled`
+  `--label-0`…`--label-7`, `--label-count`, `--label-unlabeled`.
+  `--label-invalid` (an out-of-contract, wrapped `-1` label; not a class, so
+  not on the categorical scale) is **PROVISIONAL** — hand-added outside
+  `/design-sync` for the Qt client (#464 final review finding 4), with a value
+  only derived from neighbouring neutral tokens
+  (`--color-border-strong` in light, `--color-border` in dark), never ruled on by the
+  design project. It must recede against the near-black canvas in both
+  themes, distinct from `--label-unlabeled`. Keep it on the next sync rather
+  than letting it get silently dropped; see
+  `.github/issue-drafts/` and `docs/Design Review.md` for the ask.
 - **Viewport geometry:** `--mesh-surface` (mid-gray albedo for untextured mesh so
   it reads against the near-black canvas)
 - **Type:** `--font-display` (Oswald, headings/eyebrows), `--font-sans`,
@@ -258,11 +267,13 @@ for. Always `npm run typecheck` before hand-off.
 
 ## 7. Qt — the second surface
 
-Issue #265 chose the web GUI, with Qt 6 as the native fallback/companion. It's
-not built yet. The design intent: **one design system, two renderers.** The token
-*names and roles* in `tokens.css` are the cross-surface contract; a future Qt
-theme is meant to be **generated from them** (into a `QPalette` + QSS), not
-re-picked by eye.
+Issue #265 chose the web GUI, with Qt 6 as the native fallback/companion. It
+is **in progress** in `apps/rux/qt/` (Stream Q) — the loop, theme loader and
+gallery are documented in `qt-client.md`. The design intent: **one design
+system, two renderers.** The token
+*names and roles* in `tokens.css` are the cross-surface contract; the Qt
+theme is **generated from them** at run time (into a `QPalette` + QSS from
+`apps/rux/qt/styles/app.qss`), not re-picked by eye.
 
 Practical consequence for design work **today**:
 - Any visual decision that lives only as a literal in a `.module.css` is

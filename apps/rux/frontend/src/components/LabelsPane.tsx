@@ -18,7 +18,7 @@ import {
   labelIssues,
 } from '../data/patch';
 import { describeWriteFailure, type WriteFailure } from '../data/writeState';
-import { labelColorIndex, readLabelPalette } from '../viewport/labelColors';
+import { labelColorIndex, slotColor, readLabelPalette } from '../viewport/labelColors';
 import { EmptyState } from './EmptyState';
 import { ErrorBanner } from './ErrorBanner';
 import { Spinner } from './Spinner';
@@ -244,7 +244,7 @@ function LegendEditor({ cloud }: { cloud: string }) {
             <div key={entry.id} className={styles.row}>
               <span
                 className={styles.swatch}
-                style={{ background: slot < 0 ? palette.unlabeled : palette.colors[slot] }}
+                style={{ background: slotColor(palette, slot) }}
                 aria-hidden="true"
               />
               <span className={`${styles.id} mono`}>{entry.id}</span>

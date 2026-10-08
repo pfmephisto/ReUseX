@@ -188,6 +188,10 @@ struct LoopClosureOptions {
   int pcm_max_edges = 3000;
 
   unsigned seed = 42; ///< RANSAC determinism
+
+  /// Memberwise, covering every field above — see SurfelExtractionParams's
+  /// operator== for why (integration review finding 4).
+  bool operator==(const LoopClosureOptions &) const = default;
 };
 
 /// Spatial extent of a trajectory: the diagonal of the axis-aligned bounding

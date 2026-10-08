@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "utils/parse_number.hpp"
 #include <reusex/pipeline/stage_parameters.hpp>
 
 #include <reusex/reconstruction/mesh.hpp>
@@ -23,7 +24,10 @@ namespace {
 /// a JSON encoder would faithfully print into a form field. Going through the
 /// shortest round-trip decimal representation of the *float* gives back the
 /// 0.05 the struct was written with, without inventing precision.
-double widen(float value) { return std::stod(fmt::format("{}", value)); }
+double widen(float value) {
+  // fmt always writes '.', so the parse must not follow LC_NUMERIC either.
+  return reusex::utils::to_double(fmt::format("{}", value));
+}
 
 /// Every default below comes from a default-constructed option struct, so the
 /// literals live in exactly one place — the struct — and this table cannot
@@ -248,6 +252,9 @@ const std::vector<ParameterDescriptor> &mesh_parameters() {
                 "Engage the sectioned solve only when the cell complex has "
                 "at least this many cells.",
                 static_cast<long long>(d.sectioned_threshold), 1.0, 1000000.0),
+        optional_of(ParameterType::string, "filter", "Point filter",
+                    "Filter expression restricting which points are meshed. "
+                    "Empty means the whole cloud."),
     };
   }();
   return table;

@@ -287,6 +287,53 @@ TEST_CASE("LogPipelineStartAndEnd_SuccessAndFailureRuns_RecordsBothOutcomes",
   // Start another and end with failure
   int logId2 = db.log_pipeline_start("segment_planes");
   REQUIRE_NOTHROW(db.log_pipeline_end(logId2, false, "Out of memory"));
+
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 2);
+  const auto *success_entry =
+      log.back().id == logId ? &log.back() : &log.front();
+  const auto *failed_entry =
+      log.back().id == logId2 ? &log.back() : &log.front();
+  CHECK(success_entry->status == "success");
+  CHECK(failed_entry->status == "failed");
+  CHECK(failed_entry->error_msg == "Out of memory");
+}
+
+// Integration review finding 2: the bool overload is a shim over
+// PipelineOutcome, and the outcome overload can record a cancel distinct
+// from a failure, without the caller needing a schema migration.
+TEST_CASE("LogPipelineEnd_PipelineOutcome_RecordsCancelledDistinctFromFailed",
+          "[projectdb]") {
+  TempDB tmp;
+  ProjectDB db(tmp.path);
+
+  const int cancelled_id = db.log_pipeline_start("segment_planes");
+  REQUIRE_NOTHROW(
+      db.log_pipeline_end(cancelled_id, ProjectDB::PipelineOutcome::cancelled,
+                          "cancelled (plane segmentation cancelled)"));
+
+  const int failed_id = db.log_pipeline_start("segment_planes");
+  REQUIRE_NOTHROW(db.log_pipeline_end(
+      failed_id, ProjectDB::PipelineOutcome::failed, "disk full"));
+
+  const int success_id = db.log_pipeline_start("segment_planes");
+  REQUIRE_NOTHROW(
+      db.log_pipeline_end(success_id, ProjectDB::PipelineOutcome::success));
+
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 3);
+  for (const auto &entry : log) {
+    if (entry.id == cancelled_id) {
+      CHECK(entry.status == "cancelled");
+      CHECK(entry.error_msg == "cancelled (plane segmentation cancelled)");
+    } else if (entry.id == failed_id) {
+      CHECK(entry.status == "failed");
+    } else if (entry.id == success_id) {
+      CHECK(entry.status == "success");
+    } else {
+      FAIL("unexpected pipeline_log id");
+    }
+  }
 }
 
 TEST_CASE("PointCloud_TypeMismatchOnLoad_Throws", "[projectdb]") {

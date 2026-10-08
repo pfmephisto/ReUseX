@@ -122,6 +122,8 @@ NOTES:
     // for those (issue #214).
     opt->dist_explicit = dist_opt->count() > 0;
     opt->min_explicit = min_opt->count() > 0;
+    if (rux::capture_stage_params("planes", planes_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_segment_planes(*opt, *global_opt));
   });
 }
@@ -136,6 +138,25 @@ NOTES:
  * @param opt Options containing project path and segmentation parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
+std::string planes_stage_parameters(SubcommandSegPlanesOptions const &opt) {
+  // The noise-adaptive thresholds of #214 are pinned by *presence*: emitting
+  // `plane_dist_threshold` / `min_inliers` only when the user actually passed
+  // -d/-m is what tells the stage to bypass adaptive derivation for exactly
+  // those parameters.
+  return rux::StageParams()
+      .set("angle_threshold", opt.angle_threshold)
+      .set_if(opt.dist_explicit, "plane_dist_threshold",
+              opt.plane_dist_threshold)
+      .set_if(opt.min_explicit, "min_inliers", opt.minInliers)
+      .set("radius", opt.radius)
+      .set("interval_0", opt.interval_0)
+      .set("interval_factor", opt.interval_factor)
+      .set("adaptive", opt.adaptive)
+      .set("noise_seed", opt.noise_seed)
+      .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
+      .dump();
+}
+
 int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
                                   const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
@@ -153,23 +174,7 @@ int run_subcommand_segment_planes(SubcommandSegPlanesOptions const &opt,
     reusex::pipeline::StageContext ctx;
     ctx.project = project_path;
     ctx.stage = reusex::pipeline::JobStage::planes;
-    // The noise-adaptive thresholds of #214 are pinned by *presence*: emitting
-    // `plane_dist_threshold` / `min_inliers` only when the user actually passed
-    // -d/-m is what tells the stage to bypass adaptive derivation for exactly
-    // those parameters.
-    ctx.parameters =
-        rux::StageParams()
-            .set("angle_threshold", opt.angle_threshold)
-            .set_if(opt.dist_explicit, "plane_dist_threshold",
-                    opt.plane_dist_threshold)
-            .set_if(opt.min_explicit, "min_inliers", opt.minInliers)
-            .set("radius", opt.radius)
-            .set("interval_0", opt.interval_0)
-            .set("interval_factor", opt.interval_factor)
-            .set("adaptive", opt.adaptive)
-            .set("noise_seed", opt.noise_seed)
-            .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
-            .dump();
+    ctx.parameters = planes_stage_parameters(opt);
 
     const auto result = reusex::pipeline::run_stage(db, ctx);
     if (result.ok)

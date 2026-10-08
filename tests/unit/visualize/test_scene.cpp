@@ -1,0 +1,341 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// populate_scene() — the scene builder shared by `rux render` and the Qt
+// client's 3D workspace (Stream Q, Q3) — and its label palette and LOD.
+//
+// Nothing here renders: populate_scene() only fills a vtkRenderer, so the
+// tests inspect the actors' poly-data directly and need no GL context.
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/types/point_types.hpp>
+#include <reusex/visualize/scene.hpp>
+#include <rux_qt/tokens.hpp>
+
+#include "../../support/pose_fixture.hpp"
+#include "../../support/temp_path.hpp"
+
+#include <vtkActor.h>
+#include <vtkMapper.h>
+#include <vtkNew.h>
+#include <vtkPointData.h>
+#include <vtkPolyData.h>
+#include <vtkRenderer.h>
+#include <vtkUnsignedCharArray.h>
+
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
+using namespace reusex;
+using namespace reusex::test_support;
+using Catch::Matchers::ContainsSubstring;
+namespace viz = reusex::visualize;
+
+namespace {
+
+/// A 10-point cloud on a line, coloured by index, with a label cloud whose
+/// labels cycle 0..9 (0 unlabeled).
+void seed_cloud(ProjectDB &db, std::size_t n, std::string_view order = "") {
+  Cloud cloud;
+  CloudL labels;
+  for (std::size_t i = 0; i < n; ++i) {
+    PointT p;
+    p.x = static_cast<float>(i);
+    p.y = 0.5F;
+    p.z = 0.25F * static_cast<float>(i % 3);
+    p.r = static_cast<std::uint8_t>(i);
+    p.g = 10;
+    p.b = 20;
+    cloud.push_back(p);
+    LabelT l;
+    l.label = static_cast<std::uint32_t>(i % 10);
+    labels.push_back(l);
+  }
+  const std::string params =
+      order.empty() ? std::string()
+                    : "{\"storage_order\":\"" + std::string(order) + "\"}";
+  db.save_point_cloud("cloud", cloud, "test", params);
+  db.save_point_cloud("planes", labels, "test", params);
+}
+
+vtkUnsignedCharArray *colours(vtkActor *actor) {
+  auto *poly = vtkPolyData::SafeDownCast(actor->GetMapper()->GetInput());
+  REQUIRE(poly != nullptr);
+  return vtkUnsignedCharArray::SafeDownCast(poly->GetPointData()->GetScalars());
+}
+
+vtkIdType point_count(vtkActor *actor) {
+  auto *poly = vtkPolyData::SafeDownCast(actor->GetMapper()->GetInput());
+  REQUIRE(poly != nullptr);
+  return poly->GetNumberOfPoints();
+}
+
+std::string read_file(const std::string &path) {
+  std::ifstream in(path);
+  std::stringstream ss;
+  ss << in.rdbuf();
+  return ss.str();
+}
+
+} // namespace
+
+TEST_CASE("LabelPalette_Default_MatchesTheDesignTokens",
+          "[visualize][scene][palette]") {
+  // The library cannot read tokens.css at run time; this pins its copy of the
+  // --label-* scale to the file, so a design sync that changes the scale
+  // fails here until the table follows (and render, web and Qt keep agreeing).
+  const std::string css = read_file(std::string(REUSEX_SOURCE_DIR) +
+                                    "/apps/rux/frontend/src/tokens.css");
+  REQUIRE_FALSE(css.empty());
+  for (const auto mode :
+       {rux::qt::ThemeMode::light, rux::qt::ThemeMode::dark}) {
+    const auto tokens = rux::qt::parse_tokens_css(css, mode);
+    const auto &palette = viz::default_label_palette();
+    REQUIRE(tokens.count("--label-count") == 1);
+    REQUIRE(std::stoul(tokens.at("--label-count")) == palette.colors.size());
+    for (std::size_t i = 0; i < palette.colors.size(); ++i) {
+      const auto c =
+          rux::qt::parse_color(tokens.at("--label-" + std::to_string(i)));
+      REQUIRE(c);
+      INFO("--label-" << i);
+      CHECK(c->r == palette.colors[i][0]);
+      CHECK(c->g == palette.colors[i][1]);
+      CHECK(c->b == palette.colors[i][2]);
+    }
+    const auto inv = rux::qt::parse_color(tokens.at("--label-invalid"));
+    REQUIRE(inv);
+    // Unlike the rest of the scale, --label-invalid is PROVISIONAL and now
+    // varies per theme (final review finding 4): dim in dark, muted in
+    // light. default_label_palette() is theme-unaware (headless `rux
+    // render` has no theme concept) and mirrors the dark value, since that
+    // is the one that actually sits near the near-black canvas both themes
+    // share — so only the dark iteration pins it here.
+    if (mode == rux::qt::ThemeMode::dark) {
+      CHECK(inv->r == palette.invalid[0]);
+      CHECK(inv->g == palette.invalid[1]);
+      CHECK(inv->b == palette.invalid[2]);
+    }
+    // Not a class colour in either theme: it must not be confused with one.
+    for (const auto &c : palette.colors)
+      CHECK_FALSE((c[0] == inv->r && c[1] == inv->g && c[2] == inv->b));
+    const auto u = rux::qt::parse_color(tokens.at("--label-unlabeled"));
+    REQUIRE(u);
+    CHECK(u->r == palette.unlabeled[0]);
+    CHECK(u->g == palette.unlabeled[1]);
+    CHECK(u->b == palette.unlabeled[2]);
+  }
+}
+
+TEST_CASE("LabelPalette_Slot_IsLabelMinusOneModuloSize",
+          "[visualize][scene][palette]") {
+  // The web viewport's labelColorIndex(): label 0 is no slot, 1 is slot 0.
+  CHECK(viz::label_palette_slot(0, 8) == -1);
+  CHECK(viz::label_palette_slot(1, 8) == 0);
+  CHECK(viz::label_palette_slot(8, 8) == 7);
+  CHECK(viz::label_palette_slot(9, 8) == 0);
+  CHECK(viz::label_palette_slot(3, 0) == -1);
+  // A -1 that wrapped in a uint32 cloud (STANDARDS §3.1) is not slot 6.
+  CHECK(viz::label_palette_slot(0xFFFFFFFFu, 8) == viz::kInvalidSlot);
+  CHECK(viz::label_palette_slot(0x80000000u, 8) == viz::kInvalidSlot);
+  CHECK(viz::label_palette_slot(0x7FFFFFFFu, 8) >= 0);
+  const auto &p = viz::default_label_palette();
+  CHECK(viz::label_palette_color(p, 0) == p.unlabeled);
+  CHECK(viz::label_palette_color(p, 10) == p.colors[1]);
+  CHECK(viz::label_palette_color(p, 0xFFFFFFFFu) == p.invalid);
+}
+
+TEST_CASE("LodIndices_PicksAPrefixOnlyForBitReversedMorton",
+          "[visualize][scene][lod]") {
+  viz::LodMethod m = viz::LodMethod::all;
+  CHECK(viz::lod_indices(100, 0, "", &m).empty());
+  CHECK(m == viz::LodMethod::all);
+  CHECK(viz::lod_indices(100, 100, "", &m).empty());
+  CHECK(m == viz::LodMethod::all);
+
+  // Bit-reversed Morton: any prefix is stratified over the whole scene.
+  const auto prefix = viz::lod_indices(100, 10, "morton_10bit_bitrev", &m);
+  CHECK(m == viz::LodMethod::morton_prefix);
+  REQUIRE(prefix.size() == 10);
+  CHECK(prefix.front() == 0);
+  CHECK(prefix.back() == 9);
+
+  // Plain Morton's prefix is one octant; it gets the stride like any other
+  // order, spread over the whole storage range.
+  const auto stride = viz::lod_indices(100, 10, "morton_10bit", &m);
+  CHECK(m == viz::LodMethod::stride);
+  REQUIRE(stride.size() == 10);
+  CHECK(stride.front() == 0);
+  CHECK(stride[1] == 10);
+  CHECK(stride.back() == 90);
+}
+
+TEST_CASE("PopulateScene_CloudAndLabels_UseStoredRgbAndTheTokenPalette",
+          "[visualize][scene]") {
+  TempPath tmp("test_scene_layers");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 10);
+
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::cloud, viz::Layer::planes};
+  const viz::SceneInfo info = viz::populate_scene(renderer, db, o);
+
+  REQUIRE(info.layers.size() == 2);
+  CHECK(info.drawn_points == 20);
+  CHECK(info.source_points == 10);
+  CHECK(info.lod == viz::LodMethod::all);
+  CHECK(info.indices.empty());
+  CHECK(info.bounds.valid);
+  CHECK(info.bounds.min[0] == 0.0);
+  CHECK(info.bounds.max[0] == 9.0);
+  CHECK(renderer->GetActors()->GetNumberOfItems() == 2);
+
+  vtkUnsignedCharArray *rgb = colours(info.layers[0].actors.front());
+  CHECK(rgb->GetTypedComponent(7, 0) == 7);
+  CHECK(rgb->GetTypedComponent(7, 2) == 20);
+
+  // Label 0 is --label-unlabeled; label 3 is slot 2 (--label-2).
+  const auto &pal = viz::default_label_palette();
+  vtkUnsignedCharArray *lab = colours(info.layers[1].actors.front());
+  CHECK(lab->GetTypedComponent(0, 0) == pal.unlabeled[0]);
+  CHECK(lab->GetTypedComponent(3, 0) == pal.colors[2][0]);
+  CHECK(lab->GetTypedComponent(3, 1) == pal.colors[2][1]);
+  CHECK(lab->GetTypedComponent(3, 2) == pal.colors[2][2]);
+}
+
+TEST_CASE("PopulateScene_WrappedMinusOne_IsDrawnInTheInvalidColour",
+          "[visualize][scene][palette]") {
+  TempPath tmp("test_scene_invalid");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 4);
+  CloudL labels;
+  for (const std::uint32_t l : {0u, 0xFFFFFFFFu, 7u, 0xFFFFFFFFu}) {
+    LabelT x;
+    x.label = l;
+    labels.push_back(x);
+  }
+  db.save_point_cloud("rooms", labels, "test");
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::rooms};
+  const auto info = viz::populate_scene(renderer, db, o);
+  const auto &pal = viz::default_label_palette();
+  vtkUnsignedCharArray *c = colours(info.layers[0].actors.front());
+  for (int k = 0; k < 3; ++k) {
+    CHECK(c->GetTypedComponent(1, k) ==
+          pal.invalid[static_cast<std::size_t>(k)]);
+    CHECK(c->GetTypedComponent(3, k) ==
+          pal.invalid[static_cast<std::size_t>(k)]);
+  }
+  // ... and label 7 keeps its class colour, slot 6.
+  CHECK(c->GetTypedComponent(2, 0) == pal.colors[6][0]);
+}
+
+TEST_CASE("PopulateScene_CustomPalette_IsUsed", "[visualize][scene]") {
+  TempPath tmp("test_scene_palette");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 10);
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::planes};
+  o.palette = viz::LabelPalette{{{1, 2, 3}, {4, 5, 6}}, {9, 9, 9}};
+  const auto info = viz::populate_scene(renderer, db, o);
+  vtkUnsignedCharArray *lab = colours(info.layers[0].actors.front());
+  CHECK(lab->GetTypedComponent(0, 0) == 9);
+  CHECK(lab->GetTypedComponent(1, 0) == 1);
+  CHECK(lab->GetTypedComponent(2, 0) == 4);
+  CHECK(lab->GetTypedComponent(3, 0) == 1);
+}
+
+TEST_CASE("PopulateScene_Budget_DrawsAStrideAndAHiddenCoarseTwin",
+          "[visualize][scene][lod]") {
+  TempPath tmp("test_scene_lod");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 1000);
+
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::cloud, viz::Layer::planes};
+  o.max_points = 500;
+  o.coarse_points = 100;
+  const auto info = viz::populate_scene(renderer, db, o);
+
+  CHECK(info.lod == viz::LodMethod::stride);
+  REQUIRE(info.indices.size() == 500);
+  CHECK(info.indices[1] == 2);
+  for (const auto &layer : info.layers) {
+    CHECK(layer.points == 500);
+    REQUIRE(layer.coarse != nullptr);
+    CHECK_FALSE(layer.coarse->GetVisibility());
+    CHECK(point_count(layer.actors.front()) == 500);
+    CHECK(point_count(layer.coarse) == 100);
+  }
+  // A drawn point keeps its stored colour: vtk id 3 is cloud index 6.
+  CHECK(colours(info.layers[0].actors.front())->GetTypedComponent(3, 0) == 6);
+  // The label layer is sampled at the same points (index-aligned).
+  const auto &pal = viz::default_label_palette();
+  CHECK(colours(info.layers[1].actors.front())->GetTypedComponent(3, 0) ==
+        viz::label_palette_color(pal, 6)[0]);
+  // The bounds still cover the whole cloud, not just the drawn points.
+  CHECK(info.bounds.max[0] == 999.0);
+}
+
+TEST_CASE("PopulateScene_BitReversedMortonCloud_DrawsAPrefix",
+          "[visualize][scene][lod]") {
+  TempPath tmp("test_scene_morton");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 1000, "morton_10bit_bitrev");
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.max_points = 250;
+  const auto info = viz::populate_scene(renderer, db, o);
+  CHECK(info.lod == viz::LodMethod::morton_prefix);
+  REQUIRE(info.indices.size() == 250);
+  CHECK(info.indices.back() == 249);
+  CHECK(info.layers[0].coarse == nullptr);
+}
+
+TEST_CASE("PopulateScene_Frustums_OnePerPosedFrameWithinTheBudget",
+          "[visualize][scene]") {
+  TempPath tmp("test_scene_frustums");
+  ProjectDB db(tmp.path);
+  for (int id = 1; id <= 6; ++id)
+    db.save_sensor_frame(id, make_color(32, 24), cv::Mat(), cv::Mat(),
+                         translation_pose(id, 0.0, 1.0),
+                         make_intrinsics(16.0, 16.0, 16.0, 12.0, 32, 24));
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::frustums};
+  o.max_frustums = 3;
+  const auto info = viz::populate_scene(renderer, db, o);
+  REQUIRE(info.layers.size() == 1);
+  CHECK(info.layers[0].items == 3);
+  // Eye + 4 corners per frustum.
+  CHECK(point_count(info.layers[0].actors.front()) == 15);
+  CHECK(info.bounds.valid);
+}
+
+TEST_CASE("PopulateScene_MissingLayerData_NamesTheStageToRun",
+          "[visualize][scene]") {
+  TempPath tmp("test_scene_missing");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 10);
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+
+  o.layers = {viz::Layer::frustums};
+  CHECK_THROWS_WITH(viz::populate_scene(renderer, db, o),
+                    ContainsSubstring("posed sensor frames"));
+  o.layers = {viz::Layer::panoramas};
+  CHECK_THROWS_WITH(viz::populate_scene(renderer, db, o),
+                    ContainsSubstring("rux import 360"));
+  o.layers = {viz::Layer::rooms};
+  CHECK_THROWS_WITH(viz::populate_scene(renderer, db, o),
+                    ContainsSubstring("rux create rooms"));
+}

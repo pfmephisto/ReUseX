@@ -287,6 +287,8 @@ in
         ))
       ];
 
+    # Wrapped by hand in postFixup: only `rux` (the Qt client) needs Qt's
+    # plugin path; wrapping everything would add a shell hop to every tool.
     dontWrapQtApps = true;
 
     # The CUDA packages this build compiles against, for shell.nix to merge
@@ -316,15 +318,24 @@ in
     # Patch the installed binaries and shared libraries so the dynamic loader
     # finds the host NVIDIA driver (libcuda.so) at /run/opengl-driver/lib.
     # Without this, `nix run .#default` would die with cudaErrorStubLibrary.
-    postFixup = lib.optionalString cudaSupport ''
-      for f in $(find $out/bin $out/lib -type f \
-                      \( -executable -o -name '*.so' -o -name '*.so.*' \) \
-                      2>/dev/null); do
-        if isELF "$f"; then
-          addDriverRunpath "$f"
-        fi
-      done
-    '';
+    postFixup =
+      lib.optionalString cudaSupport ''
+        for f in $(find $out/bin $out/lib -type f \
+                        \( -executable -o -name '*.so' -o -name '*.so.*' \) \
+                        2>/dev/null); do
+          if isELF "$f"; then
+            addDriverRunpath "$f"
+          fi
+        done
+      ''
+      # Plain `rux` is the native Qt client (apps/rux/qt), so the installed
+      # binary must find Qt's platform plugins (xcb, wayland) outside the dev
+      # shell. dontWrapQtApps above keeps the hook from wrapping every binary
+      # (ruxd and the tools need no Qt plugins); only rux is wrapped, after
+      # the runpath loop so patchelf sees the real ELF, not the wrapper.
+      + ''
+        wrapQtApp $out/bin/rux
+      '';
 
     meta = with lib; {
       description = "ReUseX: A tool for processing lidar scans with the aim to facilitate reuse in the construction industry";

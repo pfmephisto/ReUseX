@@ -90,3 +90,22 @@ add_executable(rux src/main.cpp)
 target_link_libraries(rux PRIVATE rux_lib)
 
 install(TARGETS rux DESTINATION bin)
+
+# The native Qt client (Stream Q): rux_qt_core, rux_qt_lib, rux-qt-gallery.
+# BUILD_QT_CLIENT is defined in the top-level CMakeLists.txt.
+# Plain `rux` (no subcommand) launches the Qt client through rux_qt_lib;
+# rux_qt_core alone decides whether to (launch.hpp), so a build without the
+# client still prints help instead of doing nothing.
+# apps/rux/qt always defines rux_qt_core (standard library only) and the Qt
+# targets only under BUILD_QT_CLIENT.
+add_subdirectory(qt)
+# PUBLIC: main.cpp and tests/unit/rux_app consult rux_qt/background.hpp
+# (detached Qt-client work that outlives the window); it is std-only.
+target_link_libraries(rux_lib PUBLIC rux_qt_core)
+# The Qt client goes on the executable only: main.cpp hands rux::run a
+# launcher (rux_app.hpp, GuiLauncher). Linking it into rux_lib would drag Qt
+# Widgets + VTK GUISupportQt into reusex_unit_tests_vision (#268).
+if(BUILD_QT_CLIENT)
+    target_link_libraries(rux PRIVATE rux_qt_lib)
+    target_compile_definitions(rux PRIVATE RUX_HAVE_QT_CLIENT)
+endif()

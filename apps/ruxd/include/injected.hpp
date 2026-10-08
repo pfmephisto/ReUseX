@@ -44,7 +44,8 @@ std::unique_ptr<api::IModelProvider>
 make_sam3_model_provider(std::filesystem::path models_dir,
                          std::string explicit_model, std::string manifest_url);
 
-/// The default pipeline executor plus the `optimize` stage (#464).
+/// The default pipeline executor plus the `optimize` stage (#464):
+/// reusex::pipeline::stage_executor_with_optimize(), shared with the Qt client.
 reusex::pipeline::StageExecutor make_stage_executor();
 
 } // namespace ruxd

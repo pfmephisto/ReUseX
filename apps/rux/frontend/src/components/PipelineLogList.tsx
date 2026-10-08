@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<PipelineLogEntry['status'], string> = {
   running: 'Running',
   success: 'Success',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 };
 
 export function PipelineLogList({ entries, compact = false }: PipelineLogListProps) {

@@ -190,6 +190,82 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **GUI: Qt client and ruxd server merged; one optimize
+  stage** (Stream Q merged onto Stream S). Both GUIs now run `optimize`
+  through the same code: `pipeline/optimize_stage.hpp`
+  (`stage_executor_with_optimize()`, header-only so `reusex_pipeline` stays
+  free of GTSAM) on top of `slam/optimize_parameters.hpp`, the reader `rux
+  optimize` uses too. Before, ruxd's web stage kept its own reader and let a
+  wrong-typed parameter escape as an exception; it is now an invalid input.
+  ruxd's `/posegraph/icp` is a thin adapter over `slam::refine_frame_pair_icp`,
+  like the Qt client's pair strip.
+- **2026-10-08** — **Native Qt client, phase Q3: 3D, Posegraf, Pipeline, Log**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). The client's remaining workspaces. **3D** draws with
+  `visualize::populate_scene()`, extracted from `render_view()` so `rux
+  render` and the app share one scene builder (render output unchanged
+  except label colours): layers, "Farv efter" any label cloud with a
+  `--label-*` legend, frustums, panoramas, a cut plane, presets framed on
+  what is below the cut, point picking, and a coarse LOD twin (bit-reversed
+  Morton prefix, else a stride) while the camera moves. Label layers in
+  `rux render` now use the design tokens' Okabe-Ito scale with the web's
+  `(label - 1) % size` rule, so render, web and Qt legends agree; `--layers`
+  gains `frustums` and `panoramas`. **Posegraf** draws the frames and edges
+  in 2D and drives the Database's A/B selection. **Pipeline** runs any
+  stage in-process on `pipeline::JobRunner` from a form generated from
+  `stage_parameters()`, with progress, cancel and the log tail. **Log**
+  filters the pipeline log. Every run carries **"Kopiér som
+  rux-kommando"**: the exact CLI line, round-trip tested through the real
+  CLI11 setup.
+  Known divergence: `export semantic-images`, `export rhino` and the
+  on-screen-display overlays still colour labels with PCL's Glasbey LUT, so
+  their colours no longer match `rux render`, the web viewport or the Qt
+  client. Out-of-contract labels (a −1 that wrapped to 0xFFFFFFFF in a point
+  cloud, STANDARDS §3.1) now draw in a non-class `--label-invalid` colour
+  (new token, value pending a design ruling) instead of borrowing slot 6.
+  `rux create mesh` and `rux optimize` now read their stage parameters
+  through the same functions as the in-process stages
+  (`pipeline::mesh_options_from_parameters`, `apply_optimize_parameters`),
+  and log them under the same keys.
+- **2026-10-08** — **Native Qt client, phase Q2: the Database workspace**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). RTABMap's DatabaseViewer, made calm: a project tree with
+  counts; an A/B frame browser (colour, depth or confidence under the label
+  overlay and legend; pose, camera and time; ←/→ and Shift+←/→; filmstrip)
+  decoding off the GUI thread; a pair strip that shows the pose-graph edges
+  between A and B and edits them — ICP refine, add, delete — as pending
+  edits saved in one transaction with "Gem ændringer"; a read-only viewer
+  for every sqlite table; the pipeline log; and an inspector for whatever is
+  selected. Two library additions came with it: `ProjectDB::list_tables /
+  table_columns / table_rows` (read-only, blob sizes without the bytes) and
+  `slam::refine_frame_pair_icp`, the ICP that was app code behind the web
+  GUI's `/posegraph/icp` and is now shared by both clients. A WAL-mode
+  project in a read-only directory now probes and opens read-only.
+- **2026-10-08** — **Native Qt client, phase Q1: plain `rux` is an app**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). `rux` with no subcommand (or `rux -p x.rux`) now opens the Qt
+  client when there is a display, and prints help (exit 0) when there is
+  none; every subcommand is unchanged. The shell has a title bar with schema
+  and access status, a nav rail (Start, Database, 3D, Posegraf, Pipeline,
+  Log), a collapsible inspector and a Ctrl+K command palette (fuzzy,
+  Danish-folding, keyboard-first). The start page opens projects by dialog,
+  recent list or drag-and-drop and shows a summary card; a locked,
+  read-only, missing or foreign file gets a Danish explanation instead of a
+  crash. Projects open off the GUI thread in a `ProjectSession` that owns
+  the ProjectDB — the hook Q2's Database workspace builds on. Workspaces are
+  designed placeholders until Q2/Q3. The installed `rux` is wrapped for Qt's
+  platform plugins.
+- **2026-10-08** — **Native Qt client, phase Q0: the design loop**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). Before any Qt workspace is designed, the design-studio skill can
+  see Qt: `apps/rux/qt/` adds `rux_qt_core` (Qt-free token parsing, light
+  tests), `rux_qt_lib` (theme loader: `tokens.css` -> QSS template + QPalette
+  at run time, hot reload with `--dev`, bundled OFL fonts) and
+  `rux-qt-gallery`, which renders a page headless to PNG (3D through VTK's
+  EGL offscreen window). `qt_shot.sh` fails on any missing token; a QSS edit
+  re-shoots in ~1.3 s, a C++ edit in ~10 s. One design system, two renderers:
+  the web GUI's tokens are now also the Qt client's. Plain-`rux` launch and the
+  workspaces follow in Q1–Q3.
 - **2026-10-08** — **GUI: ruxd becomes a multi-user server** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream S, phase S3). `ruxd` without `--local` now serves the same frontend
   and API to many people:

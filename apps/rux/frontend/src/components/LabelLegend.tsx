@@ -4,7 +4,7 @@
 
 import { useMemo } from 'react';
 
-import { labelColorIndex, readLabelPalette } from '../viewport/labelColors';
+import { labelColorIndex, slotColor, readLabelPalette } from '../viewport/labelColors';
 import styles from './LabelLegend.module.css';
 
 export interface LabelLegendProps {
@@ -45,7 +45,7 @@ export function LabelLegend({ labels, limit = 24 }: LabelLegendProps) {
           <div key={entry.id} className={styles.entry}>
             <span
               className={styles.swatch}
-              style={{ background: slot < 0 ? palette.unlabeled : palette.colors[slot] }}
+              style={{ background: slotColor(palette, slot) }}
               aria-hidden="true"
             />
             <span className={styles.name} title={entry.name}>

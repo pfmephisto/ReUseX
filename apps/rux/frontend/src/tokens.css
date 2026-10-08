@@ -124,6 +124,16 @@
   --label-count: 8;
   /* Points whose label is 0 (unlabeled, STANDARDS §3) render in this. */
   --label-unlabeled: #4a505c;
+  /* Points whose label is out of contract — a -1 that wrapped to 0xFFFFFFFF
+     in a point cloud (STANDARDS §3.1) — render in this. Not a class, so not
+     on the categorical scale: must recede against the near-black 3D canvas
+     (STANDARDS: an "invalid" state should recede, not shout), not compete
+     with the vivid Okabe-Ito scale. PROVISIONAL — hand-added outside
+     /design-sync (never edit tokens.css otherwise); value owed by the design
+     project (see reusex-frontend.md's token inventory and
+     .github/issue-drafts/). Derived from --color-border-strong, a muted
+     neutral distinct from --label-unlabeled. */
+  --label-invalid: #b9bcbf;
 
   /* ------------------------------------------------- viewport: geometry -- */
   --mesh-surface: #8a8f99;
@@ -242,6 +252,15 @@
   --tone-crit-ink: #f0a094;
   --tone-accent-bg: #1f3346;
   --tone-accent-ink: #9bb8d4;
+
+  /* PROVISIONAL (see the :root comment) — a dim neutral that sits near the
+     near-black canvas rather than the light --color-surface value, so an
+     invalid point recedes instead of becoming the scene's brightest thing.
+     Derived from --color-border (not --color-surface-raised: the legend
+     swatch sits on a panel using that exact background in dark mode, which
+     made the swatch invisible there — this is a shade lighter so it still
+     reads as a chip). */
+  --label-invalid: #2c3a48;
 
   /* Lifted so the ranked scale still reads on a dark field. */
   --circ-bevaring: #8fa7c0;

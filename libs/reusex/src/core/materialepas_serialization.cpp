@@ -6,6 +6,7 @@
 #include "core/logging.hpp"
 #include "core/materialepas_enums.hpp"
 #include "core/materialepas_types.hpp"
+#include "utils/parse_number.hpp"
 
 #include <charconv>
 #include <nlohmann/json.hpp>
@@ -74,7 +75,7 @@ void Deserializer::deserialize_double(void *ptr, const PropertyValue &value) {
   }
 
   try {
-    *field = std::stod(std::string(str));
+    *field = reusex::utils::to_double(str);
   } catch (const std::exception &e) {
     throw std::runtime_error("Failed to parse double: " + std::string(str));
   }

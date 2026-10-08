@@ -16,7 +16,9 @@
 
 namespace ruxd {
 
-/// Build the IcpRefineFn callback that POST /api/v1/posegraph/icp uses.
+/// Build the IcpRefineFn callback that POST /api/v1/posegraph/icp uses: a
+/// thin adapter over reusex::slam::refine_frame_pair_icp (shared with the Qt
+/// client's pair strip).
 ///
 /// Back-projects each frame's depth image into a PCL cloud (4px stride,
 /// 0.3–4 m depth range, world space), then runs point-to-point ICP

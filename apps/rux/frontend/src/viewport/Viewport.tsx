@@ -477,7 +477,13 @@ export function Viewport({
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >
-      <canvas ref={canvasRef} className={styles.canvas} />
+      {/* The 3D canvas is near-black in both app themes (tokens.css), so it is
+          pinned to the dark token scope here rather than following the app
+          theme: a token that legitimately differs per theme (`--label-invalid`,
+          picked for a light panel in light mode) would otherwise still shout
+          against this always-dark surface. See PointCloudScene's use of
+          `resolveColorToken`/`readLabelPalette` against this element. */}
+      <canvas ref={canvasRef} className={styles.canvas} data-theme="dark" />
       {scene &&
         layers.map((layer) => (
           <CloudLayerLoader

@@ -7,6 +7,7 @@
 #include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "io/panoramas.hpp"
+#include "utils/parse_number.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -110,7 +111,7 @@ bool parse_frame_timestamp(const std::filesystem::path &file, double &ts) {
       (us == std::string::npos) ? stem : stem.substr(us + 1);
   try {
     std::size_t consumed = 0;
-    ts = std::stod(tok, &consumed);
+    ts = reusex::utils::to_double(tok, &consumed);
     return consumed == tok.size();
   } catch (const std::exception &) {
     return false;

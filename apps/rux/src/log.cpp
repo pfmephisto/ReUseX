@@ -79,6 +79,9 @@ void format_terminal_output(
     } else if (entry.status == "failed") {
       status_icon = fmt::format(
           "{}", fmt::styled("✗", fmt::fg(fmt::terminal_color::red)));
+    } else if (entry.status == "cancelled") {
+      status_icon = fmt::format(
+          "{}", fmt::styled("⊘", fmt::fg(fmt::terminal_color::bright_black)));
     } else {
       status_icon = fmt::format(
           "{}", fmt::styled("⋯", fmt::fg(fmt::terminal_color::yellow)));
@@ -184,7 +187,7 @@ OUTPUT COLUMNS:
   Stage       Pipeline stage (import, clouds, planes, mesh, etc.)
   Started     Timestamp when command started
   Duration    Execution time (e.g., "2m 34s", "running")
-  Status      success, failed, or running
+  Status      success, failed, cancelled, or running
   Parameters  Command parameters (JSON)
 
 NOTES:

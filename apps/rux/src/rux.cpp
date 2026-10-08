@@ -24,6 +24,10 @@
 
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
+#include <reusex/pipeline/optimize_stage.hpp>
+#include <rux_qt/background.hpp>
+#include <rux_qt/launch.hpp>
+#include <rux_qt/workspace_logic.hpp>
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
@@ -72,7 +76,18 @@ void install_fatal_signal_handlers() {
 
 namespace rux {
 
-int run(int argc, char **argv) {
+namespace {
+bool g_logging_left_up = false;
+} // namespace
+
+bool logging_left_up() { return g_logging_left_up; }
+
+void finish_logging() {
+  g_logging_left_up = false;
+  spdlog::shutdown();
+}
+
+int run(int argc, char **argv, GuiLauncher launch_gui) {
   install_fatal_signal_handlers();
 
   // Initialize async logger thread pool (lock-free queue, background writer
@@ -97,6 +112,9 @@ int run(int argc, char **argv) {
 
   reusex::core::set_log_handler(
       [](reusex::core::LogLevel level, std::string_view message) {
+        // The Qt client's Pipeline workspace tails a running stage through
+        // this tap; without a listener it costs a lock and an empty loop.
+        rux::qt::publish_log(static_cast<int>(level), message);
         switch (level) {
         case reusex::core::LogLevel::trace:
           spdlog::trace("{}", message);
@@ -190,6 +208,13 @@ int run(int argc, char **argv) {
   setup_subcommand_validate(app, opt);
   setup_subcommand_view(app, opt);
 
+  // Dev/test flag of the Qt client (plain `rux`): quit after N ms and print
+  // a one-line state report. Hidden from --help (empty group).
+  int quit_after_ms = -1;
+  app.add_option("--quit-after-ms", quit_after_ms,
+                 "Qt client: quit after N ms (smoke tests)")
+      ->group("");
+
   app.require_subcommand(/* min */ 0, /* max */ 2);
 
   argv = app.ensure_utf8(argv);
@@ -220,6 +245,62 @@ int run(int argc, char **argv) {
     // viewer to wind down — keep the original early-out.
     spdlog::shutdown(); // Flush async queue before exit
     return app.exit(e);
+  }
+
+  // No subcommand: plain `rux` (or `rux -p x.rux`) is the Qt client when
+  // there is a display and a launcher was linked (main.cpp), and the help
+  // text otherwise (rux_qt/launch.hpp).
+  {
+    auto env = [](const char *name) {
+      const char *v = std::getenv(name);
+      return std::string_view(v ? v : "");
+    };
+    rux::qt::LaunchInputs in;
+    in.has_subcommand = !app.get_subcommands().empty();
+    in.qt_client_built = static_cast<bool>(launch_gui);
+    in.display = env("DISPLAY");
+    in.wayland_display = env("WAYLAND_DISPLAY");
+    in.xdg_runtime_dir = env("XDG_RUNTIME_DIR");
+    in.qpa_platform = env("QT_QPA_PLATFORM");
+    in.path_exists = [](const std::string &p) {
+      std::error_code ec;
+      return fs::exists(p, ec);
+    };
+    switch (rux::qt::decide_launch(in)) {
+    case rux::qt::LaunchAction::run_subcommand:
+      break;
+    case rux::qt::LaunchAction::print_help:
+      std::cout << app.help();
+      if (!in.has_subcommand && in.qt_client_built)
+        std::cout << "\nNo display: the desktop app (plain `rux`) needs X11 "
+                     "or Wayland. Run a subcommand instead.\n";
+      break;
+    case rux::qt::LaunchAction::open_app: {
+      GuiLaunch request;
+      // Only an explicit -p opens a project; the ./project.rux default
+      // would otherwise be created by the open.
+      if (app.count("--project") > 0)
+        request.project = opt->project_db;
+      request.quit_after_ms = quit_after_ms;
+      request.stage_executor = reusex::pipeline::stage_executor_with_optimize();
+      const int rc = launch_gui(argc, argv, request);
+      if (rux::qt::background_work_in_flight() > 0) {
+        // run_app's bounded wait ran out while a detached thread (a project
+        // open stuck on a lock or a long migration, an ICP refine) is still
+        // going. It may log at any moment: spdlog::shutdown() or resetting
+        // the ReUseX log handler under it would be a use-after-free. Flush
+        // what was logged and leave both alive; main() then ends the process
+        // with std::quick_exit, so no static destructor runs under the
+        // thread either (rux_qt/background.hpp).
+        if (auto logger = spdlog::default_logger())
+          logger->flush();
+        g_logging_left_up = true;
+        return rc;
+      }
+      teardown();
+      return rc;
+    }
+    }
   }
 
   teardown();

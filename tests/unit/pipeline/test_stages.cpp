@@ -351,6 +351,40 @@ TEST_CASE("RunStage_SeededPlanesStage_RunsToCompletionAndWritesOutputs",
   CHECK(log.front().status == "success");
 }
 
+// Integration review finding 2: a cancel must leave a durable "cancelled"
+// pipeline_log row, distinct from "failed", so the GUI's history view never
+// shows a user-requested stop as an error.
+TEST_CASE("RunStage_CancelledPlanesStage_RecordsCancelledNotFailed",
+          "[pipeline][stages]") {
+  TempPath project("test_pipeline_stages");
+  reusex::ProjectDB db(project.path);
+  seed_segmentable_project(db);
+
+  std::atomic_bool cancelled{true};
+  StageContext ctx;
+  ctx.project = project.path;
+  ctx.stage = JobStage::planes;
+  ctx.parameters = R"({"adaptive":false,"min_inliers":10})";
+  ctx.cancel_token = &cancelled;
+
+  // Inputs are satisfied, so check_inputs passes and dispatch() runs
+  // segment_planes, which observes the already-set token and returns
+  // promptly; run_planes then reports a cancellation rather than success.
+  const auto result = run_stage(db, ctx);
+
+  INFO(result.message);
+  CHECK_FALSE(result.ok);
+  CHECK(result.cancelled);
+  CHECK_FALSE(result.invalid_input);
+
+  const auto log = db.pipeline_log();
+  REQUIRE(log.size() == 1);
+  CHECK(log.front().stage == "segment_planes");
+  CHECK(log.front().status == "cancelled");
+  CHECK_FALSE(log.front().finished_at.empty());
+  CHECK_FALSE(log.front().error_msg.empty());
+}
+
 TEST_CASE("RunStage_FilterExpression_RestrictsStageAndIsRecorded",
           "[pipeline][stages]") {
   TempPath project("test_pipeline_stages");

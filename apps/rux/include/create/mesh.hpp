@@ -44,6 +44,9 @@ struct SubcommandMeshOptions {
 };
 
 // Function declarations.
+/// The flags under run_stage's mesh keys (the Qt client's runs).
+std::string mesh_stage_parameters(SubcommandMeshOptions const &opt);
+
 void setup_subcommand_create_mesh(CLI::App &app,
                                   std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_mesh(SubcommandMeshOptions const &opt,

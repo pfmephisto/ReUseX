@@ -106,12 +106,13 @@ cmake --build build
 
 | Option | Default | Defined in | Effect |
 |---|---|---|---|
-| `WITH_CUDA` | `ON` | `CMakeLists.txt:25` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
-| `USE_CCACHE` | `ON` | `CMakeLists.txt:66` | Use ccache when available |
-| `ENABLE_COVERAGE` | `OFF` | `CMakeLists.txt:103` | Code coverage instrumentation |
-| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:129` | Adds `bindings/python` |
-| `BUILD_TESTS` | `ON` | `CMakeLists.txt:137` | Adds `tests/` and `enable_testing()` |
-| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:146`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `WITH_CUDA` | `ON` | `CMakeLists.txt:38` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
+| `USE_CCACHE` | `ON` | `CMakeLists.txt:79` | Use ccache when available |
+| `ENABLE_COVERAGE` | `OFF` | `cmake/Coverage.cmake:30` | Code coverage instrumentation |
+| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:137` | Adds `bindings/python` |
+| `BUILD_TESTS` | `ON` | `CMakeLists.txt:145` | Adds `tests/` and `enable_testing()` |
+| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:154`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `BUILD_QT_CLIENT` | `ON` | `CMakeLists.txt:128` | Native Qt client `apps/rux/qt` (`rux_qt_core`, `rux_qt_lib`, `rux-qt-gallery`) and `tests/unit/rux_qt`; needs Qt6 OpenGLWidgets + VTK GUISupportQt |
 | `GUI_ENABLED` | `OFF` | `libs/reusex/cmake/Dependencies.cmake:207` | CGAL Qt6 GUI components |
 | `ML_BACKENDS` | `AUTO` | `libs/reusex/cmake/Dependencies.cmake:49` | Cache string, not a bool: `AUTO`, `NONE`, or a list like `TensorRT;LibTorch;ONNX;OpenVINO` |
 | `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
@@ -149,16 +150,27 @@ because temp-file helpers derived names from object addresses; that was
 fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`, `ruxd_cli`, `ruxd_pg`,
-`utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`,
+`utils`, `vision`, `visualize`, plus `pipeline`, `reconstruction`,
+`segmentation`, `slam`; `ruxd` (ruxd_lib's injected heavy pieces),
+`ruxd_api` (the web GUI's REST + WS API, `ruxd_api_lib`), `ruxd_cli` and
+`ruxd_pg`; `rux` (`rux_core_lib`'s app logic — path parsing, filter
+validation, stage prerequisites — short of a subcommand or the viewer),
+`rux_app` (CLI subcommands, needs `rux_lib`; incl. "Kopiér som
+rux-kommando"'s CLI round-trip) and `rux_qt` (the native Qt client's Qt-free
+logic, `rux_qt_core`)), `integration/`, `benchmarks/`, `support/`,
 `fixtures/`. Catch2 v3.
 
 Unit tests link into **two** executables (`tests/CMakeLists.txt`):
 `reusex_unit_tests` for most modules, and `reusex_unit_tests_vision` for
-`unit/vision`, `unit/ruxd`, `unit/visualize` and `unit/gsplat/cuda`, which
-need libtorch / TensorRT / `ruxd_lib` / the PCL-Qt viewer. Test names and
-`ctest -R` are unaffected by the split. Put a new test in a heavy directory
-only if it really needs those dependencies (#268).
+`unit/vision`, `unit/ruxd`, `unit/rux_app`, `unit/visualize` and
+`unit/gsplat/cuda`, which need libtorch / TensorRT / `rux_lib` / `ruxd_lib` /
+the PCL-Qt viewer. `reusex_unit_tests` (the light binary) links `rux_qt_core`
+unconditionally whenever `BUILD_QT_CLIENT` builds the Qt client at all
+(`apps/rux/qt/CMakeLists.txt`), so `unit/rux_qt` always runs there and costs
+nothing extra on a build without Qt. Test names and `ctest -R` are unaffected
+by the split. Put a new test in a heavy directory only if it really needs
+those dependencies (#268).
 
 `unit/gsplat/` splits inside the directory (#332): `unit/gsplat/cuda/` needs
 torch or the rasterizer and is dropped from a build without
@@ -238,7 +250,8 @@ ReUseX/
 │   │   │                           #   mushroom, exif, export_scene
 │   │   ├── vision/                 # ML models, backends, datasets (tensor_rt/, onnx/,
 │   │   │                           #   libtorch/, osd/, common/)
-│   │   ├── visualize/              # viewport layout + headless render_view (VTK)
+│   │   ├── visualize/              # scene builder (populate_scene), headless
+│   │   │                           #   render_view, viewport layout (VTK)
 │   │   ├── utils/                  # math, cv, tolerances, fmt_formatter
 │   │   ├── types/                  # point_types.hpp, eigen_types.hpp
 │   │   └── types.hpp               # Umbrella re-exporting types/*
@@ -246,7 +259,11 @@ ReUseX/
 │   ├── cmake/                      # reusexLibrary.cmake, Dependencies.cmake, ...
 │   └── extern/                     # Vendored headers
 ├── apps/rux/                       # CLI application
-│   └── include/ + src/             # Subcommands, grouped in subdirs
+│   ├── include/ + src/             # Subcommands, grouped in subdirs
+│   └── qt/                         # Native Qt client (in progress): rux_qt_core,
+│                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss;
+│                                   #   shell (Q1), Database (Q2), 3D, Posegraf,
+│                                   #   Pipeline, Log (Q3)
 ├── apps/ruxd/                      # HTTP service worker (ruxd); serves the web GUI
 │   └── src/api/ + include/api/     #   ruxd_api_lib: the GUI's REST + WS API (light);
 │                                   #   the SPA it serves lives in apps/rux/frontend
@@ -298,6 +315,27 @@ parsing itself in the light `ruxd_cli_lib` (`src/cli/`). The Morton tile index
 the GUI streams clouds by is built by the clouds stage itself
 (`reusex/pipeline/tile_index.hpp`), whichever front end runs it.
 Both use CLI11 for argument parsing and spdlog as the log sink.
+Plain `rux` (no subcommand, optionally `-p x.rux`) opens the **native Qt
+client** when there is a usable display (an existing X or Wayland socket, or
+`QT_QPA_PLATFORM=offscreen`; `rux_qt/launch.hpp`) and prints help otherwise.
+The shell lives in `rux_qt_lib` (`AppShell`, `ProjectSession`,
+`CommandPalette`), linked into the `rux` **executable only**: `main.cpp` hands
+`rux::run` a `GuiLauncher` (`rux_app.hpp`), so `rux_lib` and both test
+binaries carry no Qt client code. Hidden dev flag:
+`rux -p x.rux --quit-after-ms N`.
+The Qt client's 3D workspace and `rux render` share one scene builder,
+`visualize::populate_scene()` (`visualize/scene.hpp`); its Pipeline workspace
+runs stages in-process through `pipeline::JobRunner` with
+`pipeline::stage_executor_with_optimize()` (handed over in `GuiLaunch`; the
+same executor ruxd injects for the web GUI), and "Kopiér som
+rux-kommando" (`rux_qt/cli_command.hpp`) is round-trip tested against the real
+CLI (`tests/unit/rux_app/test_cli_command_roundtrip.cpp`, via
+`rux::set_stage_params_sink`). `RUX_QT_PAGE=database|3d|posegraf|pipeline|log`
+lands the smoke run on that page.
+`rux-qt-gallery` (`apps/rux/qt`) renders pages of the native Qt client
+headless to PNG for design review; its theme is generated at run time from
+`apps/rux/frontend/src/tokens.css` (the web GUI's tokens). The loop and its
+gotchas: `.claude/skills/design-studio/references/qt-client.md`.
 
 ### Type System (types.hpp)
 
@@ -346,6 +384,13 @@ and deleted the shims. `include/geometry/` now holds only the real
   RANSAC), enabled with `--loop-closure`; run `rux optimize --help` for the
   current flag list rather than trusting a doc.
 - `JointPairwiseRegistration.hpp`: `rux register`
+- `frame_pair_icp.hpp`: depth-cloud ICP between two stored frames, behind
+  the web GUI's `/posegraph/icp` and the Qt client's pair strip
+- `optimize_parameters.hpp`: the optimize stage's JSON parameters →
+  `PlaneGraphOptions`, the one reader `rux optimize`, the Qt client and the
+  web GUI share. The in-process `optimize` stage itself is the header-only
+  `pipeline/optimize_stage.hpp` (`stage_executor_with_optimize()`), compiled
+  into rux and ruxd because `reusex_pipeline` must not link GTSAM (#464)
 - `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
 - `PanoramaLoopEdges.hpp`: wide-baseline `LoopEdge`s derived from 360
   panoramas (`rux optimize --use-panoramas`, #236). Each panorama is resected
@@ -442,6 +487,20 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `-1` in the API. The full contract, including the in-memory `CloudL`
   convention, is [`docs/STANDARDS.md` §3](docs/STANDARDS.md#3-label--identity-contract);
   helpers live in `core/label_semantics.hpp`
+- **`probe()`**: a static, `noexcept` check of whether a path is a ReUseX
+  project — opens sqlite read-only/immutable (no `-wal`/`-shm` created,
+  works in a read-only directory), checks the tables `validate_schema()`
+  requires and reads the schema version, all without constructing a full
+  `ProjectDB`. Returns `ProbeResult{is_project, schema_version, error}`. Lets
+  a GUI vet a foreign or empty sqlite file before a read-write open would
+  stamp ReUseX tables onto it.
+- **Raw table browsing** (the Qt client's Database workspace and `rux get`):
+  `list_tables()` (every user table, sorted, with its row count),
+  `table_columns()` (`PRAGMA table_info` per column), `table_rows(table,
+  offset, limit, text_limit = 256)` (paged rows in rowid/PK order, one
+  `TableCell` per column — a blob cell never reads its full bytes, only up to
+  `text_limit` head bytes plus the real size). All three throw
+  `std::invalid_argument` for a non-user table.
 
 Other core pieces: `logging.hpp`, `stages.hpp` (`Stage` enum),
 `validate.hpp` (`check_stage_inputs`, backing `rux validate --stage`),
@@ -483,9 +542,10 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `info` | — (project summary) | `src/info.cpp` |
 | `log` | — (pipeline execution history) | `src/log.cpp` |
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
-| `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
+| `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`; layers incl. `frustums`, `panoramas`; label layers on the `--label-*` token scale) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 
+With **no** subcommand, `rux` launches the Qt client (help without a display).
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
@@ -750,7 +810,9 @@ Anything not found there is not a dependency.
 - fmt - string formatting (the library's logging API is built on it)
 - range-v3 - modern C++ ranges
 - nlohmann_json - JSON
-- Qt6 (`Core Widgets Gui OpenGL`) - GUI components
+- Qt6 (`Core Widgets Gui OpenGL`, + `OpenGLWidgets` and VTK `GUISupportQt`
+  for `apps/rux/qt`) - GUI components; the Qt client bundles Archivo, Oswald
+  and JetBrains Mono TTFs (OFL-1.1, `LICENSES/OFL-1.1.txt`)
 - Catch2 v3 - tests
 
 ## Pre-trained Models
@@ -852,7 +914,7 @@ rux -vvv -p scan.rux create planes
 
 Python bindings live in `bindings/python/` (pybind11 + scikit-build-core,
 package name `reusex`). `BUILD_PYTHON_BINDINGS` defaults to **ON** in
-`CMakeLists.txt:129`, so they are part of a default build — they are **not**
+`CMakeLists.txt:137`, so they are part of a default build — they are **not**
 disabled.
 
 Current scope is **read-only `.rux` inspection**, implemented in

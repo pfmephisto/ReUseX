@@ -136,6 +136,13 @@ struct SubcommandOptimizeOptions {
   bool dry_run = false;
 };
 
+/// Every flag -> the optimizer's options (what `rux optimize` runs with).
+reusex::geometry::PlaneGraphOptions
+plane_graph_options(SubcommandOptimizeOptions const &opt);
+
+/// The flags the in-process optimize stage reads, as its JSON.
+std::string optimize_stage_parameters(SubcommandOptimizeOptions const &opt);
+
 void setup_subcommand_optimize(CLI::App &app,
                                std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,

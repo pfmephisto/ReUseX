@@ -540,7 +540,7 @@ export interface StageInfo {
 export interface PipelineLogEntry {
   id: number;
   stage: string;
-  status: 'running' | 'success' | 'failed';
+  status: 'running' | 'success' | 'failed' | 'cancelled';
   started_at: string;
   /** Empty while still running. */
   finished_at?: string;

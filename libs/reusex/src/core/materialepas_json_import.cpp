@@ -6,6 +6,7 @@
 #include "core/logging.hpp"
 #include "core/materialepas_enums.hpp"
 #include "core/materialepas_json_export.hpp"
+#include "utils/parse_number.hpp"
 
 #include <cstring>
 #include <stdexcept>
@@ -164,7 +165,7 @@ DangerousSubstance parse_dangerous_substance(const json &properties_array) {
       case PropertyType::Double: {
         if (!val.empty()) {
           try {
-            write_opt_double(&sub, desc.offset, std::stod(val));
+            write_opt_double(&sub, desc.offset, reusex::utils::to_double(val));
           } catch (const std::exception &e) {
             reusex::warn("Failed to parse double for '{}': {}", name, e.what());
           }
@@ -214,7 +215,7 @@ Emission parse_emission(const json &properties_array) {
       case PropertyType::Double: {
         if (!val.empty()) {
           try {
-            write_opt_double(&em, desc.offset, std::stod(val));
+            write_opt_double(&em, desc.offset, reusex::utils::to_double(val));
           } catch (const std::exception &e) {
             reusex::warn("Failed to parse double for '{}': {}", name, e.what());
           }
@@ -265,7 +266,7 @@ void deserialize_simple_property(void *section, const PropertyDescriptor &desc,
       write_opt_double(section, desc.offset, std::nullopt);
     } else {
       try {
-        write_opt_double(section, desc.offset, std::stod(value));
+        write_opt_double(section, desc.offset, reusex::utils::to_double(value));
       } catch (const std::exception &e) {
         reusex::warn("Failed to parse double for '{}': {}", desc.json_name,
                      e.what());

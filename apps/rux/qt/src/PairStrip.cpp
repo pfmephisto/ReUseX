@@ -1,0 +1,396 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The A<->B pair strip of the frame browser: the pose-graph edges between the
+// two frames (stored and pending), how far apart the frames are, and the
+// three edits — ICP refine (slam::refine_frame_pair_icp, on a detached thread
+// with its own read-only connection), add an edge, delete one.
+
+#include <rux_qt/EdgeEditor.hpp>
+#include <rux_qt/FrameBrowser.hpp>
+#include <rux_qt/ProjectSession.hpp>
+#include <rux_qt/Theme.hpp>
+#include <rux_qt/background.hpp>
+#include <rux_qt/widgets.hpp>
+
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/slam/frame_pair_icp.hpp>
+
+#include <QApplication>
+#include <QComboBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMouseEvent>
+#include <QPointer>
+#include <QPushButton>
+#include <QVBoxLayout>
+
+#include <cmath>
+#include <memory>
+#include <thread>
+
+namespace rux::qt {
+namespace {
+
+QString dec(double v, int decimals) {
+  return QString::fromStdString(format_decimal_da(v, decimals));
+}
+
+QString weight_text(double w) {
+  if (!std::isfinite(w))
+    return "—";
+  return w >= 100 ? format_count(static_cast<qulonglong>(std::llround(w)))
+                  : dec(w, 2);
+}
+
+/// A clickable edge row: shows the edge in the inspector when clicked.
+class EdgeRow : public QFrame {
+    public:
+  explicit EdgeRow(std::function<void()> on_click)
+      : on_click_(std::move(on_click)) {
+    setObjectName("edgeRow");
+    setCursor(Qt::PointingHandCursor);
+  }
+
+    protected:
+  void mousePressEvent(QMouseEvent *e) override {
+    if (on_click_)
+      on_click_();
+    QFrame::mousePressEvent(e);
+  }
+
+    private:
+  std::function<void()> on_click_;
+};
+
+Selection edge_selection(const EdgeView &v, int a, int b) {
+  Selection s;
+  s.kind = "Kant";
+  s.title = QString::fromStdString(edge_type_da(v.edge.key.type));
+  s.subtitle = QString("%1 → %2").arg(v.edge.key.from).arg(v.edge.key.to);
+  if (v.pending_add) {
+    s.pill = "Ny — ikke gemt";
+    s.pill_tone = "accent";
+  } else if (v.pending_delete) {
+    s.pill = "Slettes ved gem";
+    s.pill_tone = "crit";
+  } else {
+    s.pill = "Gemt";
+    s.pill_tone = "good";
+  }
+  SelectionSection e{"Kant", {}, {}};
+  e.rows.push_back({"Fra", QString::number(v.edge.key.from)});
+  e.rows.push_back({"Til", QString::number(v.edge.key.to)});
+  e.rows.push_back({"Type", QString::fromStdString(v.edge.key.type),
+                    SelectionRow::Style::mono});
+  e.rows.push_back({"Vægt", weight_text(v.edge.weight)});
+  e.rows.push_back({"Residual", dec(v.edge.residual, 4)});
+  e.rows.push_back({"Retning",
+                    v.reversed ? QString("B → A (%1 → %2)").arg(b).arg(a)
+                               : QString("A → B (%1 → %2)").arg(a).arg(b),
+                    SelectionRow::Style::value});
+  s.sections.push_back(e);
+  SelectionSection about{"Om tallene", {}, {}};
+  about.rows.push_back(
+      {"Vægt", "Translationsinformation, 1/σ²", SelectionRow::Style::value});
+  about.rows.push_back({"Residual", "½ · hvidet kvadratfejl efter optimering",
+                        SelectionRow::Style::value});
+  s.sections.push_back(about);
+  return s;
+}
+
+} // namespace
+
+PairStrip::PairStrip(ProjectSession &session, EdgeEditor &editor,
+                     QWidget *parent)
+    : QFrame(parent), session_(session), editor_(editor) {
+  setObjectName("pairStrip");
+  const Theme &t = theme();
+  auto *v = new QVBoxLayout(this);
+  const int pad = t.px("--space-3");
+  v->setContentsMargins(t.px("--space-4"), pad, t.px("--space-4"), pad);
+  v->setSpacing(t.px("--space-2"));
+
+  auto *head = new QHBoxLayout;
+  head->setSpacing(t.px("--space-3"));
+  head->addWidget(new CapsLabel("Kant A ↔ B", "panelTitle"));
+  pair_ = new QLabel;
+  pair_->setObjectName("pairIds");
+  head->addWidget(pair_);
+  delta_ = new QLabel;
+  delta_->setObjectName("pairDelta");
+  head->addWidget(delta_, 1);
+
+  icp_ = new QPushButton(NavItem::escape_mnemonic("ICP-forfin"));
+  icp_->setProperty("kind", "secondary");
+  icp_->setCursor(Qt::PointingHandCursor);
+  icp_->setToolTip("Justér B's dybdesky mod A's med ICP og vis, hvor godt "
+                   "de passer. Ændrer ikke projektet.");
+  head->addWidget(icp_);
+  type_ = new QComboBox;
+  type_->setObjectName("edgeType");
+  for (const char *k : {"loop_closure", "odometry", "panorama"})
+    type_->addItem(QString::fromStdString(edge_type_da(k)), QString(k));
+  type_->setToolTip("Typen af den nye kant");
+  head->addWidget(type_);
+  add_ = new QPushButton(NavItem::escape_mnemonic("Tilføj kant"));
+  add_->setProperty("kind", "primary");
+  add_->setCursor(Qt::PointingHandCursor);
+  head->addWidget(add_);
+  v->addLayout(head);
+
+  rows_ = new QWidget;
+  rows_->setObjectName("edgeRows");
+  rows_layout_ = new QVBoxLayout(rows_);
+  rows_layout_->setContentsMargins(0, 0, 0, 0);
+  rows_layout_->setSpacing(t.px("--space-1"));
+  v->addWidget(rows_);
+
+  icp_line_ = new QLabel;
+  icp_line_->setObjectName("icpLine");
+  icp_line_->setWordWrap(true);
+  v->addWidget(icp_line_);
+  note_ = new QLabel;
+  note_->setObjectName("pairNote");
+  note_->setWordWrap(true);
+  v->addWidget(note_);
+
+  connect(icp_, &QPushButton::clicked, this, &PairStrip::run_icp);
+  connect(add_, &QPushButton::clicked, this, &PairStrip::add_edge);
+  connect(&editor_, &EdgeEditor::changed, this, &PairStrip::rebuild);
+  connect(&session_, &ProjectSession::state_changed, this, [this] {
+    icp_results_.clear();
+    rebuild();
+  });
+  rebuild();
+}
+
+void PairStrip::set_pair(int a_id, int b_id) {
+  if (a_id == a_ && b_id == b_)
+    return;
+  a_ = a_id;
+  b_ = b_id;
+  rebuild();
+}
+
+void PairStrip::rebuild() {
+  const Theme &t = theme();
+  // Clear the rows (hide first: a widget waiting for deleteLater paints).
+  while (QLayoutItem *it = rows_layout_->takeAt(0)) {
+    if (QWidget *w = it->widget()) {
+      w->hide();
+      w->deleteLater();
+    }
+    delete it;
+  }
+
+  const reusex::ProjectDB *db = session_.db();
+  const bool pair_ok = db && a_ >= 0 && b_ >= 0;
+  const bool same = pair_ok && a_ == b_;
+  pair_->setText(pair_ok ? QString("%1 ↔ %2").arg(a_).arg(b_) : QString("—"));
+
+  // How far apart: distance, angle and time between the stored poses.
+  QString delta;
+  if (pair_ok && !same) {
+    try {
+      QStringList parts;
+      if (db->has_sensor_frame_pose(a_) && db->has_sensor_frame_pose(b_)) {
+        const auto d =
+            pose_delta(db->sensor_frame_pose(a_), db->sensor_frame_pose(b_));
+        parts << QString("%1 m").arg(dec(d.distance_m, 2))
+              << QString("%1°").arg(dec(d.angle_deg, 1));
+      }
+      const double ta = db->sensor_frame_timestamp(a_);
+      const double tb = db->sensor_frame_timestamp(b_);
+      if (ta >= 0 && tb >= 0)
+        parts << QString("Δt %1 s").arg(dec(std::abs(tb - ta), 1));
+      delta = parts.join("  ·  ");
+    } catch (const std::exception &) {
+    }
+  }
+  delta_->setText(delta);
+
+  const auto views = pair_ok && !same ? editor_.edits().between(a_, b_)
+                                      : std::vector<EdgeView>{};
+  for (const EdgeView &v : views) {
+    auto *row = new EdgeRow(
+        [this, v] { emit edge_selected(edge_selection(v, a_, b_)); });
+    row->setProperty("state", v.pending_add      ? "add"
+                              : v.pending_delete ? "delete"
+                                                 : "stored");
+    auto *h = new QHBoxLayout(row);
+    h->setContentsMargins(t.px("--space-2"), t.px("--space-1"),
+                          t.px("--space-1"), t.px("--space-1"));
+    h->setSpacing(t.px("--space-3"));
+    h->addWidget(
+        new Pill(QString::fromStdString(edge_type_da(v.edge.key.type)),
+                 v.edge.key.type == "loop_closure" ? "accent" : "outline"));
+    auto *dir =
+        new QLabel(QString("%1 → %2").arg(v.edge.key.from).arg(v.edge.key.to));
+    dir->setObjectName("edgeMono");
+    h->addWidget(dir);
+    auto *w = new QLabel(QString("Vægt %1").arg(weight_text(v.edge.weight)));
+    w->setObjectName("edgeMeta");
+    h->addWidget(w);
+    auto *r = new QLabel(
+        v.pending_add ? QString("Residual —")
+                      : QString("Residual %1").arg(dec(v.edge.residual, 4)));
+    r->setObjectName("edgeMeta");
+    r->setToolTip("½ · hvidet kvadratfejl efter seneste optimering");
+    h->addWidget(r);
+    h->addStretch(1);
+    if (v.pending_add)
+      h->addWidget(new Pill("Ny", "accent"));
+    if (v.pending_delete)
+      h->addWidget(new Pill("Slettes", "crit"));
+    auto *act = new QPushButton(v.pending_delete || v.pending_add
+                                    ? QString("Fortryd")
+                                    : QString("Slet kant"));
+    act->setProperty("kind", "ghost");
+    act->setObjectName("edgeAction");
+    act->setCursor(Qt::PointingHandCursor);
+    const EdgeKey key = v.edge.key;
+    const bool restore = v.pending_delete;
+    const EdgeRecord record = v.edge;
+    connect(act, &QPushButton::clicked, this, [this, key, restore, record] {
+      if (restore)
+        editor_.add(record); // re-adding a deleted edge restores it
+      else
+        editor_.remove(key);
+    });
+    act->setMinimumHeight(act->sizeHint().height());
+    h->addWidget(act);
+    row->setMinimumHeight(h->sizeHint().height());
+    rows_layout_->addWidget(row);
+  }
+  if (views.empty()) {
+    auto *none = new QLabel;
+    none->setObjectName("pairNone");
+    none->setWordWrap(true);
+    if (!pair_ok)
+      none->setText("Vælg to billeder.");
+    else if (same)
+      none->setText("A og B er det samme billede — vælg et andet B "
+                    "(Shift+← / Shift+→ eller Shift+klik i filmstrimlen).");
+    else if (editor_.edits().base().empty() && editor_.edits().empty())
+      none->setText("Posegrafen har ingen kanter endnu. Kør rux optimize, "
+                    "eller tilføj en kant manuelt her.");
+    else
+      none->setText("Ingen kant mellem A og B.");
+    rows_layout_->addWidget(none);
+  }
+
+  // ICP result for this pair, if one was run.
+  const auto key = std::make_pair(a_, b_);
+  if (icp_running_ == key) {
+    icp_line_->setText("ICP kører …");
+    icp_line_->setProperty("tone", "wait");
+  } else if (auto it = icp_results_.find(key); it != icp_results_.end()) {
+    const IcpOutcome &o = it->second;
+    if (!o.ok) {
+      icp_line_->setText("ICP fejlede: " + o.error);
+      icp_line_->setProperty("tone", "crit");
+    } else {
+      // B's camera centre moves by the shift; the angle is the rotation.
+      icp_line_->setText(
+          o.converged
+              ? QString("ICP konvergerede · RMS %1 cm · %2 % inden for 5 cm "
+                        "· B flyttes %3 cm og drejes %4° · %5 / %6 punkter · "
+                        "ny kant får vægt %7")
+                    .arg(dec(o.fitness * 100.0, 1), dec(o.inliers * 100.0, 0),
+                         dec(o.center_shift_m * 100.0, 1),
+                         dec(o.rotation_deg, 2),
+                         format_count(static_cast<qulonglong>(o.source_points)),
+                         format_count(static_cast<qulonglong>(o.target_points)),
+                         weight_text(weight_from_icp_fitness(o.fitness)))
+              : QString("ICP konvergerede ikke · RMS %1 cm · %2 % inden for "
+                        "5 cm — billederne deler for lidt geometri. En ny kant "
+                        "får vægt 1.")
+                    .arg(dec(o.fitness * 100.0, 1), dec(o.inliers * 100.0, 0)));
+      icp_line_->setProperty("tone", o.converged ? "good" : "warn");
+    }
+  } else {
+    icp_line_->clear();
+    icp_line_->setProperty("tone", QVariant());
+  }
+  icp_line_->setVisible(!icp_line_->text().isEmpty());
+  repolish(icp_line_);
+
+  const bool editable = pair_ok && !same;
+  icp_->setEnabled(editable && icp_running_.first < 0);
+  add_->setEnabled(editable);
+  type_->setEnabled(editable);
+  const QString ro = editor_.read_only_reason();
+  note_->setText(ro.isEmpty() ? QString()
+                              : QString("Skrivebeskyttet: kanter kan "
+                                        "tilføjes og slettes her, men ikke "
+                                        "gemmes."));
+  note_->setVisible(!ro.isEmpty());
+}
+
+void PairStrip::add_edge() {
+  if (a_ < 0 || b_ < 0 || a_ == b_)
+    return;
+  EdgeRecord e;
+  e.key = {a_, b_, type_->currentData().toString().toStdString()};
+  e.residual = 0.0;
+  e.weight = 1.0;
+  // An ICP fit of this pair makes the weight honest: 1/σ² from its RMS.
+  if (auto it = icp_results_.find({a_, b_});
+      it != icp_results_.end() && it->second.ok && it->second.converged)
+    e.weight = weight_from_icp_fitness(it->second.fitness);
+  const auto r = editor_.add(e);
+  if (r == PendingEdgeEdits::Result::duplicate) {
+    note_->setText("Den kant findes allerede mellem A og B.");
+    note_->setVisible(true);
+  }
+}
+
+void PairStrip::run_icp() {
+  if (a_ < 0 || b_ < 0 || a_ == b_ || icp_running_.first >= 0 ||
+      !session_.is_open())
+    return;
+  const int a = a_, b = b_;
+  icp_running_ = {a, b};
+  rebuild();
+  // A detached thread with its own read-only connection: ICP over two
+  // depth clouds takes a second or two, and the GUI's connection is the
+  // GUI thread's alone. Counted, so quitting meanwhile waits for it.
+  const std::string path = session_.path().toStdString();
+  auto work = std::make_shared<BackgroundWork>();
+  QPointer<PairStrip> guard(this);
+  std::thread([path, a, b, guard, work]() mutable {
+    IcpOutcome o;
+    try {
+      reusex::ProjectDB db(path, /*readOnly=*/true);
+      // B onto A: "from" B, "to" A, as an edge A -> B constrains B.
+      const auto r = reusex::slam::refine_frame_pair_icp(db, b, a);
+      o.ok = true;
+      o.fitness = r.fitness;
+      o.inliers = r.inlier_fraction;
+      o.converged = r.converged;
+      o.source_points = r.source_points;
+      o.target_points = r.target_points;
+      o.center_shift_m = r.source_center_shift_m;
+      o.rotation_deg = r.rotation_deg;
+    } catch (const std::exception &e) {
+      o.error = QString::fromUtf8(e.what());
+    }
+    QMetaObject::invokeMethod(
+        qApp,
+        [guard, a, b, o] {
+          if (guard)
+            guard->icp_finished(a, b, o);
+        },
+        Qt::QueuedConnection);
+    work.reset(); // last: counted until the thread has let go of everything
+  }).detach();
+}
+
+void PairStrip::icp_finished(int a, int b, IcpOutcome outcome) {
+  icp_results_[{a, b}] = std::move(outcome);
+  icp_running_ = {-1, -1};
+  rebuild();
+}
+
+} // namespace rux::qt

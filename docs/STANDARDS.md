@@ -108,6 +108,10 @@ The allowance comes with obligations:
   (`io`, `visualize`, `apps/rux`, tests) and deliberately not into
   `reusex_geometry_common`,
   so that module keeps its Layer-1½ position (#227).
+  `pipeline/optimize_stage.hpp` follows the same pattern: the in-process
+  `optimize` stage needs `slam` (GTSAM), which `reusex_pipeline` must not
+  link (#464), so it is header-only and compiled into the apps that run it
+  (rux for the Qt client, ruxd for the web GUI), never into a library module.
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
 - **An app target owns exactly one symbol the tests cannot link: `main`.**
@@ -260,6 +264,17 @@ writes labels MUST follow it; any deviation is a bug.
   message that names the missing/mismatched thing.
 - `assert()` is for programmer invariants only — never the sole guard against
   bad data (it vanishes in Release builds).
+- **No locale-dependent number parsing in library code.** `std::stod`,
+  `std::stof` and `strtod` follow the process's `LC_NUMERIC`, and any
+  `QApplication` calls `setlocale(LC_ALL, "")`: under `da_DK` `std::stod`
+  reads "0.75" as 0 and a `strtod` loop stops dead at the '.'. This broke the
+  Qt client twice (Q2 review: wrong sensor intrinsics and a fake ICP result,
+  both from a library `strtod`, not from Qt). Use `reusex::utils::to_double` /
+  `to_float` / `parse_number<T>` (`utils/parse_number.hpp`, built on
+  `std::from_chars`, which never consults the locale) for every text -> number
+  conversion in library code (`SensorIntrinsics`, `materialepas`,
+  `arkitscenes`, `glass_filter`, the TensorRT `Dataset`, …). A `std::stod`/
+  `strtod` in `libs/reusex/` is a bug, not a style preference.
 
 ## 6. Determinism & reproducibility
 

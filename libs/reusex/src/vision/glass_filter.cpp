@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "vision/glass_filter.hpp"
+#include "utils/parse_number.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -19,7 +20,7 @@ std::string concept_text(const std::string &spec) {
       pos != std::string::npos && pos + 1 < spec.size()) {
     try {
       size_t used = 0;
-      float v = std::stof(spec.substr(pos + 1), &used);
+      float v = reusex::utils::to_float(spec.substr(pos + 1), &used);
       if (used == spec.size() - pos - 1 && v >= 0.0f && v <= 1.0f)
         return spec.substr(0, pos);
     } catch (const std::exception &) {

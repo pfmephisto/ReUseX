@@ -39,6 +39,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 namespace reusex {
 
 // Generate a UUID-v4-like identifier for building components / instances.
@@ -97,6 +99,45 @@ void bind_text(sqlite3_stmt *s, int i, std::string_view v) {
   sqlite3_bind_text(s, i, v.data(), static_cast<int>(v.size()),
                     SQLITE_TRANSIENT);
 }
+/// True when @p db has a non-empty `-wal` beside it: committed pages may live
+/// only there, so the main file alone is not the whole database.
+bool has_live_wal(const std::filesystem::path &db) {
+  std::error_code ec;
+  const auto size = std::filesystem::file_size(db.string() + "-wal", ec);
+  return !ec && size > 0;
+}
+
+/// A read-only sqlite URI for @p db. With @p immutable, sqlite treats the file
+/// as unchangeable: it takes no locks and never opens or creates the `-shm`
+/// / `-wal` sidecars, so the open has no effect on the filesystem and works
+/// in a read-only directory. The price: a concurrent writer is not seen and
+/// could even be read mid-write, so it is only right when nobody can be
+/// writing (an unwritable directory) or for a quick look (probe()), and only
+/// without a live WAL (has_live_wal), whose pages immutable would ignore.
+std::string read_only_uri(const std::filesystem::path &db, bool immutable) {
+  std::string uri = "file:";
+  for (char c : std::filesystem::absolute(db).string()) {
+    // RFC 3986 reserved characters sqlite's URI parser interprets.
+    if (c == '%' || c == '?' || c == '#') {
+      static const char hex[] = "0123456789ABCDEF";
+      uri += '%';
+      uri += hex[(static_cast<unsigned char>(c) >> 4) & 0xF];
+      uri += hex[static_cast<unsigned char>(c) & 0xF];
+    } else {
+      uri += c;
+    }
+  }
+  uri += immutable ? "?mode=ro&immutable=1" : "?mode=ro";
+  return uri;
+}
+
+/// Whether the current user may create files in @p db's directory (sqlite's
+/// WAL needs to, for `-shm`, even to read).
+bool directory_writable(const std::filesystem::path &db) {
+  const auto dir = std::filesystem::absolute(db).parent_path();
+  return ::access(dir.c_str(), W_OK) == 0;
+}
+
 /// prepare_v2 that throws with the caller's name and sqlite's message.
 sqlite3_stmt *prepare_or_throw(sqlite3 *db, const char *sql, const char *who) {
   sqlite3_stmt *stmt = nullptr;
@@ -400,8 +441,16 @@ class ProjectDB::Impl {
     // Open sqlite3 connection for project database
     int flags = readOnly ? SQLITE_OPEN_READONLY
                          : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
-    if (sqlite3_open_v2(dbPath.string().c_str(), &db, flags, nullptr) !=
-        SQLITE_OK) {
+    std::string target = dbPath.string();
+    // A WAL-mode project in a directory we cannot write is unreadable through
+    // a plain read-only open: sqlite must create `-shm` even to SELECT. Nobody
+    // writes there through this user either, so open it immutable (no locks,
+    // no sidecars) unless a live WAL holds pages the main file lacks.
+    if (readOnly && !directory_writable(dbPath) && !has_live_wal(dbPath)) {
+      target = read_only_uri(dbPath, /*immutable=*/true);
+      flags |= SQLITE_OPEN_URI;
+    }
+    if (sqlite3_open_v2(target.c_str(), &db, flags, nullptr) != SQLITE_OK) {
       std::string error = sqlite3_errmsg(db);
       sqlite3_close(db);
       throw std::runtime_error("Cannot open database: " + error);
@@ -5562,7 +5611,8 @@ class ProjectDB::Impl {
     return static_cast<int>(sqlite3_last_insert_rowid(db));
   }
 
-  void logPipelineEnd(int logId, bool success, std::string_view errorMsg) {
+  void logPipelineEnd(int logId, ProjectDB::PipelineOutcome outcome,
+                      std::string_view errorMsg) {
     const char *sql = R"(
       UPDATE pipeline_log
       SET finished_at = datetime('now'), status = ?, error_msg = ?
@@ -5572,8 +5622,18 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare pipeline log update");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, success ? "success" : "failed", -1,
-                      SQLITE_STATIC);
+    const char *status = [outcome] {
+      switch (outcome) {
+      case ProjectDB::PipelineOutcome::success:
+        return "success";
+      case ProjectDB::PipelineOutcome::cancelled:
+        return "cancelled";
+      case ProjectDB::PipelineOutcome::failed:
+      default:
+        return "failed";
+      }
+    }();
+    sqlite3_bind_text(stmt, 1, status, -1, SQLITE_STATIC);
     if (!errorMsg.empty())
       sqlite3_bind_text(stmt, 2, errorMsg.data(),
                         static_cast<int>(errorMsg.size()), SQLITE_TRANSIENT);
@@ -7344,10 +7404,17 @@ int ProjectDB::log_pipeline_start(std::string_view stage,
   return impl_->logPipelineStart(stage, paramsJson);
 }
 
-void ProjectDB::log_pipeline_end(int logId, bool success,
+void ProjectDB::log_pipeline_end(int logId, PipelineOutcome outcome,
                                  std::string_view errorMsg) {
   impl_->checkWritable();
-  impl_->logPipelineEnd(logId, success, errorMsg);
+  impl_->logPipelineEnd(logId, outcome, errorMsg);
+}
+
+void ProjectDB::log_pipeline_end(int logId, bool success,
+                                 std::string_view errorMsg) {
+  log_pipeline_end(logId,
+                   success ? PipelineOutcome::success : PipelineOutcome::failed,
+                   errorMsg);
 }
 
 // --- Material Passport Operations ---
@@ -8133,6 +8200,215 @@ ProjectDB::pipeline_log(int limit) const {
   return impl_->getPipelineLog(limit);
 }
 
+// --- Raw table browsing (read-only) ---
+
+namespace {
+
+/// "name" with embedded quotes doubled — an SQL identifier literal.
+std::string quote_identifier(std::string_view name) {
+  std::string out = "\"";
+  for (char c : name) {
+    if (c == '"')
+      out += '"';
+    out += c;
+  }
+  out += '"';
+  return out;
+}
+
+} // namespace
+
+std::vector<ProjectDB::TableInfo> ProjectDB::list_tables() const {
+  std::vector<TableInfo> out;
+  {
+    sqlite3_stmt *s = prepare_or_throw(
+        impl_->db,
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name;",
+        "list_tables");
+    StmtGuard g(s);
+    int rc;
+    while ((rc = sqlite3_step(s)) == SQLITE_ROW)
+      out.push_back({column_text(s, 0), 0});
+    if (rc != SQLITE_DONE)
+      throw std::runtime_error(std::string("list_tables: ") +
+                               sqlite3_errmsg(impl_->db));
+  }
+  for (auto &t : out) {
+    const std::string sql = "SELECT COUNT(*) FROM " + quote_identifier(t.name);
+    sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "list_tables");
+    StmtGuard g(s);
+    if (sqlite3_step(s) != SQLITE_ROW)
+      throw std::runtime_error("list_tables: cannot count " + t.name + ": " +
+                               sqlite3_errmsg(impl_->db));
+    t.row_count = sqlite3_column_int64(s, 0);
+  }
+  return out;
+}
+
+std::vector<ProjectDB::TableColumn>
+ProjectDB::table_columns(std::string_view table) const {
+  // Validate against sqlite_master (one indexed lookup, not list_tables()'s
+  // COUNT(*) of every table — this runs on every page fetch).
+  {
+    sqlite3_stmt *v = prepare_or_throw(
+        impl_->db,
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\';",
+        "table_columns");
+    StmtGuard vg(v);
+    const std::string name(table);
+    sqlite3_bind_text(v, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(v);
+    if (rc == SQLITE_DONE)
+      throw std::invalid_argument("table_columns: no table '" + name + "'");
+    if (rc != SQLITE_ROW)
+      throw std::runtime_error(std::string("table_columns: ") +
+                               sqlite3_errmsg(impl_->db));
+  }
+  const std::string sql = "PRAGMA table_info(" + quote_identifier(table) + ");";
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_columns");
+  StmtGuard g(s);
+  std::vector<TableColumn> out;
+  int rc;
+  // cid | name | type | notnull | dflt_value | pk
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    TableColumn c;
+    c.name = column_text(s, 1);
+    c.declared_type = column_text(s, 2);
+    c.not_null = sqlite3_column_int(s, 3) != 0;
+    c.primary_key = sqlite3_column_int(s, 5) != 0;
+    out.push_back(std::move(c));
+  }
+  if (rc != SQLITE_DONE)
+    throw std::runtime_error(std::string("table_columns: ") +
+                             sqlite3_errmsg(impl_->db));
+  return out;
+}
+
+std::int64_t ProjectDB::table_row_count(std::string_view table) const {
+  (void)table_columns(table); // validates the name
+  const std::string sql = "SELECT COUNT(*) FROM " + quote_identifier(table);
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_row_count");
+  StmtGuard g(s);
+  if (sqlite3_step(s) != SQLITE_ROW)
+    throw std::runtime_error(std::string("table_row_count: ") +
+                             sqlite3_errmsg(impl_->db));
+  return sqlite3_column_int64(s, 0);
+}
+
+std::vector<std::vector<ProjectDB::TableCell>>
+ProjectDB::table_rows(std::string_view table, std::int64_t offset,
+                      std::int64_t limit, std::size_t text_limit) const {
+  if (offset < 0 || limit < 0)
+    throw std::invalid_argument("table_rows: offset and limit must be >= 0");
+  const auto columns = table_columns(table); // validates the name
+  std::vector<std::vector<TableCell>> rows;
+  if (limit == 0 || columns.empty())
+    return rows;
+
+  const std::string from = quote_identifier(table);
+  // Order: rowid when the table has one, else its primary key — a stable
+  // order, so consecutive pages neither skip nor repeat rows.
+  std::string order;
+  bool has_rowid = false;
+  {
+    sqlite3_stmt *probe = nullptr;
+    const std::string sql = "SELECT rowid FROM " + from + " LIMIT 0;";
+    if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &probe, nullptr) ==
+        SQLITE_OK) {
+      order = " ORDER BY rowid";
+      has_rowid = true;
+    } else {
+      std::string keys;
+      for (const auto &c : columns)
+        if (c.primary_key)
+          keys += (keys.empty() ? "" : ", ") + quote_identifier(c.name);
+      if (!keys.empty())
+        order = " ORDER BY " + keys;
+    }
+    sqlite3_finalize(probe);
+  }
+
+  // Per column: its type, a bounded value and its full size. typeof() and
+  // length() of a blob do not read its pages (sqlite's OPFLAG_TYPEOFARG /
+  // OPFLAG_LENGTHARG), but any expression ON the blob — substr() included —
+  // loads all of it. So a blob's value is not selected at all: its 16 head
+  // bytes come from incremental blob I/O by rowid, which reads one page.
+  const std::string n = std::to_string(std::max<std::size_t>(text_limit, 1));
+  std::string select = has_rowid ? "rowid" : "";
+  for (const auto &c : columns) {
+    const std::string q = quote_identifier(c.name);
+    if (!select.empty())
+      select += ", ";
+    const std::string blob_value =
+        has_rowid ? "NULL"
+                  : "substr(" + q + ", 1, 16)"; // no rowid: no blob I/O
+    select += "typeof(" + q + "), CASE typeof(" + q + ") WHEN 'blob' THEN " +
+              blob_value + " WHEN 'text' THEN substr(" + q + ", 1, " + n +
+              ") ELSE " + q + " END, CASE typeof(" + q +
+              ") WHEN 'text' THEN length(CAST(" + q + " AS BLOB)) ELSE " +
+              "length(" + q + ") END";
+  }
+  const std::string sql = "SELECT " + select + " FROM " + from + order +
+                          " LIMIT " + std::to_string(limit) + " OFFSET " +
+                          std::to_string(offset) + ";";
+  sqlite3_stmt *s = prepare_or_throw(impl_->db, sql.c_str(), "table_rows");
+  StmtGuard g(s);
+  const std::string table_name(table);
+  const int first = has_rowid ? 1 : 0;
+  int rc;
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    const sqlite3_int64 rowid = has_rowid ? sqlite3_column_int64(s, 0) : 0;
+    std::vector<TableCell> row;
+    row.reserve(columns.size());
+    for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
+      const int base = first + 3 * i;
+      const std::string type = column_text(s, base);
+      TableCell cell;
+      if (type == "integer") {
+        cell.kind = TableCell::Kind::integer;
+        cell.integer = sqlite3_column_int64(s, base + 1);
+      } else if (type == "real") {
+        cell.kind = TableCell::Kind::real;
+        cell.real = sqlite3_column_double(s, base + 1);
+      } else if (type == "text" || type == "blob") {
+        cell.kind =
+            type == "text" ? TableCell::Kind::text : TableCell::Kind::blob;
+        const auto *p =
+            static_cast<const char *>(sqlite3_column_blob(s, base + 1));
+        const int bytes = sqlite3_column_bytes(s, base + 1);
+        if (p && bytes > 0)
+          cell.text.assign(p, static_cast<std::size_t>(bytes));
+        cell.size =
+            static_cast<std::uint64_t>(sqlite3_column_int64(s, base + 2));
+        cell.truncated =
+            cell.kind == TableCell::Kind::text && cell.size > cell.text.size();
+        if (cell.kind == TableCell::Kind::blob && has_rowid && cell.size > 0) {
+          sqlite3_blob *b = nullptr;
+          if (sqlite3_blob_open(
+                  impl_->db, "main", table_name.c_str(),
+                  columns[static_cast<std::size_t>(i)].name.c_str(), rowid, 0,
+                  &b) == SQLITE_OK) {
+            char head[16];
+            const int want = static_cast<int>(
+                std::min<std::uint64_t>(sizeof head, cell.size));
+            if (sqlite3_blob_read(b, head, want, 0) == SQLITE_OK)
+              cell.text.assign(head, static_cast<std::size_t>(want));
+          }
+          sqlite3_blob_close(b); // a no-op on nullptr
+        }
+      }
+      row.push_back(std::move(cell));
+    }
+    rows.push_back(std::move(row));
+  }
+  if (rc != SQLITE_DONE)
+    throw std::runtime_error(std::string("table_rows: ") +
+                             sqlite3_errmsg(impl_->db));
+  return rows;
+}
+
 // --- Pose Graph ---
 
 void ProjectDB::save_pose_graph_edges(const std::vector<PoseGraphEdge> &edges) {
@@ -8273,6 +8549,85 @@ ProjectDB::report_pdf(int64_t id) const {
 
 int ProjectDB::latest_schema_version() noexcept {
   return Impl::LATEST_SCHEMA_VERSION;
+}
+
+ProjectDB::ProbeResult
+ProjectDB::probe(const std::filesystem::path &path) noexcept {
+  ProbeResult r;
+  try {
+    sqlite3 *db = nullptr;
+    // Immutable unless a live WAL holds pages the main file lacks: then no
+    // locks are taken and no `-shm` / `-wal` is created, so a probe leaves
+    // the directory exactly as it found it and works in a read-only one.
+    // A probe only reads the table list and the schema version, so not
+    // seeing a concurrent writer's last transaction is harmless.
+    const bool immutable = !has_live_wal(path);
+    const std::string uri = read_only_uri(path, immutable);
+    if (sqlite3_open_v2(uri.c_str(), &db,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+                        nullptr) != SQLITE_OK) {
+      r.error = std::string("Cannot open database: ") +
+                (db ? sqlite3_errmsg(db) : "out of memory");
+      sqlite3_close(db);
+      return r;
+    }
+    sqlite3_busy_timeout(db, Impl::BUSY_TIMEOUT_MS);
+    struct Close {
+      sqlite3 *db;
+      ~Close() { sqlite3_close(db); }
+    } close{db};
+    // A probe vets files it has not opened before, so in a process that
+    // hardens its opens (a server) it is hardened too: the schema_version
+    // read below must not evaluate anything the file's schema declares. A
+    // failure to harden throws, and the catch below reports it as an error.
+    if (hardened_by_default())
+      harden_connection(db);
+
+    // The same tables validateSchema() requires of every project.
+    const char *required[] = {"projects", "property_definitions",
+                              "material_passports", "passport_property_values",
+                              "passport_log"};
+    auto has_table = [&](const char *name) -> int { // 1 yes, 0 no, -1 error
+      sqlite3_stmt *st = nullptr;
+      if (sqlite3_prepare_v2(
+              db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;",
+              -1, &st, nullptr) != SQLITE_OK)
+        return -1;
+      sqlite3_bind_text(st, 1, name, -1, SQLITE_STATIC);
+      const int rc = sqlite3_step(st);
+      sqlite3_finalize(st);
+      return rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
+    };
+    for (const char *t : required) {
+      const int h = has_table(t);
+      if (h < 0) {
+        r.error = std::string("Cannot check for table '") + t +
+                  "': " + sqlite3_errmsg(db);
+        return r;
+      }
+      if (h == 0) {
+        r.error =
+            std::string("Required table '") + t + "' not found in database";
+        return r;
+      }
+    }
+    if (has_table("schema_version") == 1) {
+      sqlite3_stmt *st = nullptr;
+      if (sqlite3_prepare_v2(db, "SELECT MAX(version) FROM schema_version;", -1,
+                             &st, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(st) == SQLITE_ROW &&
+            sqlite3_column_type(st, 0) != SQLITE_NULL)
+          r.schema_version = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+      }
+    }
+    r.is_project = true;
+  } catch (const std::exception &e) {
+    r.error = e.what();
+  } catch (...) {
+    r.error = "unknown error";
+  }
+  return r;
 }
 
 // --- Resource templates (schema v25) ---

@@ -130,6 +130,9 @@
 .failed {
   border-left-color: var(--color-status-failed);
 }
+.cancelled {
+  border-left-color: var(--color-status-cancelled);
+}
 
 .rowHead {
   display: flex;
@@ -155,6 +158,9 @@
 }
 .failed .rowStatus {
   color: var(--color-status-failed);
+}
+.cancelled .rowStatus {
+  color: var(--color-status-cancelled);
 }
 
 .viaGui {

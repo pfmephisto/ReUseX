@@ -20,6 +20,7 @@
 #include <global-params.hpp>
 #include <optimize.hpp>
 
+#include <reusex/pipeline/mesh_parameters.hpp>
 #include <reusex/pipeline/stage_parameters.hpp>
 #include <rux_qt/cli_command.hpp>
 
@@ -237,5 +238,42 @@ TEST_CASE("CliCommandRoundTrip_NoParameters_MeansTheStageDefaults",
       REQUIRE(got.params.contains(d.key));
       CHECK(canonical(got.params.at(d.key), d.type) == default_text(d));
     }
+  }
+}
+
+TEST_CASE("CliCommandRoundTrip_MeshAndOptimize_ShareTheStageReader",
+          "[rux_app][cli][qt]") {
+  // `rux create mesh` and `rux optimize` drive their solvers themselves, but
+  // read their options through the same functions the in-process stages use
+  // (pipeline::mesh_options_from_parameters, apply_optimize_parameters). So
+  // the parameters a command line produces become the same options a GUI run
+  // with that JSON gets.
+  {
+    const auto cmd = rux::qt::build_cli_command(
+        "mesh", "p.rux",
+        {{"solver", CliValueKind::string, "highs"},
+         {"time_limit_seconds", CliValueKind::number, "90"},
+         {"sectioned", CliValueKind::boolean, "false"},
+         {"output_name", CliValueKind::string, "mesh2"}});
+    const Captured got = parse_through_cli(cmd.args);
+    const auto parsed = pl::mesh_options_from_parameters(got.params.dump());
+    CHECK(parsed.output_name == "mesh2");
+    CHECK(parsed.options.time_limit_seconds == 90.0);
+    CHECK_FALSE(parsed.options.sectioned);
+    CHECK(parsed.options.solver ==
+          reusex::geometry::parse_solver_choice("highs"));
+  }
+  {
+    const auto cmd = rux::qt::build_cli_command(
+        "optimize", "p.rux",
+        {{"min_observations", CliValueKind::integer, "7"},
+         {"no_gnc", CliValueKind::boolean, "true"}});
+    const Captured got = parse_through_cli(cmd.args);
+    auto from_cli = plane_graph_options(SubcommandOptimizeOptions{});
+    bool dry = false;
+    apply_optimize_parameters(from_cli, dry, got.params.dump());
+    CHECK(from_cli.min_landmark_observations == 7);
+    CHECK_FALSE(from_cli.use_gnc);
+    CHECK_FALSE(dry);
   }
 }

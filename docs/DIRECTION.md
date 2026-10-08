@@ -208,6 +208,16 @@ changelog — that history is the point of keeping it in the repo.
   filters the pipeline log. Every run carries **"Kopiér som
   rux-kommando"**: the exact CLI line, round-trip tested through the real
   CLI11 setup.
+  Known divergence: `export semantic-images`, `export rhino` and the
+  on-screen-display overlays still colour labels with PCL's Glasbey LUT, so
+  their colours no longer match `rux render`, the web viewport or the Qt
+  client. Out-of-contract labels (a −1 that wrapped to 0xFFFFFFFF in a point
+  cloud, STANDARDS §3.1) now draw in a non-class `--label-invalid` colour
+  (new token, value pending a design ruling) instead of borrowing slot 6.
+  `rux create mesh` and `rux optimize` now read their stage parameters
+  through the same functions as the in-process stages
+  (`pipeline::mesh_options_from_parameters`, `apply_optimize_parameters`),
+  and log them under the same keys.
 - **2026-10-08** — **Native Qt client, phase Q2: the Database workspace**
   ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream Q). RTABMap's DatabaseViewer, made calm: a project tree with

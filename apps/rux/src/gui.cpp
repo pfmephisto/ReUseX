@@ -10,6 +10,7 @@
 #include "gui/Server.hpp"
 #include "gui/ViewRenderer.hpp"
 #include "gui_icp.hpp"
+#include "optimize.hpp"
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/pipeline/stages.hpp>
@@ -270,38 +271,20 @@ make_sam3_model_provider(std::filesystem::path models_dir,
 // into the Server via ServerOptions::stage_executor, keeping rux_gui_lib free
 // of the slam/GTSAM closure and the light test binary unaffected.
 
-namespace {
-
-template <typename T>
-T param_or(const nlohmann::json &params, const char *key, T fallback) {
-  auto it = params.find(key);
-  if (it == params.end() || it->is_null())
-    return fallback;
-  return it->get<T>();
-}
-
-} // anonymous namespace
-
 reusex::pipeline::StageResult
 run_optimize_stage(reusex::ProjectDB &db,
                    const reusex::pipeline::StageContext &ctx) {
-  nlohmann::json params;
-  if (!ctx.parameters.empty()) {
-    params = nlohmann::json::parse(ctx.parameters, nullptr,
-                                   /*allow_exceptions=*/false);
-    if (params.is_discarded() || !params.is_object())
-      return reusex::pipeline::StageResult::invalid(
-          "optimize parameters must be a JSON object");
+  // `rux optimize`'s own options with its flag defaults, then the job's
+  // parameters through the reader the CLI uses too (optimize.hpp): a GUI run
+  // and the copied `rux optimize …` line solve the same problem.
+  reusex::geometry::PlaneGraphOptions options =
+      plane_graph_options(SubcommandOptimizeOptions{});
+  bool dry_run = false;
+  try {
+    apply_optimize_parameters(options, dry_run, ctx.parameters);
+  } catch (const std::exception &e) {
+    return reusex::pipeline::StageResult::invalid(e.what());
   }
-
-  reusex::geometry::PlaneGraphOptions options;
-  options.min_landmark_observations =
-      param_or(params, "min_observations", options.min_landmark_observations);
-  options.assoc_rounds = param_or(params, "assoc_rounds", options.assoc_rounds);
-  if (param_or(params, "no_gnc", false))
-    options.use_gnc = false;
-
-  const bool dry_run = param_or(params, "dry_run", false);
 
   try {
     auto result = reusex::geometry::optimize_sensor_poses(db, options, dry_run);

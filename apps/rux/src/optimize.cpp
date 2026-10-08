@@ -11,6 +11,7 @@
 #include <reusex/slam/PlaneGraphOptimizer.hpp>
 
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 void setup_subcommand_optimize(CLI::App &app,
@@ -401,6 +402,120 @@ std::string optimize_stage_parameters(SubcommandOptimizeOptions const &opt) {
       .dump();
 }
 
+reusex::geometry::PlaneGraphOptions
+plane_graph_options(SubcommandOptimizeOptions const &opt) {
+  reusex::geometry::PlaneGraphOptions options;
+  options.max_planes_per_frame = opt.max_planes_per_frame;
+  options.min_plane_inliers = opt.min_plane_inliers;
+  options.ransac_distance = opt.ransac_distance;
+  options.ransac_normal_angle = opt.ransac_normal_angle;
+  options.ransac_iterations = opt.ransac_iterations;
+  options.assoc_normal_angle = opt.assoc_normal_angle;
+  options.assoc_distance = opt.assoc_distance;
+  options.min_landmark_observations = opt.min_observations;
+  options.assoc_overlap_margin = opt.assoc_overlap_margin;
+  options.min_landmark_spread_ratio = opt.min_landmark_spread_ratio;
+  options.assoc_rounds = opt.assoc_rounds;
+  options.assoc_round_tol = opt.assoc_round_tol;
+  options.odometry_sigma_rot = opt.odometry_sigma_rot;
+  options.odometry_sigma_trans = opt.odometry_sigma_trans;
+  options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
+  options.plane_sigma_normal = opt.plane_sigma_normal;
+  options.plane_sigma_distance = opt.plane_sigma_distance;
+  options.plane_noise_model =
+      opt.no_plane_inlier_weight
+          ? reusex::geometry::PlaneNoiseModel::uniform
+          : (opt.plane_noise == "uniform"
+                 ? reusex::geometry::PlaneNoiseModel::uniform
+                 : (opt.plane_noise == "inliers"
+                        ? reusex::geometry::PlaneNoiseModel::inlier_count
+                        : reusex::geometry::PlaneNoiseModel::fit_geometry));
+  options.odometry_noise_model =
+      opt.odometry_noise == "motion"
+          ? reusex::geometry::OdometryNoiseModel::motion
+          : reusex::geometry::OdometryNoiseModel::fixed;
+  options.odometry_weight_min = opt.odometry_weight_min;
+  options.odometry_weight_max = opt.odometry_weight_max;
+  options.odometry_robust = opt.odometry_robust;
+  options.odometry_gnc_inlier_cost = opt.odometry_gnc_inlier_cost;
+  options.plane_weight_min = opt.plane_weight_min;
+  options.plane_weight_max = opt.plane_weight_max;
+  options.plane_sigma_scale = opt.plane_sigma_scale;
+  options.use_plane_factors = !opt.no_plane_factors;
+  options.prior_sigma_rot = opt.prior_sigma_rot;
+  options.prior_sigma_trans = opt.prior_sigma_trans;
+  options.use_gnc = !opt.no_gnc;
+  options.gnc_inlier_cost = opt.gnc_inlier_cost;
+  options.max_iterations = opt.iterations;
+  options.seed = opt.seed;
+  options.surfel.min_distance = opt.min_distance;
+  options.surfel.max_distance = opt.max_distance;
+  options.surfel.sampling_factor = opt.sampling_factor;
+  options.surfel.confidence_threshold = opt.confidence_threshold;
+  options.surfel.voxel_size = opt.surfel_voxel;
+  options.loop_closure.enable = opt.loop_closure;
+  options.loop_closure.proposal =
+      opt.loop_proposal == "spatial"
+          ? reusex::geometry::LoopProposal::spatial
+          : (opt.loop_proposal == "exhaustive"
+                 ? reusex::geometry::LoopProposal::exhaustive
+                 : (opt.loop_proposal == "appearance"
+                        ? reusex::geometry::LoopProposal::appearance
+                        : reusex::geometry::LoopProposal::automatic));
+  options.loop_closure.min_frame_gap = opt.loop_min_frame_gap;
+  options.loop_closure.max_candidate_distance = opt.loop_max_distance;
+  options.loop_closure.max_view_angle = opt.loop_max_view_angle;
+  options.loop_closure.max_candidates_per_frame = opt.loop_max_candidates;
+  options.loop_closure.min_match_inliers = opt.loop_min_inliers;
+  options.loop_closure.max_features = opt.loop_max_features;
+  options.loop_closure.ratio_test = opt.loop_ratio_test;
+  options.loop_closure.ransac_inlier_dist = opt.loop_ransac_inlier_dist;
+  options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
+  options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
+  options.loop_closure.min_seed_disagreement_fraction =
+      opt.loop_min_seed_disagreement_fraction;
+  options.loop_closure.pcm = !opt.loop_no_pcm;
+  options.loop_edges_trusted = opt.loop_trust;
+  options.loop_trust_inlier_cost = opt.loop_trust_inlier_cost;
+  options.loop_closure.seed = opt.seed;
+  options.loop_edges_file = opt.loop_edges_file;
+  options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
+  options.loop_edges_min_seed_disagreement_fraction =
+      opt.loop_edges_min_disagreement_fraction;
+  options.panorama_loops.enable = opt.use_panoramas;
+  options.panorama_loops.max_frames = opt.pano_max_frames;
+  options.panorama_loops.min_frame_inliers = opt.pano_min_inliers;
+  options.panorama_loops.max_edges_per_panorama = opt.pano_max_edges;
+  options.panorama_loops.n_yaw = opt.pano_n_yaw;
+  options.panorama_loops.max_features = opt.pano_max_features;
+  options.panorama_loops.max_pano_distance = opt.pano_max_distance;
+  options.panorama_loops.seed = opt.seed;
+  return options;
+}
+
+void apply_optimize_parameters(reusex::geometry::PlaneGraphOptions &options,
+                               bool &dry_run, const std::string &parameters) {
+  nlohmann::json params = nlohmann::json::object();
+  if (!parameters.empty()) {
+    params = nlohmann::json::parse(parameters, nullptr,
+                                   /*allow_exceptions=*/false);
+    if (params.is_discarded() || !params.is_object())
+      throw std::invalid_argument("optimize parameters must be a JSON object");
+  }
+  auto get = [&](const char *key, auto fallback) {
+    auto it = params.find(key);
+    return it == params.end() || it->is_null()
+               ? fallback
+               : it->template get<decltype(fallback)>();
+  };
+  options.min_landmark_observations =
+      get("min_observations", options.min_landmark_observations);
+  options.assoc_rounds = get("assoc_rounds", options.assoc_rounds);
+  if (get("no_gnc", false))
+    options.use_gnc = false;
+  dry_run = get("dry_run", dry_run);
+}
+
 int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
                             const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
@@ -427,107 +542,27 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
         rc != RuxError::SUCCESS)
       return rc;
 
-    reusex::geometry::PlaneGraphOptions options;
-    options.max_planes_per_frame = opt.max_planes_per_frame;
-    options.min_plane_inliers = opt.min_plane_inliers;
-    options.ransac_distance = opt.ransac_distance;
-    options.ransac_normal_angle = opt.ransac_normal_angle;
-    options.ransac_iterations = opt.ransac_iterations;
-    options.assoc_normal_angle = opt.assoc_normal_angle;
-    options.assoc_distance = opt.assoc_distance;
-    options.min_landmark_observations = opt.min_observations;
-    options.assoc_overlap_margin = opt.assoc_overlap_margin;
-    options.min_landmark_spread_ratio = opt.min_landmark_spread_ratio;
-    options.assoc_rounds = opt.assoc_rounds;
-    options.assoc_round_tol = opt.assoc_round_tol;
-    options.odometry_sigma_rot = opt.odometry_sigma_rot;
-    options.odometry_sigma_trans = opt.odometry_sigma_trans;
-    options.underconstrained_odom_scale = opt.underconstrained_odom_scale;
-    options.plane_sigma_normal = opt.plane_sigma_normal;
-    options.plane_sigma_distance = opt.plane_sigma_distance;
-    options.plane_noise_model =
-        opt.no_plane_inlier_weight
-            ? reusex::geometry::PlaneNoiseModel::uniform
-            : (opt.plane_noise == "uniform"
-                   ? reusex::geometry::PlaneNoiseModel::uniform
-                   : (opt.plane_noise == "inliers"
-                          ? reusex::geometry::PlaneNoiseModel::inlier_count
-                          : reusex::geometry::PlaneNoiseModel::fit_geometry));
-    options.odometry_noise_model =
-        opt.odometry_noise == "motion"
-            ? reusex::geometry::OdometryNoiseModel::motion
-            : reusex::geometry::OdometryNoiseModel::fixed;
-    options.odometry_weight_min = opt.odometry_weight_min;
-    options.odometry_weight_max = opt.odometry_weight_max;
-    options.odometry_robust = opt.odometry_robust;
-    options.odometry_gnc_inlier_cost = opt.odometry_gnc_inlier_cost;
-    options.plane_weight_min = opt.plane_weight_min;
-    options.plane_weight_max = opt.plane_weight_max;
-    options.plane_sigma_scale = opt.plane_sigma_scale;
-    options.use_plane_factors = !opt.no_plane_factors;
-    options.prior_sigma_rot = opt.prior_sigma_rot;
-    options.prior_sigma_trans = opt.prior_sigma_trans;
-    options.use_gnc = !opt.no_gnc;
-    options.gnc_inlier_cost = opt.gnc_inlier_cost;
-    options.max_iterations = opt.iterations;
-    options.seed = opt.seed;
-    options.surfel.min_distance = opt.min_distance;
-    options.surfel.max_distance = opt.max_distance;
-    options.surfel.sampling_factor = opt.sampling_factor;
-    options.surfel.confidence_threshold = opt.confidence_threshold;
-    options.surfel.voxel_size = opt.surfel_voxel;
-    options.loop_closure.enable = opt.loop_closure;
-    options.loop_closure.proposal =
-        opt.loop_proposal == "spatial"
-            ? reusex::geometry::LoopProposal::spatial
-            : (opt.loop_proposal == "exhaustive"
-                   ? reusex::geometry::LoopProposal::exhaustive
-                   : (opt.loop_proposal == "appearance"
-                          ? reusex::geometry::LoopProposal::appearance
-                          : reusex::geometry::LoopProposal::automatic));
-    options.loop_closure.min_frame_gap = opt.loop_min_frame_gap;
-    options.loop_closure.max_candidate_distance = opt.loop_max_distance;
-    options.loop_closure.max_view_angle = opt.loop_max_view_angle;
-    options.loop_closure.max_candidates_per_frame = opt.loop_max_candidates;
-    options.loop_closure.min_match_inliers = opt.loop_min_inliers;
-    options.loop_closure.max_features = opt.loop_max_features;
-    options.loop_closure.ratio_test = opt.loop_ratio_test;
-    options.loop_closure.ransac_inlier_dist = opt.loop_ransac_inlier_dist;
-    options.loop_closure.max_seed_disagreement = opt.loop_max_seed_disagreement;
-    options.loop_closure.min_seed_disagreement = opt.loop_min_seed_disagreement;
-    options.loop_closure.min_seed_disagreement_fraction =
-        opt.loop_min_seed_disagreement_fraction;
-    options.loop_closure.pcm = !opt.loop_no_pcm;
-    options.loop_edges_trusted = opt.loop_trust;
-    options.loop_trust_inlier_cost = opt.loop_trust_inlier_cost;
-    options.loop_closure.seed = opt.seed;
-    options.loop_edges_file = opt.loop_edges_file;
-    options.loop_edges_min_seed_disagreement = opt.loop_edges_min_disagreement;
-    options.loop_edges_min_seed_disagreement_fraction =
-        opt.loop_edges_min_disagreement_fraction;
-    options.panorama_loops.enable = opt.use_panoramas;
-    options.panorama_loops.max_frames = opt.pano_max_frames;
-    options.panorama_loops.min_frame_inliers = opt.pano_min_inliers;
-    options.panorama_loops.max_edges_per_panorama = opt.pano_max_edges;
-    options.panorama_loops.n_yaw = opt.pano_n_yaw;
-    options.panorama_loops.max_features = opt.pano_max_features;
-    options.panorama_loops.max_pano_distance = opt.pano_max_distance;
-    options.panorama_loops.seed = opt.seed;
+    // Flags -> options, then the stage parameters through the same reader
+    // the in-process optimize stage uses (Qt client, rux gui): the two paths
+    // cannot read min_observations / assoc_rounds / no_gnc / dry_run apart.
+    reusex::geometry::PlaneGraphOptions options = plane_graph_options(opt);
+    bool dry_run = opt.dry_run;
+    apply_optimize_parameters(options, dry_run, optimize_stage_parameters(opt));
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",
         fmt::format(
-            R"({{"min_observations":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"plane_noise":"{}","use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{},"use_panoramas":{},"pano_max_frames":{},"pano_min_inliers":{}}})",
-            opt.min_observations, opt.assoc_normal_angle, opt.assoc_distance,
+            R"({{"min_observations":{},"assoc_rounds":{},"no_gnc":{},"assoc_normal_angle":{},"assoc_distance":{},"max_planes_per_frame":{},"min_plane_inliers":{},"plane_noise":"{}","use_gnc":{},"iterations":{},"seed":{},"dry_run":{},"loop_closure":{},"loop_trust":{},"pcm":{},"loop_edges_file":"{}","loop_edges_min_disagreement":{},"use_panoramas":{},"pano_max_frames":{},"pano_min_inliers":{}}})",
+            opt.min_observations, opt.assoc_rounds, opt.no_gnc,
+            opt.assoc_normal_angle, opt.assoc_distance,
             opt.max_planes_per_frame, opt.min_plane_inliers,
             opt.no_plane_inlier_weight ? "uniform" : opt.plane_noise,
-            !opt.no_gnc, opt.iterations, opt.seed, opt.dry_run,
-            opt.loop_closure, opt.loop_trust, !opt.loop_no_pcm,
-            opt.loop_edges_file, opt.loop_edges_min_disagreement,
-            opt.use_panoramas, opt.pano_max_frames, opt.pano_min_inliers));
+            !opt.no_gnc, opt.iterations, opt.seed, dry_run, opt.loop_closure,
+            opt.loop_trust, !opt.loop_no_pcm, opt.loop_edges_file,
+            opt.loop_edges_min_disagreement, opt.use_panoramas,
+            opt.pano_max_frames, opt.pano_min_inliers));
 
-    auto result =
-        reusex::geometry::optimize_sensor_poses(db, options, opt.dry_run);
+    auto result = reusex::geometry::optimize_sensor_poses(db, options, dry_run);
 
     db.log_pipeline_end(logId, true);
 

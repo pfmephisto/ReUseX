@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "reusex/pipeline/stages.hpp"
+#include "reusex/pipeline/mesh_parameters.hpp"
 #include "reusex/pipeline/stage_parameters.hpp"
 
 #include "reusex/core/ProjectDB.hpp"
@@ -495,30 +496,14 @@ StageResult run_instances(ProjectDB &db, const StageContext &ctx,
 
 StageResult run_mesh(ProjectDB &db, const StageContext & /*ctx*/,
                      const json &params) {
-  const auto output_name = param_or<std::string>(params, "output_name", "mesh");
-
-  geometry::MeshOptions options;
-  options.search_threshold = static_cast<float>(
-      param_or(params, "search_threshold",
-               static_cast<double>(options.search_threshold)));
-  options.new_plane_offset = static_cast<float>(
-      param_or(params, "new_plane_offset",
-               static_cast<double>(options.new_plane_offset)));
-  options.time_limit_seconds =
-      param_or(params, "time_limit_seconds", options.time_limit_seconds);
-  options.alpha = param_or(params, "alpha", options.alpha);
-  options.max_cells = param_or(params, "max_cells", options.max_cells);
-  options.sectioned = param_or(params, "sectioned", options.sectioned);
-  options.sectioned_threshold =
-      param_or(params, "sectioned_threshold", options.sectioned_threshold);
-
-  const auto solver_str = param_or<std::string>(params, "solver", "auto");
+  MeshStageOptions parsed;
   try {
-    options.solver = geometry::parse_solver_choice(solver_str);
-  } catch (const std::exception &e) {
-    return StageResult::invalid(
-        fmt::format("invalid solver '{}': {}", solver_str, e.what()));
+    parsed = mesh_options_from_parameters(params.dump());
+  } catch (const std::invalid_argument &e) {
+    return StageResult::invalid(e.what());
   }
+  const std::string &output_name = parsed.output_name;
+  const geometry::MeshOptions &options = parsed.options;
 
   auto cloud = db.point_cloud_xyzrgb("cloud");
   auto normals = db.point_cloud_normal("normals");
@@ -578,6 +563,41 @@ StageResult dispatch(ProjectDB &db, const StageContext &ctx,
 }
 
 } // namespace
+
+// --- mesh parameters ------------------------------------------------------
+
+MeshStageOptions mesh_options_from_parameters(std::string_view parameters) {
+  json params = json::object();
+  if (!parameters.empty()) {
+    params = json::parse(parameters, nullptr, /*allow_exceptions=*/false);
+    if (params.is_discarded() || !params.is_object())
+      throw std::invalid_argument("mesh parameters must be a JSON object");
+  }
+  MeshStageOptions out;
+  geometry::MeshOptions &options = out.options;
+  out.output_name = param_or<std::string>(params, "output_name", "mesh");
+  options.search_threshold = static_cast<float>(
+      param_or(params, "search_threshold",
+               static_cast<double>(options.search_threshold)));
+  options.new_plane_offset = static_cast<float>(
+      param_or(params, "new_plane_offset",
+               static_cast<double>(options.new_plane_offset)));
+  options.time_limit_seconds =
+      param_or(params, "time_limit_seconds", options.time_limit_seconds);
+  options.alpha = param_or(params, "alpha", options.alpha);
+  options.max_cells = param_or(params, "max_cells", options.max_cells);
+  options.sectioned = param_or(params, "sectioned", options.sectioned);
+  options.sectioned_threshold =
+      param_or(params, "sectioned_threshold", options.sectioned_threshold);
+  const auto solver_str = param_or<std::string>(params, "solver", "auto");
+  try {
+    options.solver = geometry::parse_solver_choice(solver_str);
+  } catch (const std::exception &e) {
+    throw std::invalid_argument(
+        fmt::format("invalid solver '{}': {}", solver_str, e.what()));
+  }
+  return out;
+}
 
 // --- StageResult ----------------------------------------------------------
 

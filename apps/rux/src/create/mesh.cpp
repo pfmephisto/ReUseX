@@ -8,6 +8,7 @@
 #include "filter_utils.hpp"
 #include "processing_observer.hpp"
 #include "stage_prerequisites.hpp"
+#include <reusex/pipeline/mesh_parameters.hpp>
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
@@ -190,12 +191,10 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
         rc != RuxError::SUCCESS)
       return rc;
 
-    int logId = db.log_pipeline_start(
-        "mesh_generation",
-        fmt::format(
-            R"({{"angle_threshold":{},"distance_threshold":{},"search_threshold":{},"new_plane_offset":{}}})",
-            opt.angle_threshold, opt.distance_threshold, opt.search_threshold,
-            opt.new_plane_offset));
+    // The same parameters, under the same keys, the GUI's mesh stage reads —
+    // so this row's "Kopiér som rux-kommando" reproduces the run.
+    const std::string params = mesh_stage_parameters(opt);
+    int logId = db.log_pipeline_start("mesh_generation", params);
 
     spdlog::trace("Loading point clouds from ProjectDB");
     auto cloud = db.point_cloud_xyzrgb("cloud");
@@ -209,18 +208,14 @@ int run_subcommand_mesh(SubcommandMeshOptions const &opt,
     auto [planes, centroids, inliers] =
         reusex::io::getPlanes(plane_labels, plane_normals, plane_centroids);
 
+    // Options from the shared parameter path (pipeline/mesh_parameters.hpp),
+    // exactly as the GUI's run of the mesh stage reads them.
     reusex::geometry::MeshOptions options;
-    options.search_threshold = opt.search_threshold;
-    options.new_plane_offset = opt.new_plane_offset;
-    options.time_limit_seconds = opt.time_limit_seconds;
-    options.alpha = opt.alpha;
-    options.max_cells = opt.max_cells;
-    options.sectioned = opt.sectioned;
-    options.sectioned_threshold = opt.sectioned_threshold;
     try {
-      options.solver = reusex::geometry::parse_solver_choice(opt.solver);
-    } catch (const std::exception &e) {
+      options = reusex::pipeline::mesh_options_from_parameters(params).options;
+    } catch (const std::invalid_argument &e) {
       spdlog::error("{}", e.what());
+      db.log_pipeline_end(logId, false, e.what());
       return RuxError::INVALID_ARGUMENT;
     }
 

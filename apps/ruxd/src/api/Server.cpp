@@ -348,11 +348,28 @@ class SecurityMiddleware {
            "; Path=/; HttpOnly; SameSite=Strict";
   }
 
+  /// Whether Crow will hand @p req to its upgrade path (Router::
+  /// handle_upgrade) rather than to an ordinary route handler — mirroring
+  /// http_connection.h's handle() exactly: HTTP/1.1, a Host header, the
+  /// parser's upgrade flag, not OPTIONS, and an Upgrade value that does not
+  /// start with "h2" (which Crow ignores and serves normally).
+  ///
+  /// Only then may the middleware stand aside: on that path Crow ignores a
+  /// middleware response anyway, a non-WebSocket route answers 404 without
+  /// running its handler, and the WebSocket route's onaccept runs the same
+  /// access decision. On EVERY other path — an HTTP/1.0 request with an
+  /// Upgrade header, an h2c upgrade — the request reaches an ordinary
+  /// handler, so it is evaluated like any other (S3 review C1: skipping on
+  /// `req.upgrade` alone let such requests through unauthenticated).
+  static bool crow_takes_upgrade_path(const crow::request &req) {
+    return req.upgrade && req.http_ver_major == 1 && req.http_ver_minor == 1 &&
+           req.headers.count("host") > 0 &&
+           req.method != crow::HTTPMethod::Options &&
+           req.get_header_value("upgrade").find("h2") != 0;
+  }
+
   void before_handle(crow::request &req, crow::response &res, context &ctx) {
-    // WebSocket upgrades bypass this: Crow calls handle_upgrade regardless of
-    // whether middleware completed the response, so a rejection here would be
-    // ignored. The checks for /events live in its onaccept handler.
-    if (req.upgrade)
+    if (crow_takes_upgrade_path(req))
       return;
 
     // Host, origin, authentication and authorization, all in one decision
@@ -412,8 +429,9 @@ class SecurityMiddleware {
   }
 
   void after_handle(crow::request &req, crow::response &res, context &ctx) {
-    if (req.upgrade)
-      return;
+    // Never reached on Crow's upgrade path (handle() returns before the
+    // after-handlers there), so every response that went through
+    // before_handle is decorated and audited.
 
     if (ctx.set_token_cookie)
       res.set_header("Set-Cookie", token_cookie());

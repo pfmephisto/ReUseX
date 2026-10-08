@@ -208,9 +208,15 @@ changelog — that history is the point of keeping it in the repo.
   - The frontend's case screens move under `/sager/:cid/…` and `/sager` is a
     real case list with create and upload; old unprefixed links forward to the
     last-used case.
-  - Next: S3 (users, sessions, roles, Postgres-backed cases and jobs). Still
-    deferred: S3 snapshots of case files, multi-instance advisory locks, and
-    streaming request bodies (Crow buffers each upload chunk in memory).
+  - Crow buffers request bodies in memory with no limit of its own, so it is
+    patched (`overlays/crow.nix`) to refuse a body over 72 MiB at its headers;
+    uploads go up in chunks under that cap.
+  - Next: S3 (users, sessions, roles, Postgres-backed cases and jobs). **S3
+    blocker:** the body cap is checked before routing but the access token
+    only after the headers — fine for one trusted user, not for anonymous
+    traffic; S3 should also open uploaded files with
+    `SQLITE_DBCONFIG_DEFENSIVE` and `PRAGMA quick_check` them. Still deferred:
+    S3 snapshots of case files and multi-instance advisory locks.
 
 - **2026-10-08** — **GUI: the web backend moves into `ruxd`; `rux gui` is
   removed** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),

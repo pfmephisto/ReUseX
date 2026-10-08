@@ -149,7 +149,7 @@ because temp-file helpers derived names from object addresses; that was
 fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`,
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`, `ruxd_cli`,
 `utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
 `fixtures/`. Catch2 v3.
 
@@ -293,7 +293,8 @@ The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
 **Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker
 and, with `--local`, the web GUI server). ruxd's `main.cpp` is one statement;
-its CLI is `ruxd::run()` in `ruxd_lib` (`src/cli.cpp`). The Morton tile index
+its CLI is `ruxd::run()` in `ruxd_lib` (`src/run.cpp`), with the option
+parsing itself in the light `ruxd_cli_lib` (`src/cli/`). The Morton tile index
 the GUI streams clouds by is built by the clouds stage itself
 (`reusex/pipeline/tile_index.hpp`), whichever front end runs it.
 Both use CLI11 for argument parsing and spdlog as the log sink.
@@ -510,8 +511,15 @@ and socket subscribers. Jobs of every case share one
 `reusex::pipeline::JobScheduler` (`--job-workers`, default 1, at most one
 running job per case); progress is per job via `core::ScopedProgressObserver`,
 not the process-global observer. Deleting a case moves it to
-`<data-dir>/.ruxd/trash/`. The frontend's case screens live under
-`/sager/:cid/…`. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
+`<data-dir>/.ruxd/trash/` (the case is tombstoned meanwhile; its job history
+is dropped). Case ids, once assigned, persist in `<data-dir>/.ruxd/cases.json`.
+`GET /cases` carries each card's figures read WITHOUT opening the case
+(`case_meta.hpp`, cached by file stamp); renders are cached the same way and
+never open a case either. Crow is patched (`overlays/crow.nix`) with a
+request-body cap, `CROW_MAX_REQUEST_BODY` (a PUBLIC define of `ruxd_api_lib`,
+72 MiB): bodies are buffered in memory otherwise. After the overlay changes,
+reconfigure with the new `Crow_DIR` (`cmake -B build -UCrow_DIR`). The
+frontend's case screens live under `/sager/:cid/…`. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
 unless `--auth-token` is set, and the token is then required on every request
 (Bearer header, the per-port `ruxd_token_<port>` cookie, or `?token=`, which
 sets the cookie and 303-redirects to the URL without it); the page's own

@@ -245,8 +245,11 @@ paths:
       summary: Delete a case (its files move to the server's trash)
       description: |
         Nothing is removed: the case is closed (its WAL checkpointed) and its
-        files move to `<data-dir>/.ruxd/trash/`. Open tabs get `case.closed` on
-        the events socket.
+        files move to `<data-dir>/.ruxd/trash/`. For the whole delete the case
+        is tombstoned: its routes answer `409` meanwhile, and a failed move
+        rolls the tombstone back. Open tabs get `case.closed` on the events
+        socket once the close is certain. The case's job history is dropped,
+        so a new case that reuses the id starts clean.
       responses:
         "204": { description: Moved to the trash }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -267,7 +270,11 @@ paths:
       description: |
         Uploads are chunked because the server buffers each request body in
         memory: `PUT /uploads/{id}?offset=` the file in chunks of at most
-        `chunk_bytes`, then `POST /uploads/{id}/complete`. An unfinished
+        `chunk_bytes`, then `POST /uploads/{id}/complete`. A request whose
+        body exceeds the server's hard cap (72 MiB) is refused at its headers
+        by closing the connection, before any of it is read. A chunk is
+        written at its offset (bytes past the acknowledged size are cut
+        away), so a client may resume with `GET /uploads/{id}`. An unfinished
         upload is discarded after hours of inactivity or on restart.
       requestBody:
         required: true
@@ -298,6 +305,13 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "429":
           description: Too many uploads in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: |
+            Not enough free space for this file and the uploads already in
+            progress (plus a margin for the migration adopting it runs)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -388,7 +402,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "422":
-          description: The file is not a usable `.rux` project
+          description: |
+            The file is not a ReUseX project (a SQLite database with ReUseX's
+            `schema_version` table), or it could not be migrated
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -4402,6 +4418,30 @@ components:
           type: boolean
           description: The case lives in the server's data dir, so it may be deleted.
         open: { type: boolean, description: The server has it open right now. }
+        summary:
+          description: |
+            The card's figures, read with a short read-only connection and
+            cached until the project file changes — the case is NOT opened
+            for it. `null` when the project cannot be read. On a project with
+            an older schema `survey` and `fractions` are `null` until the
+            case is opened once (a read-only probe never migrates).
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [project, survey, fractions]
+              properties:
+                project:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/ProjectInfo" }
+                survey:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/SurveySummary" }
+                fractions:
+                  oneOf:
+                    - type: "null"
+                    - { $ref: "#/components/schemas/SurveyFractions" }
 
     CaseList:
       type: object

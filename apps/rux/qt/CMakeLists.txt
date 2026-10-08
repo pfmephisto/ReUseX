@@ -31,7 +31,10 @@ find_package(VTK REQUIRED COMPONENTS
 # ---------------------------------------------------------------------------
 add_library(rux_qt_core STATIC
     src/core/tokens.cpp
-    src/core/gallery_args.cpp)
+    src/core/gallery_args.cpp
+    src/core/fuzzy.cpp
+    src/core/recent.cpp
+    src/core/launch.cpp)
 target_include_directories(rux_qt_core PUBLIC include)
 target_compile_features(rux_qt_core PUBLIC cxx_std_20)
 

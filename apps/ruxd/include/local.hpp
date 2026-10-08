@@ -47,4 +47,9 @@ struct LocalOptions {
 /// @return process exit code; startup errors are logged, not thrown.
 int run_local(LocalOptions options);
 
+/// The web GUI for either mode: wire the injected pieces into
+/// `options.server` (whatever stores it already carries) and serve until
+/// SIGINT/SIGTERM. @throws on a startup error.
+int serve_web(LocalOptions options);
+
 } // namespace ruxd

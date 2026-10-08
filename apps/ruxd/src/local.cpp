@@ -18,6 +18,15 @@ namespace ruxd {
 
 int run_local(LocalOptions options) {
   try {
+    return serve_web(std::move(options));
+  } catch (const std::exception &e) {
+    spdlog::error("Could not start ruxd --local: {}", e.what());
+    return 1;
+  }
+}
+
+int serve_web(LocalOptions options) {
+  {
     api::ServerOptions server_options = std::move(options.server);
     server_options.target = options.target;
     server_options.stage_executor = make_stage_executor();
@@ -37,15 +46,12 @@ int run_local(LocalOptions options) {
     server.set_view_renderer(renderer.get());
     server.set_model_provider(model_provider.get());
 
-    spdlog::info("Serving {} case(s) from {} at {}", server.cases().size(),
-                 server.options().target.string(), server.url());
+    spdlog::info("Serving {} case(s) at {}", server.cases().size(),
+                 server.url());
     if (!server.has_assets())
       spdlog::warn("No frontend bundle found (--assets, $RUX_GUI_ASSETS, "
                    "<prefix>/share/reusex/gui); serving the placeholder page");
     return server.run();
-  } catch (const std::exception &e) {
-    spdlog::error("Could not start ruxd --local: {}", e.what());
-    return 1;
   }
 }
 

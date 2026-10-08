@@ -137,7 +137,8 @@ defining `main` cannot be linked into a Catch2 binary that supplies its own
 | `rux` | `src/main.cpp` — `return rux::run(argc, argv);` | — | — |
 | `ruxd_api_lib` | `apps/ruxd/src/api/`: the web GUI's REST + WebSocket API, served by `ruxd --local` (#265; formerly `rux gui`'s `rux_gui_lib`) — links `reusex_core` + `reusex_pipeline`, not the umbrella | `tests/unit/ruxd_api/` | light |
 | `ruxd_cli_lib` | `apps/ruxd/src/cli/`: ruxd's option set and post-parse defaults (`configure_cli`, `finish_invocation`) — links `ruxd_api_lib` + CLI11 | `tests/unit/ruxd_cli/` | light |
-| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: `EndpointRegistry`, `BearerAuthMiddleware`, the connection pool, the handlers, `ruxd::run()` (`src/run.cpp`), local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
+| `ruxd_pg_lib` | `apps/ruxd/src/pg/`: server mode's Postgres stores (users, sessions, tokens, cases, membership, jobs, audit), the schema migrations (`apps/ruxd/migrations/`, embedded at build time) and `ruxd admin` — links `ruxd_api_lib` + libpqxx | `tests/unit/ruxd_pg/` (`[postgres]` tests skip without `initdb`) | light |
+| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: the backend clients and connection pool, `ruxd::run()` (`src/run.cpp`), server mode (`src/server.cpp`), local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
 | `ruxd` | `src/main.cpp` — `return ruxd::run(argc, argv);` | — | — |
 
 Rules for adding to `apps/`:

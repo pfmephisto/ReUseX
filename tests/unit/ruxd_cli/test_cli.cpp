@@ -73,16 +73,54 @@ TEST_CASE("RuxdCli_ServiceMode_KeepsItsOwnPortDefault", "[ruxd][cli]") {
   CHECK(inv.config.port == ruxd::Config{}.port);
 }
 
-TEST_CASE("RuxdCli_LocalOptionWithoutLocal_IsAnError", "[ruxd][cli]") {
+TEST_CASE("RuxdCli_OpenBrowserWithoutLocal_IsAnError", "[ruxd][cli]") {
   clear_port_env();
-  for (const char *args :
-       {"--bind 0.0.0.0", "--allow-origin http://x", "--open-browser",
-        "--sam3-model /m", "--models-dir /m", "--no-segment-cuda",
-        "--data-dir /d", "--job-workers 2", "--max-open-cases 3",
-        "--case-idle-minutes 5", "--max-upload-mb 10"}) {
-    INFO(args);
-    CHECK_THROWS_AS(parse(args), CLI::RequiresError);
-  }
+  // Only opening a browser is local-mode-only; the web GUI's other options
+  // serve the multi-user server too (phase S3).
+  CHECK_THROWS_AS(parse("--open-browser"), CLI::RequiresError);
+}
+
+TEST_CASE("RuxdCli_ServerMode_WebOptionsReachTheServer", "[ruxd][cli]") {
+  clear_port_env();
+  const auto inv =
+      parse("--pg-url postgresql:///x --data-dir /srv/ruxd --bind 0.0.0.0 "
+            "--allow-origin https://ruxd.example.dk --job-workers 2 "
+            "--auth-token su --cookie-secure always --port 9443");
+  CHECK_FALSE(inv.is_local());
+  CHECK(inv.local.server.data_dir == "/srv/ruxd");
+  CHECK(inv.local.server.bind_address == "0.0.0.0");
+  CHECK(inv.local.server.job_workers == 2u);
+  CHECK(inv.local.server.port == 9443);
+  CHECK(inv.local.server.cookie_secure == ruxd::api::CookieSecure::always);
+  // In server mode the token is the superuser's, not a shared access token.
+  CHECK(inv.config.auth_token == "su");
+  CHECK(inv.local.server.auth_token.empty());
+  CHECK_THROWS(parse("--cookie-secure maybe"));
+}
+
+TEST_CASE("RuxdCli_Admin_SubcommandsAndNoPasswordFlag", "[ruxd][cli]") {
+  clear_port_env();
+  using Kind = ruxd::pg::AdminCommand::Kind;
+  auto inv = parse("admin create-user --email a@x.dk --name A --admin");
+  CHECK(inv.is_admin());
+  CHECK(inv.admin.kind == Kind::create_user);
+  CHECK(inv.admin.email == "a@x.dk");
+  CHECK(inv.admin.display_name == "A");
+  CHECK(inv.admin.is_admin);
+  // Parent options may come after the subcommand.
+  inv = parse("admin list-users --pg-url postgresql:///x");
+  CHECK(inv.admin.kind == Kind::list_users);
+  CHECK(inv.config.pg_url == "postgresql:///x");
+  inv = parse("admin create-token --email a@x.dk --name ci --case kontor");
+  CHECK(inv.admin.kind == Kind::create_token);
+  CHECK(inv.admin.case_id == "kontor");
+  inv = parse("admin disable-user --email a@x.dk --enable");
+  CHECK(inv.admin.kind == Kind::disable_user);
+  CHECK(inv.admin.enable);
+  // There is no way to pass a password on the command line.
+  CHECK_THROWS(parse("admin create-user --email a@x.dk --password x"));
+  CHECK_THROWS(parse("admin set-password --email a@x.dk --password x"));
+  CHECK_THROWS(parse("admin"));
 }
 
 TEST_CASE("RuxdCli_CaseOptions_ReachTheServer", "[ruxd][cli]") {

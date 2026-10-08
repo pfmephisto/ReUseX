@@ -10,6 +10,7 @@
 
 #include <config.hpp>
 #include <local.hpp>
+#include <pg/admin.hpp>
 
 #include <CLI/CLI.hpp>
 
@@ -23,18 +24,28 @@ inline constexpr std::uint16_t kLocalDefaultPort = 8420;
 
 /// Everything the command line asks for.
 struct Invocation {
-  Config config;      ///< Service mode settings (shared: port, threads, token).
-  LocalOptions local; ///< `--local` settings; `local.target` empty = service.
+  Config config; ///< Server settings (port, threads, Postgres, token).
+  /// The web GUI's settings, both modes (`local.server`), plus the
+  /// `--local` target: empty = server mode.
+  LocalOptions local;
+  /// `ruxd admin …`: Kind::none unless that subcommand was given.
+  pg::AdminCommand admin;
+  /// `--cookie-secure`: auto | always | never.
+  std::string cookie_secure = "auto";
 
   bool is_local() const { return !local.target.empty(); }
+  bool is_admin() const { return admin.kind != pg::AdminCommand::Kind::none; }
 };
 
-/// Register every ruxd option on @p app, bound into @p inv. Local-mode options
-/// other than --local itself require --local.
+/// Register every ruxd option and the `admin` subcommands on @p app, bound
+/// into @p inv. The web GUI's options serve both modes; only --open-browser
+/// requires --local.
 void configure_cli(CLI::App &app, Invocation &inv);
 
-/// Post-parse defaults: in local mode, the port (kLocalDefaultPort unless
-/// --port / RUXD_PORT was given), the thread count and the access token.
+/// Post-parse defaults: the server's port (in local mode kLocalDefaultPort
+/// unless --port / RUXD_PORT was given), thread count, access token (local
+/// mode only: in server mode it is the superuser token), idle timeout and
+/// upload limit.
 void finish_invocation(const CLI::App &app, Invocation &inv);
 
 /// Parse, then run local mode or the service. @return process exit code.

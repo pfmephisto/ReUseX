@@ -14,11 +14,11 @@
 //    every `.rux` it names, each one a case under /api/v1/cases/{cid}, with no
 //    Postgres, Redis or S3 (src/local.cpp, ruxd_api_lib). This is what
 //    `rux gui` used to be.
-//  * Without --local, the multi-user service: for now the health / readyz /
-//    meta routes and backend-client probes in src/handlers/, registered here
-//    via the register_* functions declared in handlers.hpp. Users, sessions
-//    and Postgres-backed cases are phase S3 of docs/superpowers/specs/
-//    2026-10-08-ruxd-multiuser-and-qt-client-design.md.
+//  * Without --local, the multi-user server: the same frontend and API, with
+//    users, sessions, API tokens and case membership in Postgres
+//    (--pg-url), and case files in --data-dir (src/server.cpp, phase S3 of
+//    docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md).
+//  * `ruxd admin …` manages that server's users from a shell on it.
 
 #include <cli.hpp>
 
@@ -36,6 +36,70 @@ constexpr int kMaxVerbosity = 3;
 } // namespace
 
 namespace ruxd {
+
+namespace {
+
+/// `ruxd admin <command>`: user and case administration (pg/admin.hpp).
+/// Postgres comes from --pg-url / DATABASE_URL, given before or after.
+void configure_admin_cli(CLI::App &app, Invocation &inv) {
+  using Kind = pg::AdminCommand::Kind;
+  auto &cmd = inv.admin;
+  CLI::App *admin = app.add_subcommand(
+      "admin", "Manage the server's users and cases (needs --pg-url). "
+               "Passwords are prompted for, or read from stdin; never argv");
+  admin->fallthrough();
+  admin->require_subcommand(1);
+  auto sub = [&](const char *name, const char *help, Kind kind) {
+    CLI::App *s = admin->add_subcommand(name, help);
+    s->fallthrough();
+    s->callback([&cmd, kind] { cmd.kind = kind; });
+    return s;
+  };
+
+  auto *create = sub("create-user", "Create a user (the first: with --admin)",
+                     Kind::create_user);
+  create->add_option("--email", cmd.email, "Their email (the login)")
+      ->required();
+  create->add_option("--name", cmd.display_name, "Display name");
+  create->add_flag("--admin", cmd.is_admin,
+                   "An administrator: every case, and user management");
+
+  auto *password =
+      sub("set-password", "Set a user's password (ends their sessions)",
+          Kind::set_password);
+  password->add_option("--email", cmd.email, "Whose")->required();
+
+  sub("list-users", "List every user", Kind::list_users);
+
+  auto *disable = sub("disable-user",
+                      "Disable a user (ends their sessions); --enable undoes "
+                      "it",
+                      Kind::disable_user);
+  disable->add_option("--email", cmd.email, "Whose")->required();
+  disable->add_flag("--enable", cmd.enable, "Re-enable instead");
+
+  auto *token = sub("create-token",
+                    "Create an API token (Authorization: Bearer) for scripts; "
+                    "printed once on stdout",
+                    Kind::create_token);
+  token->add_option("--email", cmd.email, "The user it acts as")->required();
+  token->add_option("--name", cmd.token_name, "What it is for")->required();
+  token->add_option("--case", cmd.case_id, "Limit it to this case id");
+
+  auto *reg = sub("register-case",
+                  "Serve an existing .rux file as a case, where it is "
+                  "(needs --data-dir)",
+                  Kind::register_case);
+  reg->add_option("--path", cmd.path, "The project file")
+      ->required()
+      ->check(CLI::ExistingFile);
+  reg->add_option("--name", cmd.case_name,
+                  "Case name (default: the file name)");
+  reg->add_option("--owner", cmd.email, "Email of the user who owns it");
+}
+
+} // namespace
+
 void configure_cli(CLI::App &app, Invocation &inv) {
   // --- HTTP server ---
   app.add_option("-p,--port", inv.config.port, "Port to listen on")
@@ -87,71 +151,72 @@ void configure_cli(CLI::App &app, Invocation &inv) {
 
   // --- Auth ---
   app.add_option("--auth-token", inv.config.auth_token,
-                 "Bearer token required for authenticated routes "
-                 "(empty = auth disabled). With --local: the access token "
-                 "every request must present; required beyond loopback")
+                 "Server mode: a superuser Bearer token that may do "
+                 "everything (bootstrap, operations; empty = none). With "
+                 "--local: the access token every request must present; "
+                 "required beyond loopback")
       ->envname("RUXD_AUTH_TOKEN");
 
-  // --- Local mode (the web GUI for one project; formerly `rux gui`) ---
-  // Every other option in this group needs --local: server mode would
-  // silently ignore it otherwise.
+  // --- The web GUI: both modes (--local and the multi-user server) ---
   auto &local = inv.local;
   local.server.open_browser = false;
-  const std::string local_group = "Local mode";
+  const std::string local_group = "Web GUI";
   CLI::Option *local_opt =
       app.add_option(
              "--local", local.target,
              "Serve the web GUI for a .rux file, or for every .rux in a "
-             "directory (each one a case), with no Postgres, Redis or S3")
+             "directory (each one a case), for one person: no login, no "
+             "Postgres, Redis or S3")
           ->group(local_group);
   app.add_option("--data-dir", local.server.data_dir,
                  "Where created and uploaded cases are stored, one directory "
-                 "per case (default: the --local directory; none for a lone "
-                 "file, which makes the case list read-only)")
-      ->group(local_group)
-      ->needs(local_opt);
+                 "per case. Required in server mode; with --local it "
+                 "defaults to the --local directory (none for a lone file, "
+                 "which makes the case list read-only)")
+      ->envname("RUXD_DATA_DIR")
+      ->group(local_group);
+  app.add_option("--cookie-secure", inv.cookie_secure,
+                 "Server mode: mark the session cookie Secure: auto (unless "
+                 "bound to loopback, or behind a proxy sending "
+                 "X-Forwarded-Proto: https), always, never")
+      ->check(CLI::IsMember({"auto", "always", "never"}))
+      ->capture_default_str()
+      ->group(local_group);
   app.add_option("--job-workers", local.server.job_workers,
                  "Pipeline jobs that may run at once across all cases (at "
                  "most one per case)")
       ->capture_default_str()
       ->check(CLI::Range(1, 64))
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--max-open-cases", local.server.max_open_cases,
                  "Most cases kept open at once; idle ones close first")
       ->capture_default_str()
       ->check(CLI::Range(1, 1024))
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--case-idle-minutes", local.case_idle_minutes,
                  "Close a case nobody has used for this many minutes")
       ->capture_default_str()
       ->check(CLI::Range(1, 24 * 60))
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--max-upload-mb", local.max_upload_mb,
                  "Largest .rux file accepted as an upload, in MiB")
       ->capture_default_str()
       ->check(CLI::Range(1, 1 << 24))
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--bind", local.server.bind_address,
                  "Interface to bind in local mode. Anything beyond loopback "
                  "requires --auth-token")
       ->capture_default_str()
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--allow-origin", local.server.allowed_origins,
                  "Additional browser origin allowed to call the API "
                  "(repeatable). Loopback is always allowed")
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--assets", local.server.asset_dir,
                  "Directory holding the frontend bundle (else $RUX_GUI_ASSETS, "
                  "then <prefix>/share/reusex/gui)")
       ->check(CLI::ExistingDirectory)
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_flag("--open-browser", local.server.open_browser,
                "Open the system browser once listening")
       ->group(local_group)
@@ -159,26 +224,30 @@ void configure_cli(CLI::App &app, Invocation &inv) {
   app.add_flag("--segment-cuda,!--no-segment-cuda", local.server.segment_cuda,
                "Use CUDA/TensorRT for the segment endpoints (default: on); "
                "--no-segment-cuda routes inference through ONNX on the CPU")
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--sam3-model", local.sam3_model_dir,
                  "Explicit SAM3 model directory (TRT engine dir or ONNX dir). "
                  "When omitted, a managed model is prepared on first use")
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--models-dir", local.models_dir,
                  "Base directory for managed models (default: "
                  "$REUSEX_MODELS_DIR or the XDG cache dir)")
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
   app.add_option("--sam3-manifest-url", local.sam3_manifest_url,
                  "URL of the SAM3 ONNX bundle release manifest (default: "
                  "built-in)")
-      ->group(local_group)
-      ->needs(local_opt);
+      ->group(local_group);
+
+  configure_admin_cli(app, inv);
 
   app.footer(R"footer(
-Local mode (the web GUI, formerly `rux gui`):
+Server mode (users, sessions and cases in Postgres; files in --data-dir):
+  ruxd admin create-user --email anna@example.dk --name Anna --admin
+  ruxd --pg-url postgresql://ruxd@db/ruxd --data-dir /srv/ruxd --bind 0.0.0.0
+Put TLS in front (a reverse proxy) and pass its public origin with
+--allow-origin https://ruxd.example.dk; see docs/gui/README.md.
+
+Local mode (the web GUI for one person, formerly `rux gui`):
   ruxd --local scan.rux                 one case
   ruxd --local ~/sager                  every .rux in the directory is a case;
                                         new and uploaded cases go there too
@@ -210,15 +279,21 @@ Add --allow-origin <origin> only for a frontend served from somewhere else.
 }
 
 void finish_invocation(const CLI::App &app, Invocation &inv) {
-  if (!inv.is_local())
-    return;
   // Local mode has its own default port (the one the Vite proxy and the docs
-  // name); an explicit --port or RUXD_PORT still wins.
-  inv.local.server.port = app.get_option("--port")->count() > 0
-                              ? inv.config.port
-                              : kLocalDefaultPort;
+  // name); an explicit --port or RUXD_PORT still wins. Server mode keeps
+  // Config's.
+  inv.local.server.port =
+      !inv.is_local() || app.get_option("--port")->count() > 0
+          ? inv.config.port
+          : kLocalDefaultPort;
   inv.local.server.threads = inv.config.threads;
-  inv.local.server.auth_token = inv.config.auth_token;
+  // Local mode's access token; in server mode the same flag is the
+  // superuser token, which AuthOptions carries instead.
+  inv.local.server.auth_token = inv.is_local() ? inv.config.auth_token : "";
+  inv.local.server.cookie_secure =
+      inv.cookie_secure == "always"  ? api::CookieSecure::always
+      : inv.cookie_secure == "never" ? api::CookieSecure::never
+                                     : api::CookieSecure::automatic;
   inv.local.server.case_idle_timeout =
       std::chrono::minutes(inv.local.case_idle_minutes);
   inv.local.server.upload_limits.max_bytes =

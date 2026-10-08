@@ -108,3 +108,39 @@
   font-size: var(--font-size-sm);
   white-space: nowrap;
 }
+
+/* A Danish face on the native file picker: the input stays the focusable,
+   clickable control, stretched invisibly over the row. */
+.filePick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.fileInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fileButton {
+  composes: btnGhost from '../components/controls.module.css';
+  flex: none;
+}
+
+.fileInput:focus-visible + .fileButton {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.fileName {
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

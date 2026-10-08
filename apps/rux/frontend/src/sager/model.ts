@@ -97,9 +97,14 @@ export function cardTitle(c: CaseSummary, record: ProjectInfo | undefined): stri
   return recordName ? recordName : c.name;
 }
 
-/** The small print under a card: file name and size. */
+/**
+ * The small print under a card: what tells two copies of one scan apart. The
+ * file name, or — for a case the server created or received, whose file is
+ * always `project.rux` — the case's own name; then the size.
+ */
 export function cardFileLine(c: CaseSummary): string {
-  return `${c.file_name} · ${formatBytes(c.size_bytes)}`;
+  const what = c.file_name === 'project.rux' ? c.name : c.file_name;
+  return `${what} · ${formatBytes(c.size_bytes)}`;
 }
 
 /** Cases in list order: active ones first, then archived; each by name. */

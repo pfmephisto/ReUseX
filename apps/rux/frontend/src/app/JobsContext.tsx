@@ -24,6 +24,7 @@ import {
   type JobState,
 } from '../api/events';
 import type { Job } from '../api/types';
+import { ALL_CASES_PATH } from './navigation';
 
 interface JobsContextValue {
   state: JobState;
@@ -48,7 +49,8 @@ interface JobsContextValue {
 const JobsContext = createContext<JobsContextValue | null>(null);
 
 /**
- * Owns the single WebSocket connection to `/api/v1/events`.
+ * Owns the single WebSocket connection to the open case's
+ * `/api/v1/cases/{cid}/events` (the URL comes from the case-scoped `api`).
  *
  * One connection for the whole app, mounted at the root: the server pushes the
  * full `Job` object in every envelope, so there is nothing a second connection
@@ -71,11 +73,14 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     const offClouds = stream.onCloudsChanged((names) =>
       setCloudRevisions((revs) => bumpCloudRevisions(revs, names)),
     );
+    // The case was deleted under us: nothing here is valid any more.
+    const offClosed = stream.onCaseClosed(() => window.location.assign(ALL_CASES_PATH));
     stream.start();
     return () => {
       offState();
       offStatus();
       offClouds();
+      offClosed();
       stream.close();
     };
   }, []);

@@ -22,7 +22,10 @@
 # time, so `stop` from another shell missed the servers.
 #
 # Usage:
-#   dev_env.sh start [project.rux] [gui_port] [vite_port]
+#   dev_env.sh start [project.rux | dir] [gui_port] [vite_port]
+#
+# A directory serves a copy of every .rux in it, each one a case
+# (`ruxd --local <dir>`); open /sager to pick one.
 #   dev_env.sh stop
 #   dev_env.sh status
 #
@@ -130,7 +133,7 @@ case "$cmd" in
       echo "error: no ruxd binary found. Build it (cmake --build build) or set RUXD_BIN=." >&2
       exit 1
     fi
-    if [[ ! -f "$project" ]]; then
+    if [[ ! -f "$project" && ! -d "$project" ]]; then
       echo "error: project not found: $project" >&2
       exit 1
     fi
@@ -142,9 +145,20 @@ case "$cmd" in
     # Serve a throwaway copy, never the original (see the header).
     rm -rf "$RUN_DIR/project"
     mkdir -p "$RUN_DIR/project"
-    served="$RUN_DIR/project/$(basename "$project")"
-    cp "$project" "$served"
-    if [[ -f "$project-wal" ]]; then cp "$project-wal" "$served-wal"; fi
+    if [[ -d "$project" ]]; then
+      # Every case of the directory; reflinks keep a multi-GB scan cheap.
+      served="$RUN_DIR/project/"
+      shopt -s nullglob
+      for f in "$project"/*.rux; do
+        cp --reflink=auto "$f" "$served"
+        if [[ -f "$f-wal" ]]; then cp --reflink=auto "$f-wal" "$served"; fi
+      done
+      shopt -u nullglob
+    else
+      served="$RUN_DIR/project/$(basename "$project")"
+      cp --reflink=auto "$project" "$served"
+      if [[ -f "$project-wal" ]]; then cp "$project-wal" "$served-wal"; fi
+    fi
 
     echo "Starting ruxd --local ($ruxd_bin) on :$gui_port against a copy of $(basename "$project")…"
     RUX_GUI_LOG="$RUN_DIR/gui.log"
@@ -167,7 +181,7 @@ case "$cmd" in
     for _ in $(seq 1 60); do
       if curl -sf -o /dev/null "$url" 2>/dev/null; then
         echo
-        echo "  UP:      $url        (screenshot this, never :$gui_port directly)"
+        echo "  UP:      $url/sager  (screenshot this, never :$gui_port directly)"
         echo "  api:     proxied to  http://localhost:$gui_port"
         echo "  project: $served   (a copy; refreshed by every start)"
         echo "  logs:    $RUX_GUI_LOG , $VITE_LOG"

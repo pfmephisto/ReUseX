@@ -127,6 +127,10 @@ describe('case list cards (S2)', () => {
 
   it('names the file and its size, never a path', () => {
     expect(cardFileLine(summary())).toBe('kontor.rux · 1,2 MB');
+    // A created or uploaded case's file is always project.rux: name it instead.
+    expect(cardFileLine(summary({ file_name: 'project.rux', name: 'Korridor (upload)' }))).toBe(
+      'Korridor (upload) · 1,2 MB',
+    );
   });
 
   it('lists active cases first, each group by Danish name order', () => {

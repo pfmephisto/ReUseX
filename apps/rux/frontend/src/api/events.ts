@@ -169,6 +169,7 @@ export class EventStream {
   private stateListeners = new Set<(state: JobState) => void>();
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
   private cloudsListeners = new Set<(names: string[]) => void>();
+  private caseClosedListeners = new Set<() => void>();
 
   private state: JobState = emptyJobState;
   private status: ConnectionStatus = 'closed';
@@ -203,6 +204,15 @@ export class EventStream {
   onCloudsChanged(listener: (names: string[]) => void): () => void {
     this.cloudsListeners.add(listener);
     return () => this.cloudsListeners.delete(listener);
+  }
+
+  /**
+   * `case.closed`: the case was deleted while connected. The stream stops for
+   * good (a reconnect would be refused); the app should leave the case.
+   */
+  onCaseClosed(listener: () => void): () => void {
+    this.caseClosedListeners.add(listener);
+    return () => this.caseClosedListeners.delete(listener);
   }
 
   onStatus(listener: (status: ConnectionStatus) => void): () => void {
@@ -261,6 +271,11 @@ export class EventStream {
     }
     if (isCloudsChangedEvent(event)) {
       for (const listener of this.cloudsListeners) listener([...event.names]);
+      return;
+    }
+    if (event.type === 'case.closed') {
+      this.close();
+      for (const listener of this.caseClosedListeners) listener();
       return;
     }
     const next = applyEvent(this.state, event);

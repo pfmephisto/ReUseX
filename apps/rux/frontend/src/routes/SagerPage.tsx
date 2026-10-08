@@ -193,17 +193,27 @@ function NewCasePanel({ list }: { list: CaseList }) {
       <form className={styles.row} onSubmit={upload}>
         <label className={controls.field}>
           <span className={controls.fieldLabel}>Fil (.rux)</span>
-          <input
-            className={controls.input}
-            type="file"
-            accept=".rux"
-            disabled={busy}
-            onChange={(e) => {
-              const picked = e.target.files?.[0] ?? null;
-              setFile(picked);
-              if (picked) setUploadName(nameFromFile(picked.name));
-            }}
-          />
+          {/* The native picker's own copy is in the browser's language; this
+              one speaks Danish and shows what was picked. */}
+          <span className={styles.filePick}>
+            <input
+              className={styles.fileInput}
+              type="file"
+              accept=".rux"
+              disabled={busy}
+              onChange={(e) => {
+                const picked = e.target.files?.[0] ?? null;
+                setFile(picked);
+                if (picked) setUploadName(nameFromFile(picked.name));
+              }}
+            />
+            <span className={styles.fileButton} aria-hidden="true">
+              Vælg fil…
+            </span>
+            <span className={styles.fileName}>
+              {file ? `${file.name} · ${formatBytes(file.size)}` : 'Ingen fil valgt'}
+            </span>
+          </span>
         </label>
         <label className={controls.field}>
           <span className={controls.fieldLabel}>Navn</span>

@@ -374,6 +374,84 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         default: { $ref: "#/components/responses/UnexpectedError" }
 
+  /auth/tokens:
+    get:
+      tags: [auth]
+      operationId: listApiTokens
+      summary: Your API tokens (never the tokens)
+      description: |
+        Server mode, from a signed-in session (an API token may not manage
+        tokens: 403).
+      responses:
+        "200":
+          description: Your tokens
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: "#/components/schemas/ApiToken" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+    post:
+      tags: [auth]
+      operationId: createApiToken
+      summary: Create an API token; it is shown once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                case: { type: string, description: Limit it to this case. }
+                expires_days:
+                  type: integer
+                  minimum: 0
+                  maximum: 3650
+                  description: "Days until it stops working; 0 = never; default 90."
+      responses:
+        "201":
+          description: |
+            Created. `token` (`rxt_…`) is in this answer only; the server
+            keeps its SHA-256.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/ApiToken" }
+                  - type: object
+                    required: [token]
+                    properties: { token: { type: string } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
+  /auth/tokens/{tid}:
+    parameters:
+      - name: tid
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    delete:
+      tags: [auth]
+      operationId: revokeApiToken
+      summary: Revoke an API token
+      description: Your own; an administrator may revoke anyone's.
+      responses:
+        "204": { description: Revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        default: { $ref: "#/components/responses/UnexpectedError" }
+
   # --------------------------------------------------------------- users ----
   /users:
     get:
@@ -528,7 +606,10 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404":
-          description: No such case, or no user has that email
+          description: |
+            No such case, or no user with that email whom the caller may add:
+            an owner finds only people they already share a case with, an
+            administrator anyone. Both misses read the same.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1664,7 +1745,9 @@ paths:
                   type: string
                   description: |
                     Optional filesystem path to the SAM3 model (TRT engine
-                    directory or ONNX directory). Reloaded when the path
+                    directory or ONNX directory). **Local mode only**: the
+                    multi-user server refuses it with 400 and uses its own
+                    configured or managed model. Reloaded when the path
                     changes between calls; cached otherwise. Omitted, null or
                     empty ⟹ the server resolves its managed SAM3 model (see
                     `GET /models/sam3/status`); a server with no managed
@@ -2087,7 +2170,9 @@ paths:
                   type: string
                   description: |
                     Optional filesystem path to the SAM3 model (TRT engine
-                    directory or ONNX directory). Reloaded when the path
+                    directory or ONNX directory). **Local mode only**: the
+                    multi-user server refuses it with 400 and uses its own
+                    configured or managed model. Reloaded when the path
                     changes between calls; cached otherwise. Omitted, null or
                     empty ⟹ the server resolves its managed SAM3 model (see
                     `GET /models/sam3/status`); a server with no managed
@@ -4538,7 +4623,8 @@ components:
       description: |
         Server mode: the login session set by `POST /auth/login` — a random
         32-byte token, stored server-side only as its SHA-256. Named per port
-        (the literal name is `ruxd_session_` + the server's port). A
+        (the literal name is `ruxd_session_` + the server's port, with the
+        `__Host-` prefix when the cookie is Secure). A
         cookie-authenticated request that changes something must carry an
         allowed `Origin` (403 otherwise).
     bearerAuth:
@@ -4809,6 +4895,21 @@ components:
                   oneOf:
                     - type: "null"
                     - { $ref: "#/components/schemas/SurveyFractions" }
+
+    ApiToken:
+      type: object
+      required: [id, name, case, created_at, expires_at, last_used_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        case:
+          oneOf: [{ type: "null" }, { type: string }]
+        created_at: { type: string }
+        expires_at:
+          description: "`null`: never expires."
+          oneOf: [{ type: "null" }, { type: string }]
+        last_used_at:
+          oneOf: [{ type: "null" }, { type: string }]
 
     CaseRole:
       type: string

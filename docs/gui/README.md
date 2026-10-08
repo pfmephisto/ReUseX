@@ -80,11 +80,34 @@ phase S3):
   (`--cookie-secure auto|always|never`; `auto` also sets it when a proxy sends
   `X-Forwarded-Proto: https`). It expires 12 h after its last use (renewed at
   most every 5 min) and 14 days after login regardless; logout deletes it.
+  When `Secure`, the cookie is named `__Host-ruxd_session_<port>`, so no
+  other service on the host can plant or shadow it.
   Passwords are argon2id (OpenSSL 3 `EVP_KDF`, RFC 9106 parameters, in PHC
-  form). Logins are limited to 5 per minute per client IP and email (30 per IP).
-- **Scripts** use `Authorization: Bearer rxt_…` API tokens
-  (`ruxd admin create-token`, optionally `--case <cid>`), hashed like sessions.
-  `--auth-token` is a superuser Bearer token for bootstrap and operations.
+  form). Failed logins back off: after 5 failures an account (from any
+  address), and after 20 a client address (an IPv6 address counts as its
+  /64), waits 1 s, doubling per further failure up to 15 min; failures are
+  forgotten after 30 quiet minutes and a successful login clears its
+  account's. Wrong Bearer tokens back off per address the same way.
+- **Events sockets** follow access: logout, a disabled account, a changed
+  password or removal from the case closes them, and the registry's sweep
+  re-checks every open socket every 30 s.
+- **Scripts** use `Authorization: Bearer rxt_…` API tokens, hashed like
+  sessions, expiring after 90 days by default (`--expires-days`, 0 = never),
+  optionally limited to one case. Create, list and revoke them in the user
+  menu's *Adgangstokens*, over `/api/v1/auth/tokens`, or with `ruxd admin
+  create-token | list-tokens | revoke-token`.
+  `--auth-token` is a superuser Bearer token for bootstrap and operations; it
+  must be at least 32 characters. Pass secrets as `--auth-token-file` /
+  `--pg-url-file` (or their environment variables), not on the command line,
+  where every local user can read them (ruxd warns).
+- **Adding members**: an owner can add only people they already share a case
+  with; an administrator adds anyone. Otherwise, and for an unknown email,
+  the answer is the same 404, so the form is no oracle for which accounts
+  exist.
+- **SAM3 in server mode** uses only the server's configured or managed model;
+  a request's `model_path` is refused (400).
+- **Audit retention**: `--audit-retention-days` (default 365), pruned
+  hourly.
 - **The access decision runs before the body is read**: Crow is patched
   (`overlays/patches/crow-header-check.patch`) with a header-phase hook, so an
   unauthenticated or forbidden upload is answered — and its connection closed
@@ -129,12 +152,14 @@ server {
 
 ```bash
 ruxd --data-dir /srv/ruxd --bind 127.0.0.1 --port 8080 \
-     --allow-origin https://ruxd.firma.dk
+     --allow-origin https://ruxd.firma.dk --trusted-proxy 127.0.0.1
 ```
 
-The session cookie is then `Secure` (`X-Forwarded-Proto: https`). Behind a
-proxy every login comes from the proxy's address, so the per-IP part of the
-rate limit is shared by everyone; the per-email part still holds. Serving a
+The session cookie is then `Secure` (`X-Forwarded-Proto: https`). Name the
+proxy with `--trusted-proxy 127.0.0.1` so the login back-off sees each
+client's own address (`X-Forwarded-For`, honoured only from trusted peers);
+without it every login seems to come from the proxy, and the per-address
+back-off is shared by everyone. Serving a
 non-loopback bind over plain HTTP is not supported: the cookie is `Secure`
 and a browser will not send it back (`--cookie-secure never` only for a
 closed test network).

@@ -504,11 +504,18 @@ runs in a patched Crow header phase, before a request body is read.
 `ruxd admin create-user|set-password|list-users|disable-user|create-token|
 register-case` manages it; passwords come from a prompt or stdin, never argv.
 The Postgres stores are `ruxd_pg_lib` (`apps/ruxd/src/pg/`, light; tests in
-`tests/unit/ruxd_pg/`, tagged `[postgres]`, start an ephemeral cluster with
-`initdb` — in the devshell — and skip without it). Deployment (first admin,
+`tests/unit/ruxd_pg/`, tagged `[postgres]` with the ctest label `postgres` —
+`ctest -L postgres` — start an ephemeral cluster with `initdb`, which the
+devshell carries, and skip without it, as in the nix check sandbox).
+API tokens expire (90 days by default), are listed and revoked in the user
+menu, over `/api/v1/auth/tokens`, or with `ruxd admin list-tokens |
+revoke-token`. Failed logins back off per account and per client address
+(IPv6 /64); `--trusted-proxy` makes `X-Forwarded-For` count. Secrets:
+`--auth-token-file`, `--pg-url-file`. Deployment (first admin,
 TLS via a reverse proxy, the Secure cookie): `docs/gui/README.md`. Other
 flags: `--port`, `--threads`, `--pg-pool-size`, `--pg-acquire-timeout-ms`,
-`--cookie-secure`; `--redis-url`/`--s3-*` are accepted but unused yet.
+`--cookie-secure`, `--trusted-proxy`, `--audit-retention-days`;
+`--redis-url`/`--s3-*` are accepted but unused yet.
 
 `ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
 WebSocket contract in `docs/gui/openapi.yaml`, with no Postgres, Redis or S3.

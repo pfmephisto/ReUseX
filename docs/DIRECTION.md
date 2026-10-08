@@ -214,12 +214,21 @@ changelog — that history is the point of keeping it in the repo.
   - The old service stub (`/`, `/livez`, `/health`, `/segment/planes`,
     `/openapi.json`, BearerAuthMiddleware) is gone; `/api/v1/readyz` checks
     Postgres.
-  - Still open: viewers still *see* edit controls (the server refuses them
-    with 403; hiding them per role is a frontend follow-up); uploads are not
-    yet opened with `SQLITE_DBCONFIG_DEFENSIVE` / `PRAGMA quick_check`; behind
-    a proxy the per-IP login limit is shared (no trusted-proxy setting); no
-    web UI for user administration beyond the `/users` API; Redis and S3 are
-    unused. Deferred as before: S3 snapshots and multi-instance locks.
+  - Security review fix round (same day): an `Upgrade:` header on a
+    request Crow does not upgrade (HTTP/1.0, h2c) skipped the middleware
+    entirely — closed, with raw-socket regression tests. Also: events
+    sockets close when access ends; `model_path` is refused in server mode;
+    login back-off per account and per address (IPv6 /64) with
+    `--trusted-proxy`; API tokens expire and can be listed and revoked;
+    atomic last-owner check; `__Host-` cookie when Secure; a 32-character
+    minimum superuser token and secret files; audit retention; viewers no
+    longer see the main edit controls, and an ended session returns to the
+    login page.
+  - Still open: uploads are not yet opened with `SQLITE_DBCONFIG_DEFENSIVE`
+    / `PRAGMA quick_check`; no web UI for user administration beyond the
+    `/users` API; Redis and S3 are unused; the `[postgres]` tests do not run
+    in CI (the nix check sandbox has no PostgreSQL — `ctest -L postgres`
+    locally). Deferred as before: S3 snapshots and multi-instance locks.
 
 - **2026-10-08** — **GUI: one ruxd serves many cases** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream S, phase S2). A ruxd process is no longer bound to one project:

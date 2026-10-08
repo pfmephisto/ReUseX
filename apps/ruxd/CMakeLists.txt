@@ -86,6 +86,9 @@ target_link_libraries(ruxd_lib
         # logs through spdlog.
         spdlog::spdlog
         ruxd_api_lib
+        # PUBLIC: cli.hpp (ruxd::configure_cli, tested by tests/unit/ruxd)
+        # takes a CLI::App.
+        CLI11::CLI11
     PRIVATE
         reusex
         opencv_imgcodecs
@@ -94,12 +97,8 @@ target_link_libraries(ruxd_lib
         ${AWSSDK_LINK_LIBRARIES}
 )
 
+# main.cpp is `return ruxd::run(argc, argv);` (STANDARDS §1.1).
 add_executable(ruxd src/main.cpp)
-target_link_libraries(ruxd PRIVATE
-    ruxd_lib
-    reusex
-    CLI11::CLI11
-    spdlog::spdlog
-)
+target_link_libraries(ruxd PRIVATE ruxd_lib reusex)
 
 install(TARGETS ruxd DESTINATION bin)

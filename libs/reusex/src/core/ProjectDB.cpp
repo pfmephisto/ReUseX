@@ -32,6 +32,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <random>
 #include <set>
 #include <sstream>
@@ -465,7 +466,8 @@ class ProjectDB::Impl {
       // project on its on-disk schema. Readers degrade gracefully (newer
       // columns are treated as absent), but tell the user how to upgrade.
       const int onDisk = getCurrentSchemaVersion();
-      if (onDisk >= 0 && onDisk < LATEST_SCHEMA_VERSION) {
+      if (onDisk >= 0 && onDisk < LATEST_SCHEMA_VERSION &&
+          firstStaleNotice(onDisk)) {
         reusex::warn("Project schema is v{} but this build expects v{}. "
                      "Opened read-only, so no migration was applied and "
                      "newer fields are unavailable. Open the project "
@@ -475,6 +477,26 @@ class ProjectDB::Impl {
     }
     hasPassportColumn = columnExists("survey_parts", "passport_guid");
     hasDismissedTable = tableExists("survey_dismissed_instances");
+  }
+
+  /// True the first time this process opens dbPath read-only at schema
+  /// @p onDisk. A server reads a stale case's card, render and summary over
+  /// separate read-only connections; the advice to migrate is worth saying
+  /// once, not on every one of them (final review #9). Later opens log it
+  /// at debug.
+  bool firstStaleNotice(int onDisk) const {
+    static std::mutex mutex;
+    static std::set<std::pair<std::string, int>> noticed;
+    std::error_code ec;
+    auto key = std::filesystem::weakly_canonical(dbPath, ec).string();
+    if (ec)
+      key = dbPath.string();
+    std::lock_guard<std::mutex> lock(mutex);
+    if (noticed.emplace(std::move(key), onDisk).second)
+      return true;
+    reusex::debug("Project schema is v{} (read-only, not migrated): {}", onDisk,
+                  dbPath);
+    return false;
   }
 
   /// `save_instances` (every `rux create instances` re-run) deletes the

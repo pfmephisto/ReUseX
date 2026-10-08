@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <core/ProjectDB.hpp>
+#include <core/logging.hpp>
 
 #include "../../support/temp_path.hpp"
 
@@ -132,4 +133,25 @@ TEST_CASE("ProjectDbReadOnly_WriteApi_Throws", "[projectdb][readonly]") {
   // Any write call must throw std::runtime_error.
   REQUIRE_THROWS_AS(db.save_point_cloud("test", *std::make_shared<Cloud>()),
                     std::runtime_error);
+}
+
+TEST_CASE("ProjectDbReadOnly_OldSchema_WarnsOncePerProcess",
+          "[projectdb][readonly]") {
+  // Final review #9: a server reads a stale case over many read-only
+  // connections (card, summary, render); the migrate advice is said once.
+  TempDB tmp;
+  buildOldSchemaFixture(tmp.path);
+  int warnings = 0;
+  core::set_log_level(core::LogLevel::trace);
+  core::set_log_handler([&](core::LogLevel level, std::string_view message) {
+    if (level == core::LogLevel::warn &&
+        message.find("schema is v9") != std::string_view::npos)
+      ++warnings;
+  });
+  for (int i = 0; i < 3; ++i) {
+    ProjectDB db(tmp.path, /*readOnly=*/true);
+    REQUIRE(db.schema_version() == 9);
+  }
+  core::reset_log_handler();
+  CHECK(warnings == 1);
 }

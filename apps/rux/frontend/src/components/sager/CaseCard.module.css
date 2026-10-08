@@ -106,3 +106,14 @@
 .date {
   font-variant-numeric: tabular-nums;
 }
+
+/* The file and its size: secondary, but the way a user tells two copies of
+   one scan apart. */
+.file {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

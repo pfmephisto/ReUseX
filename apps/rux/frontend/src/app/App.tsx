@@ -16,7 +16,7 @@ import {
   SEGMENTERING_PATH,
   SKABELONER_PATH,
 } from './links';
-import { ALL_CASES_PATH, REDIRECTS } from './navigation';
+import { REDIRECTS } from './navigation';
 import { LabelsPage } from '../routes/DataPage';
 import { FramesPage } from '../routes/FramesPage';
 import { GeometryPage } from '../routes/GeometryPage';
@@ -29,13 +29,17 @@ import { OverblikPage } from '../routes/OverblikPage';
 import { PipelineLogPage } from '../routes/PipelineLogPage';
 import { PipelinePage } from '../routes/PipelinePage';
 import { RapportPage } from '../routes/RapportPage';
-import { SagerPage } from '../routes/SagerPage';
 import { SegmenteringPage } from '../routes/SegmenteringPage';
 import { SkabelonerPage } from '../routes/SkabelonerPage';
 import { ViewportPage } from '../routes/ViewportPage';
 
 /**
- * Route table.
+ * Route table of one case.
+ *
+ * It runs under a router whose basename is the case prefix `/sager/:cid`
+ * (`main.tsx`, `app/cases.ts`), so every path here is case-relative and
+ * `/kortlaegning` means `/sager/<cid>/kortlaegning`. The case list (`/sager`)
+ * is a separate app, `CasesApp`.
  *
  * Paths stay extensionless on purpose: `ruxd --local`'s SPA fallback only rewrites
  * extensionless requests to `index.html`, so that a missing `/assets/app.js`
@@ -75,7 +79,6 @@ function RoutedContent() {
       {/* Standard switcher for every other page */}
       {!onViewport && (
         <Routes>
-          <Route path={ALL_CASES_PATH} element={<SagerPage />} />
           <Route path={OVERBLIK_PATH} element={<OverblikPage />} />
           <Route path={KORTLAEGNING_PATH} element={<KortlaegningPage />} />
           <Route path={SEGMENTERING_PATH} element={<SegmenteringPage />} />

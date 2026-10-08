@@ -12,15 +12,35 @@ import './fonts';
 import './tokens.css';
 import './base.css';
 
+import { api } from './api/client';
 import { App } from './app/App';
+import { CasesApp, LegacyRedirect } from './app/CasesApp';
+import { caseBasename, parseCaseLocation, writeLastCase } from './app/cases';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('#root is missing from index.html');
 
-createRoot(container).render(
-  <StrictMode>
-    <BrowserRouter>
+// Which app this page load is: one case (`/sager/:cid/…`), the case list
+// (`/sager`), or an old unprefixed path to forward. Entering or leaving a case
+// is a page load, so the API client and the events socket are per case.
+const where = parseCaseLocation(window.location.pathname);
+let app;
+if (where.kind === 'case') {
+  api.selectCase(where.cid);
+  writeLastCase(where.cid);
+  app = (
+    <BrowserRouter basename={caseBasename(where.cid)}>
       <App />
     </BrowserRouter>
-  </StrictMode>,
-);
+  );
+} else if (where.kind === 'list') {
+  app = (
+    <BrowserRouter>
+      <CasesApp />
+    </BrowserRouter>
+  );
+} else {
+  app = <LegacyRedirect pathname={window.location.pathname} search={window.location.search} />;
+}
+
+createRoot(container).render(<StrictMode>{app}</StrictMode>);

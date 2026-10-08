@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Sager as data: the one card `ruxd --local` can show (R1) and the command that
- * opens another case. Every figure is read off a server response; this module
+ * Sager as data: the case list's cards (R1), and the words for creating and
+ * uploading a case. Every figure is read off a server response; this module
  * only words it.
  */
 
-import type { ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
+import { ApiRequestError } from '../api/client';
+import type { CaseSummary, ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
+import { formatBytes } from '../app/cases';
 import type { Tone } from '../kortlaegning/vocab';
 import { danishDate, percentText } from '../overblik/model';
 
@@ -83,5 +85,58 @@ export function cardDate(p: ProjectInfo | undefined): string {
   return date ? `Registreret ${danishDate(date)}` : '—';
 }
 
-/** How to open another case: `ruxd --local` serves the project it was started with. */
-export const OPEN_ANOTHER_COMMAND = 'ruxd --local <fil>.rux';
+/** How to serve more cases: every `.rux` in a directory is one. */
+export const SERVE_DIRECTORY_COMMAND = 'ruxd --local <mappe>';
+
+/**
+ * The card's heading: the building record's name when the project has one,
+ * else the case's own name (the file stem, or what it was named on creation).
+ */
+export function cardTitle(c: CaseSummary, record: ProjectInfo | undefined): string {
+  const recordName = record?.name?.trim();
+  return recordName ? recordName : c.name;
+}
+
+/** The small print under a card: file name and size. */
+export function cardFileLine(c: CaseSummary): string {
+  return `${c.file_name} · ${formatBytes(c.size_bytes)}`;
+}
+
+/** Cases in list order: active ones first, then archived; each by name. */
+export function sortCases(cases: readonly CaseSummary[]): CaseSummary[] {
+  return [...cases].sort(
+    (a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name, 'da'),
+  );
+}
+
+/** "37 %" for an upload in progress. */
+export function uploadPercent(sent: number, total: number): string {
+  if (!(total > 0)) return '0 %';
+  return `${Math.min(100, Math.floor((sent / total) * 100))} %`;
+}
+
+/** Why creating or uploading a case failed, said so the user can act on it. */
+export function caseWriteErrorText(cause: unknown, action: 'create' | 'upload'): string {
+  if (cause instanceof ApiRequestError) {
+    switch (cause.status) {
+      case 413:
+        return 'Filen er større, end serveren tager imod.';
+      case 422:
+        return 'Filen er ikke et ReUseX-projekt (.rux).';
+      case 429:
+        return 'Der er for mange uploads i gang. Prøv igen om lidt.';
+      case 409:
+        return action === 'upload'
+          ? 'Serveren kan ikke modtage sager (den viser én fil). Start den med en mappe.'
+          : 'Serveren kan ikke oprette sager (den viser én fil). Start den med en mappe.';
+      case 400:
+        return 'Navnet kan ikke bruges. Skriv et navn uden kontroltegn.';
+      default:
+        break;
+    }
+  }
+  if (cause instanceof DOMException && cause.name === 'AbortError') return 'Upload afbrudt.';
+  return action === 'upload'
+    ? 'Upload mislykkedes. Tjek forbindelsen og prøv igen.'
+    : 'Sagen kunne ikke oprettes. Prøv igen.';
+}

@@ -42,6 +42,45 @@
   gap: var(--space-2);
   padding: var(--space-4);
   max-width: calc(var(--space-7) * 15);
+  margin-top: var(--space-5);
+}
+
+.subHeading {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Fields and the submit button on one line; they stack on a phone. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.row > label {
+  flex: 1 1 calc(var(--space-7) * 3);
+}
+
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.bar {
+  flex: 1 1 calc(var(--space-7) * 4);
+  accent-color: var(--color-accent);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-status-failed);
 }
 
 .panelHeading {

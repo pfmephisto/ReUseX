@@ -4,7 +4,20 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { cardDate, cardSubline, caseStats, caseStatus, OPEN_ANOTHER_COMMAND } from '../sager/model';
+import { ApiRequestError } from '../api/client';
+import type { CaseSummary } from '../api/types';
+import {
+  cardDate,
+  cardFileLine,
+  cardSubline,
+  cardTitle,
+  caseStats,
+  caseStatus,
+  caseWriteErrorText,
+  SERVE_DIRECTORY_COMMAND,
+  sortCases,
+  uploadPercent,
+} from '../sager/model';
 import * as sager from '../sager/model';
 import { surveyFractions, surveySummary } from './surveyFixtures';
 
@@ -80,12 +93,65 @@ describe('card text', () => {
 });
 
 describe('commands (R1)', () => {
-  it('says how to open another case', () => {
-    expect(OPEN_ANOTHER_COMMAND).toBe('ruxd --local <fil>.rux');
+  it('says how to serve more than one case', () => {
+    expect(SERVE_DIRECTORY_COMMAND).toBe('ruxd --local <mappe>');
+    expect('OPEN_ANOTHER_COMMAND' in sager).toBe(false);
   });
 
   it('sager no longer exports the phone command (On-site moved to the mobile app)', () => {
     expect('phoneCommand' in sager).toBe(false);
     expect('NO_AUTH_WARNING' in sager).toBe(false);
+  });
+});
+
+function summary(over: Partial<CaseSummary> = {}): CaseSummary {
+  return {
+    id: 'kontor',
+    name: 'Kontor',
+    file_name: 'kontor.rux',
+    created_at: '2026-10-08T10:00:00Z',
+    archived: false,
+    size_bytes: 1_234_567,
+    deletable: true,
+    open: false,
+    ...over,
+  };
+}
+
+describe('case list cards (S2)', () => {
+  it('titles a card by the building record, else the case name', () => {
+    expect(cardTitle(summary(), { id: 'p', name: '  Rådhuset ' })).toBe('Rådhuset');
+    expect(cardTitle(summary(), { id: 'p', name: ' ' })).toBe('Kontor');
+    expect(cardTitle(summary(), undefined)).toBe('Kontor');
+  });
+
+  it('names the file and its size, never a path', () => {
+    expect(cardFileLine(summary())).toBe('kontor.rux · 1,2 MB');
+  });
+
+  it('lists active cases first, each group by Danish name order', () => {
+    const sorted = sortCases([
+      summary({ id: 'z', name: 'Ærø', archived: false }),
+      summary({ id: 'a', name: 'Arkiv', archived: true }),
+      summary({ id: 'b', name: 'Bygning', archived: false }),
+    ]);
+    expect(sorted.map((c) => c.id)).toEqual(['b', 'z', 'a']);
+  });
+
+  it('shows upload progress as a whole percent', () => {
+    expect(uploadPercent(0, 0)).toBe('0 %');
+    expect(uploadPercent(1, 3)).toBe('33 %');
+    expect(uploadPercent(5, 5)).toBe('100 %');
+  });
+
+  it('explains a failed create or upload in Danish', () => {
+    const err = (status: number) => new ApiRequestError(status, 'x', '/api/v1/uploads');
+    expect(caseWriteErrorText(err(413), 'upload')).toMatch(/større/);
+    expect(caseWriteErrorText(err(422), 'upload')).toMatch(/ikke et ReUseX-projekt/);
+    expect(caseWriteErrorText(err(429), 'upload')).toMatch(/for mange uploads/);
+    expect(caseWriteErrorText(err(409), 'create')).toMatch(/kan ikke oprette/);
+    expect(caseWriteErrorText(err(409), 'upload')).toMatch(/kan ikke modtage/);
+    expect(caseWriteErrorText(new Error('net'), 'upload')).toMatch(/Upload mislykkedes/);
+    expect(caseWriteErrorText(new DOMException('a', 'AbortError'), 'upload')).toBe('Upload afbrudt.');
   });
 });

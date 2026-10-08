@@ -20,8 +20,9 @@ export interface TitleBarProps {
   version?: string;
   /** Which backend is answering — `ruxd` (an older server says `rux-gui`). */
   implementation?: string;
-  connection: ConnectionStatus;
-  activeJobCount: number;
+  /** The events socket; omitted outside a case (the case list), which has none. */
+  connection?: ConnectionStatus;
+  activeJobCount?: number;
   /** True when even `GET /health` failed. */
   unreachable?: boolean;
   /** Below 900px: the sidebar drawer is open (R5). */
@@ -54,7 +55,7 @@ export function TitleBar({
   version,
   implementation,
   connection,
-  activeJobCount,
+  activeJobCount = 0,
   unreachable = false,
   menuOpen = false,
   onMenu,
@@ -102,7 +103,7 @@ export function TitleBar({
       </div>
 
       <div className={styles.status}>
-        <JobIndicator connection={connection} activeJobCount={activeJobCount} />
+        {connection && <JobIndicator connection={connection} activeJobCount={activeJobCount} />}
         {implementation && <span className={styles.meta}>{implementation}</span>}
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
         {/* Below the breakpoint the theme control lives in the drawer. */}

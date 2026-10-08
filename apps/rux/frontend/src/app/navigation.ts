@@ -44,6 +44,11 @@ export interface NavEntry {
   badge?: NavBadge;
 }
 
+/**
+ * The case list. Absolute and outside every case's router: link to it with a
+ * plain `<a href>` (a page load), never a router link, which would resolve it
+ * inside the case (`/sager/<cid>/sager`). Same as `CASES_PATH` in `cases.ts`.
+ */
 export const ALL_CASES_PATH = '/sager';
 
 /**

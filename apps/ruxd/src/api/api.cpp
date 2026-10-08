@@ -815,6 +815,8 @@ const std::vector<Endpoint> &endpoint_table() {
       {"POST", "/api/v1/cases/<string>/survey/sync",
        "Create survey parts for instances that have none"},
       {"POST", "/api/v1/cases/<string>/survey/types", "Create a survey type"},
+      {"DELETE", "/api/v1/cases/<string>/survey/types/<int>",
+       "Delete a survey type and all its parts"},
       {"PATCH", "/api/v1/cases/<string>/survey/types/<int>",
        "Edit a survey type; approval is gated on samples"},
       {"PATCH", "/api/v1/cases/<string>/survey/parts/<string>",

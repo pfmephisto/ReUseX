@@ -12,10 +12,13 @@
 
 #include <reusex/core/ProjectDB.hpp>
 
+#include <sqlite3.h>
+
 #include "../../support/temp_path.hpp"
 
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -345,4 +348,109 @@ TEST_CASE("HasSqliteHeader_RejectsOtherFiles", "[ruxd_api][upload]") {
   CHECK_FALSE(has_sqlite_header(dir.path / "missing.rux"));
   make_project(dir.path / "real.rux");
   CHECK(has_sqlite_header(dir.path / "real.rux"));
+}
+
+// ===========================================================================
+// Fix round 1 (review of S2)
+// ===========================================================================
+
+TEST_CASE("UploadManager_JunkAfterAFailedWrite_IsCutAway",
+          "[ruxd_api][upload]") {
+  // M1: a short write leaves bytes past `received`; the retry must overwrite
+  // them, not append after them.
+  TempDir dir("test_api_cases");
+  UploadManager uploads(dir.path, {});
+  const auto s = uploads.begin("x", 8);
+  uploads.append(s.id, 0, "abcd");
+  // What a failed second chunk could leave behind.
+  {
+    std::ofstream junk(dir.path / (s.id + ".part"),
+                       std::ios::binary | std::ios::app);
+    junk << "JUNKJUNKJUNK";
+  }
+  uploads.append(s.id, 4, "efgh");
+  auto [done, staged] = uploads.finish(s.id);
+  CHECK(read_text(staged) == "abcdefgh");
+}
+
+TEST_CASE("UploadManager_NotEnoughFreeSpace_Is507", "[ruxd_api][upload]") {
+  TempDir dir("test_api_cases");
+  UploadLimits limits;
+  limits.free_space_margin = std::uint64_t{1} << 62; // more than any disk
+  UploadManager uploads(dir.path, limits);
+  CHECK(status_of([&] { uploads.begin("x", 10); }) == 507);
+}
+
+TEST_CASE("UploadManager_TwoUploads_WriteIndependently", "[ruxd_api][upload]") {
+  // Per-upload locks: interleaved chunks of two uploads land in their own
+  // files.
+  TempDir dir("test_api_cases");
+  UploadManager uploads(dir.path, {});
+  const auto a = uploads.begin("a", 6);
+  const auto b = uploads.begin("b", 6);
+  std::thread ta([&] {
+    for (int i = 0; i < 3; ++i)
+      uploads.append(a.id, i * 2, "aa");
+  });
+  std::thread tb([&] {
+    for (int i = 0; i < 3; ++i)
+      uploads.append(b.id, i * 2, "bb");
+  });
+  ta.join();
+  tb.join();
+  CHECK(read_text(uploads.finish(a.id).second) == "aaaaaa");
+  CHECK(read_text(uploads.finish(b.id).second) == "bbbbbb");
+}
+
+TEST_CASE("ReusexProjectProblem_ForeignSqlite_Refused", "[ruxd_api][upload]") {
+  // M2: a SQLite file ReUseX did not write must not become a case.
+  TempDir dir("test_api_cases");
+  make_project(dir.path / "real.rux");
+  CHECK(reusex_project_problem(dir.path / "real.rux").empty());
+
+  const auto foreign = dir.path / "foreign.rux";
+  {
+    sqlite3 *db = nullptr;
+    REQUIRE(sqlite3_open(foreign.string().c_str(), &db) == SQLITE_OK);
+    sqlite3_exec(db, "CREATE TABLE notes(x TEXT); INSERT INTO notes VALUES(1);",
+                 nullptr, nullptr, nullptr);
+    sqlite3_close(db);
+  }
+  CHECK_FALSE(reusex_project_problem(foreign).empty());
+  write_text(dir.path / "text.rux", "not sqlite at all, not even close");
+  CHECK_FALSE(reusex_project_problem(dir.path / "text.rux").empty());
+}
+
+TEST_CASE("LocalCaseStore_Ids_PersistAcrossCollisions", "[ruxd_api][cases]") {
+  // M4: a case keeps its id when a later file's name collides with it.
+  TempDir dir("test_api_cases");
+  make_project(dir.path / "scan.rux");
+  {
+    LocalCaseStore store(dir.path, {});
+    CHECK(ids_of(store.list()) == std::vector<std::string>{"scan"});
+  }
+  // "Scan.rux" sorts before "scan.rux" and would have taken the bare id.
+  make_project(dir.path / "Scan.rux");
+  LocalCaseStore store(dir.path, {});
+  const auto lower = store.find("scan");
+  REQUIRE(lower);
+  CHECK(lower->path.filename() == "scan.rux");
+  CHECK(store.find("scan-2"));
+  CHECK(store.find("scan-2")->path.filename() == "Scan.rux");
+}
+
+TEST_CASE("LocalCaseStore_Scan_CachedUntilTheDirectoryChanges",
+          "[ruxd_api][cases]") {
+  TempDir dir("test_api_cases");
+  make_project(dir.path / "a.rux");
+  LocalCaseStore store(dir.path, {});
+  CHECK(store.list().size() == 1);
+  make_project(dir.path / "b.rux"); // the directory's mtime moves
+  CHECK(store.list().size() == 2);
+  // A case directory that gains its project.rux later (the parent's mtime
+  // does not move) is still found.
+  fs::create_directory(dir.path / "later");
+  CHECK(store.list().size() == 2);
+  make_project(dir.path / "later" / "project.rux");
+  CHECK(store.find("later"));
 }

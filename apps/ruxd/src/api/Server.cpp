@@ -11,6 +11,7 @@
 #include "api/ViewRenderer.hpp"
 #include "api/api.hpp"
 #include "api/assets.hpp"
+#include "api/case_meta.hpp"
 #include "api/cases.hpp"
 #include "api/edits.hpp"
 #include "api/gsplat.hpp"
@@ -392,6 +393,12 @@ class SecurityMiddleware {
   }
 
     private:
+  /// Deliberately keyed on is_allowed() (loopback and --allow-origin), NOT on
+  /// origin_matches_host() as origin_ok() is: a same-origin request needs no
+  /// Access-Control-Allow-Origin at all, so echoing the page's own origin
+  /// back would grant nothing a browser does not already allow — and keeping
+  /// ACAO to the explicit allowlist means a token-mode server never advertises
+  /// itself to an origin nobody named.
   void apply_cors(const std::string &origin, crow::response &res) const {
     if (origin.empty() || !is_allowed(origin))
       return;
@@ -475,14 +482,24 @@ class Server::Impl {
     registry_ = std::make_unique<ProjectRegistry>(
         cases_,
         [this](const CaseInfo &info) {
-          auto ctx = std::make_shared<ProjectContext>(info.id, info.path,
-                                                      *scheduler_, executor_);
-          ctx->start_photo_warmup();
-          return ctx;
+          // No photo warm-up here: it starts on the case's first survey
+          // request, so opening a case costs no photo work.
+          return std::make_shared<ProjectContext>(info.id, info.path,
+                                                  *scheduler_, executor_);
         },
         registry_options);
     uploads_ = std::make_unique<UploadManager>(cases_->staging_dir(),
                                                options_.upload_limits);
+    // Abandoned uploads expire on the sweeper's beat, not only when the next
+    // upload begins.
+    registry_->set_maintenance([this] {
+      try {
+        if (const auto n = uploads_->expire(); n > 0)
+          spdlog::info("Discarded {} abandoned upload(s)", n);
+      } catch (const std::exception &e) {
+        spdlog::warn("Expiring uploads failed: {}", e.what());
+      }
+    });
 
     register_routes();
   }
@@ -511,6 +528,9 @@ class Server::Impl {
   std::vector<CaseInfo> cases() const { return cases_->list(); }
 
   int run() {
+    // The events socket only ever receives tiny control frames (ping,
+    // subscribe); Crow's default limit is unbounded.
+    app_.websocket_max_payload(kMaxWebSocketPayload);
     app_.validate();
     app_.bindaddr(options_.bind_address).port(options_.port);
     if (options_.threads > 0)
@@ -716,9 +736,12 @@ class Server::Impl {
     return params;
   }
 
-  /// The JSON for one case, with whether it is open right now.
-  nlohmann::json case_of(const CaseInfo &info) const {
-    return case_json(info, registry_->find_open(info.id) != nullptr);
+  /// The JSON for one case, with whether it is open right now and its card
+  /// figures (`summary`), read without opening it (case_meta.hpp).
+  nlohmann::json case_of(const CaseInfo &info) {
+    auto out = case_json(info, registry_->find_open(info.id) != nullptr);
+    out["summary"] = summaries_.get(info);
+    return out;
   }
 
   // --- server-level routes: cases and uploads -------------------------------
@@ -758,15 +781,40 @@ class Server::Impl {
               const auto patch = parse_case_patch(req.body);
               return json_response(200, case_of(cases_->update(cid, patch)));
             }
-            if (!cases_->find(cid))
+            const auto info = cases_->find(cid);
+            if (!info)
               throw HttpError(404, "no such case '" + cid + "'");
-            // Close it first, here, so its WAL is checkpointed and its files
-            // are no longer open when they move.
-            if (!registry_->force_close(cid, std::chrono::seconds(5)))
+            if (!info->deletable)
               throw HttpError(409, "case '" + cid +
-                                       "' is busy (a job is queued or running, "
-                                       "or a request is still in flight)");
-            cases_->move_to_trash(cid);
+                                       "' is not in the server's data dir and "
+                                       "cannot be deleted here");
+            // Tombstone it and close it, here, so its WAL is checkpointed and
+            // its files released before they move. The tombstone holds until
+            // the move is done (or failed): no request can reopen it between.
+            switch (registry_->begin_delete(cid, std::chrono::seconds(5))) {
+            case DeleteStart::started:
+              break;
+            case DeleteStart::busy:
+              throw HttpError(409,
+                              "case '" + cid + "' has a job queued or running");
+            case DeleteStart::in_use:
+              throw HttpError(409, "case '" + cid +
+                                       "' is still in use by a request; retry "
+                                       "shortly");
+            case DeleteStart::deleting:
+              throw HttpError(409,
+                              "case '" + cid + "' is already being deleted");
+            }
+            try {
+              cases_->move_to_trash(cid);
+            } catch (...) {
+              registry_->end_delete(cid); // Rolled back: openable again.
+              throw;
+            }
+            // A new case may reuse the id; it must not inherit this history.
+            scheduler_->store()->forget(cid);
+            summaries_.forget(info->path);
+            registry_->end_delete(cid);
             return crow::response(204);
           });
         });
@@ -800,22 +848,34 @@ class Server::Impl {
         });
 
     app_.route_dynamic("/api/v1/uploads/<string>/complete")
-        .methods(crow::HTTPMethod::POST)([this](const crow::request &,
-                                                std::string id) {
-          return guarded([&] {
-            auto [session, staged] = uploads_->finish(id);
-            if (!has_sqlite_header(staged)) {
-              std::error_code ec;
-              std::filesystem::remove(staged, ec);
-              throw HttpError(422, "the uploaded file is not a .rux project "
-                                   "(no SQLite header)");
-            }
-            const CaseInfo info = cases_->adopt(session.name, staged);
-            spdlog::info("Case '{}' created from an upload of {} bytes",
-                         info.id, session.size);
-            return json_response(201, case_of(info));
-          });
-        });
+        .methods(crow::HTTPMethod::POST)(
+            [this](const crow::request &, std::string id) {
+              return guarded([&] {
+                auto [session, staged] = uploads_->finish(id);
+                // From here the staging file is ours alone (the session is
+                // gone): it must not outlive a failure.
+                auto discard = [path = staged] {
+                  std::error_code ec;
+                  std::filesystem::remove(path, ec);
+                };
+                const std::string why = reusex_project_problem(staged);
+                if (!why.empty()) {
+                  discard();
+                  throw HttpError(
+                      422, "the uploaded file is not a ReUseX project: " + why);
+                }
+                CaseInfo info;
+                try {
+                  info = cases_->adopt(session.name, staged);
+                } catch (...) {
+                  discard();
+                  throw;
+                }
+                spdlog::info("Case '{}' created from an upload of {} bytes",
+                             info.id, session.size);
+                return json_response(201, case_of(info));
+              });
+            });
   }
 
   // --- routes --------------------------------------------------------------
@@ -840,10 +900,10 @@ class Server::Impl {
       const auto info = cases_->find(cid);
       if (!info)
         return error_response(404, "no such case '" + cid + "'");
+      // A read-only probe, never an open: health is what a tab polls, and it
+      // must not pin a case in the registry.
       try {
-        auto ctx = registry_->acquire(cid);
-        reusex::ProjectDB db(ctx ? ctx->project() : info->path,
-                             /*readOnly=*/true);
+        reusex::ProjectDB db(info->path, /*readOnly=*/true);
         auto out = health_json(&db, info->path);
         out["case"] = info->id;
         return json_response(200, out);
@@ -1004,12 +1064,26 @@ class Server::Impl {
         });
 
     // ---- evidence renders (#265 Phase 2 Task 8) ----
+    // A render only reads the project, so it neither opens the case (the
+    // case list shows one plan thumbnail per card) nor renders twice: images
+    // are cached by the project's file stamp and the query.
     get(C("/renders"))([this](const crow::request &req, std::string cid) {
-      return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+      return guarded([&]() -> crow::response {
+        const auto info = cases_->find(cid);
+        if (!info)
+          throw HttpError(404, "no such case '" + cid + "'");
+        const std::string key = req.raw_url.substr(
+            std::min(req.raw_url.size(), req.raw_url.find('?')));
+        if (auto hit = renders_.get(info->path, key))
+          return blob_response(*hit);
         const Params params = params_of(req);
-        return with_db(ctx, [&](const reusex::ProjectDB &db) {
-          return blob_response(render_blob(db, view_renderer_, params));
-        });
+        Blob blob;
+        {
+          reusex::ProjectDB db(info->path, /*readOnly=*/true);
+          blob = render_blob(db, view_renderer_, params);
+        }
+        renders_.put(info->path, key, blob);
+        return blob_response(blob);
       });
     });
 
@@ -1757,6 +1831,7 @@ class Server::Impl {
     // ---- survey (Ressourcekortlægning, #265 Phase 2) ----
     get(C("/survey"))([this](const crow::request &, std::string cid) {
       return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        ctx.start_photo_warmup(); // Kortlægning is open: photos come next.
         return with_db(ctx, [&](const reusex::ProjectDB &db) {
           return json_response(200, survey_json(db));
         });
@@ -1771,6 +1846,7 @@ class Server::Impl {
     });
     get(C("/survey/photos"))([this](const crow::request &, std::string cid) {
       return in_case(cid, [&](ProjectContext &ctx) -> crow::response {
+        ctx.start_photo_warmup();
         return with_db(ctx, [&](const reusex::ProjectDB &db) {
           return json_response(
               200, survey_photos_json(
@@ -2099,6 +2175,9 @@ class Server::Impl {
   pipeline::StageExecutor executor_;
   std::unique_ptr<pipeline::JobScheduler> scheduler_;
   std::unique_ptr<ProjectRegistry> registry_;
+  /// Card figures and renders, read without opening a case.
+  CaseSummaryCache summaries_;
+  RenderCache renders_;
 
   std::mutex sockets_mutex_;
   /// Open WebSocket -> the case it subscribed to.

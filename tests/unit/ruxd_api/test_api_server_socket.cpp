@@ -1183,3 +1183,99 @@ TEST_CASE("RunningServer_CasesApi_CreateUploadRenameDelete",
     in_trash |= fs::exists(entry.path() / "project.rux");
   CHECK(in_trash);
 }
+
+TEST_CASE("RunningServer_OversizedBody_RefusedBeforeItIsRead",
+          "[ruxd_api][server][socket][upload]") {
+  // M3: Crow buffers whole bodies. The patched parser (overlays/crow.nix,
+  // CROW_MAX_REQUEST_BODY) refuses a declared body over the cap at the
+  // headers, so nothing is buffered and no handler runs.
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempPath project("test_api_server_body", ".rux");
+  RunningServer server(options_for(project.path, {}, free_port()));
+
+  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  REQUIRE(fd >= 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+  addr.sin_port = ::htons(server.port());
+  REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+          0);
+  timeval timeout{};
+  timeout.tv_sec = 10;
+  ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  const std::string head =
+      "PUT /api/v1/uploads/0123456789abcdef0123456789abcdef?offset=0 "
+      "HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/octet-stream"
+      "\r\nContent-Length: 1000000000\r\n\r\n";
+  ::send(fd, head.data(), head.size(), MSG_NOSIGNAL);
+  std::string reply;
+  char chunk[1024];
+  for (;;) {
+    const ssize_t n = ::recv(fd, chunk, sizeof(chunk), 0);
+    if (n <= 0)
+      break;
+    reply.append(chunk, static_cast<std::size_t>(n));
+  }
+  ::close(fd);
+  // Closed without a handler's answer (a handler would have said 404).
+  CHECK(reply.find(" 404 ") == std::string::npos);
+  CHECK(reply.find(" 200 ") == std::string::npos);
+
+  // A body under the cap still reaches its handler.
+  KeepAliveConnection connection(server.port());
+  CHECK(connection
+            .send_json("PUT",
+                       "/api/v1/uploads/0123456789abcdef0123456789abcdef"
+                       "?offset=0",
+                       std::string(1024, 'x'))
+            .status == 404);
+}
+
+TEST_CASE("RunningServer_CaseList_CarriesCardsWithoutOpeningCases",
+          "[ruxd_api][server][socket][cases]") {
+  // I3: the case list answers with every card's figures and opens no case;
+  // deleting a case also forgets its job history (M4).
+  ::unsetenv("RUX_GUI_ASSETS");
+  TempDir dir("test_api_server_cases");
+  {
+    reusex::ProjectDB db(dir.path / "alpha.rux");
+  }
+  ServerOptions options = options_for(dir.path, {}, free_port());
+  options.stage_executor = [](const reusex::pipeline::StageContext &) {
+    return reusex::pipeline::StageResult::success("ok");
+  };
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  auto list = nlohmann::json::parse(connection.get("/api/v1/cases").body);
+  REQUIRE(list["cases"].size() == 1);
+  CHECK(list["cases"][0]["open"] == false);
+  REQUIRE(list["cases"][0]["summary"].is_object());
+  CHECK(list["cases"][0]["summary"]["survey"].contains("counts"));
+  // Health and the list never open a case.
+  CHECK(connection.get("/api/v1/cases/alpha/health").status == 200);
+  list = nlohmann::json::parse(connection.get("/api/v1/cases").body);
+  CHECK(list["cases"][0]["open"] == false);
+
+  // A case created, used and deleted leaves no history for its successor.
+  REQUIRE(connection.send_json("POST", "/api/v1/cases", R"({"name":"Ny"})")
+              .status == 201);
+  REQUIRE(
+      connection
+          .send_json("POST", "/api/v1/cases/ny/jobs", R"({"stage":"planes"})")
+          .status == 202);
+  for (int i = 0; i < 200; ++i) {
+    const auto jobs =
+        nlohmann::json::parse(connection.get("/api/v1/cases/ny/jobs").body);
+    if (jobs["jobs"][0]["status"] == "succeeded")
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  REQUIRE(connection.send_json("DELETE", "/api/v1/cases/ny", "").status == 204);
+  REQUIRE(connection.send_json("POST", "/api/v1/cases", R"({"name":"Ny"})")
+              .status == 201);
+  const auto jobs =
+      nlohmann::json::parse(connection.get("/api/v1/cases/ny/jobs").body);
+  CHECK(jobs["jobs"].empty());
+}

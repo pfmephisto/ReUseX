@@ -75,11 +75,15 @@ class ProjectContext {
   reusex::pipeline::JobQueue &jobs() noexcept { return *queue_; }
   PhotoEvidenceCache &photo_cache() noexcept { return photo_cache_; }
 
-  /// A job is queued or running.
+  /// A job is queued or running, or its event is still being delivered
+  /// (one lock: JobQueue::has_work).
   bool is_busy() const;
 
-  /// Compute the survey's photo evidence on a background thread so the first
-  /// visit to Kortlægning does not pay for it. Best effort. Call once.
+  /// Compute the survey's photo evidence on a background thread, so the rest
+  /// of Kortlægning's photos are ready by the time they are asked for. Best
+  /// effort; thread-safe; only the first call does anything. Called on a
+  /// case's first survey request — never on open, so merely opening a case
+  /// (or listing cases) costs no photo work.
   void start_photo_warmup();
 
   // --- idle tracking (ProjectRegistry) -------------------------------------
@@ -106,6 +110,8 @@ class ProjectContext {
   void broadcast_message(const nlohmann::json &message);
 
     private:
+  void launch_photo_warmup();
+
   struct Subscriber {
     SendFn send;
     std::optional<std::string> filter; ///< nullopt = every event.
@@ -127,6 +133,7 @@ class ProjectContext {
 
   PhotoEvidenceCache photo_cache_;
   std::atomic<bool> stopping_{false};
+  std::once_flag warmup_once_;
   std::thread warmup_;
 
   std::unique_ptr<reusex::pipeline::JobQueue> queue_;

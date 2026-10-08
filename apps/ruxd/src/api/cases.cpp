@@ -8,6 +8,8 @@
 
 #include <reusex/core/ProjectDB.hpp>
 
+#include <sqlite3.h>
+
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -234,6 +236,48 @@ std::string parse_case_create(std::string_view body) {
   return validate_name(it->get<std::string>());
 }
 
+std::string reusex_project_problem(const fs::path &file) {
+  if (!has_sqlite_header(file))
+    return "it is not a SQLite database";
+  sqlite3 *db = nullptr;
+  const std::string uri = "file:" + file.string() + "?immutable=1";
+  if (sqlite3_open_v2(uri.c_str(), &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
+                      nullptr) != SQLITE_OK) {
+    const std::string why = db ? sqlite3_errmsg(db) : "cannot open it";
+    sqlite3_close(db);
+    return "SQLite cannot open it (" + why + ")";
+  }
+  auto has_table = [db](const char *name) {
+    sqlite3_stmt *stmt = nullptr;
+    bool found = false;
+    if (sqlite3_prepare_v2(db,
+                           "SELECT 1 FROM sqlite_master WHERE type='table' "
+                           "AND name=?1;",
+                           -1, &stmt, nullptr) == SQLITE_OK) {
+      sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+      found = sqlite3_step(stmt) == SQLITE_ROW;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+  };
+  std::string problem;
+  if (has_table("schema_version")) {
+    sqlite3_stmt *stmt = nullptr;
+    int version = 0;
+    if (sqlite3_prepare_v2(db, "SELECT MAX(version) FROM schema_version;", -1,
+                           &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW)
+      version = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    if (version < 1)
+      problem = "its schema_version table names no version";
+  } else if (!has_table("material_passports")) {
+    problem = "it has none of ReUseX's tables";
+  }
+  sqlite3_close(db);
+  return problem;
+}
+
 bool has_sqlite_header(const fs::path &file) {
   static constexpr std::string_view kMagic{"SQLite format 3\0", 16};
   std::ifstream in(file, std::ios::binary);
@@ -279,50 +323,26 @@ class LocalCaseStore::Impl {
     std::string base; ///< Stem or directory name, for the slug and name.
     std::string key;  ///< Metadata key.
     bool in_data_dir = false;
+    std::string id; ///< Assigned once, then persisted (see ids()).
   };
 
+  /// Every case, sorted by id. The directory walk is cached (see
+  /// cache_valid()); only the per-file figures (size, mtime) are re-read.
   std::vector<CaseInfo> scan() const {
     std::vector<Found> found;
-    std::set<fs::path> seen;
-    auto add = [&](Found f) {
-      const auto canon = fs::weakly_canonical(f.file);
-      if (!seen.insert(canon).second)
-        return;
-      f.key = meta_key(f.file);
-      f.in_data_dir = is_within(f.file, data_dir_);
-      found.push_back(std::move(f));
-    };
-
-    if (!target_file_.empty())
-      add({target_file_, target_file_.stem().string(), {}, false});
-    if (!target_dir_.empty())
-      for (auto &f : flat_files(target_dir_))
-        add(std::move(f));
-    if (!data_dir_.empty()) {
-      if (data_dir_ != fs::weakly_canonical(target_dir_))
-        for (auto &f : flat_files(data_dir_))
-          add(std::move(f));
-      for (auto &f : case_dirs(data_dir_))
-        add(std::move(f));
+    {
+      std::lock_guard<std::mutex> lock(scan_mutex_);
+      if (!cache_valid_locked())
+        rebuild_locked();
+      found = cache_;
     }
-
-    // Stable order for id assignment: by path relative to its root.
-    std::sort(found.begin(), found.end(), [](const Found &a, const Found &b) {
-      return a.file.generic_string() < b.file.generic_string();
-    });
-    std::vector<std::string> bases;
-    bases.reserve(found.size());
-    for (const auto &f : found)
-      bases.push_back(f.base);
-    const auto ids = assign_case_ids(bases);
 
     std::vector<CaseInfo> cases;
     cases.reserve(found.size());
     std::lock_guard<std::mutex> lock(meta_mutex_);
-    for (std::size_t i = 0; i < found.size(); ++i) {
-      const Found &f = found[i];
+    for (const Found &f : found) {
       CaseInfo info;
-      info.id = ids[i];
+      info.id = f.id;
       info.path = f.file;
       info.name = f.base;
       info.size_bytes = file_size_or_zero(f.file);
@@ -346,6 +366,130 @@ class LocalCaseStore::Impl {
     std::sort(cases.begin(), cases.end(),
               [](const CaseInfo &a, const CaseInfo &b) { return a.id < b.id; });
     return cases;
+  }
+
+  /// Forget the cached walk (after this store changed the directories).
+  void invalidate() const {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    stamps_.clear();
+    cache_.clear();
+    cached_ = false;
+  }
+
+  /// The mtimes the cached walk depends on: the served directory, the data
+  /// dir, and every sub-directory of the data dir (a case directory gains its
+  /// project.rux without its parent's mtime changing). Adding or removing an
+  /// entry changes its directory's mtime, so a match means the walk would
+  /// find the same files.
+  std::vector<std::pair<fs::path, std::int64_t>> dir_stamps() const {
+    std::vector<std::pair<fs::path, std::int64_t>> out;
+    auto stamp = [&out](const fs::path &dir) {
+      std::error_code ec;
+      const auto t = fs::last_write_time(dir, ec);
+      out.emplace_back(dir, ec ? -1 : t.time_since_epoch().count());
+    };
+    if (!target_dir_.empty())
+      stamp(target_dir_);
+    if (!target_file_.empty())
+      stamp(target_file_.parent_path());
+    if (!data_dir_.empty()) {
+      stamp(data_dir_);
+      std::error_code ec;
+      for (const auto &entry : fs::directory_iterator(data_dir_, ec)) {
+        std::error_code type_ec;
+        if (!hidden(entry.path()) && !entry.is_symlink(type_ec) &&
+            entry.is_directory(type_ec))
+          stamp(entry.path());
+      }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
+  bool cache_valid_locked() const { return cached_ && dir_stamps() == stamps_; }
+
+  void rebuild_locked() const {
+    stamps_ = dir_stamps();
+    std::vector<Found> found;
+    std::set<fs::path> seen;
+    auto add = [&](Found f) {
+      const auto canon = fs::weakly_canonical(f.file);
+      if (!seen.insert(canon).second)
+        return;
+      f.key = meta_key(f.file);
+      f.in_data_dir = is_within(f.file, data_dir_);
+      found.push_back(std::move(f));
+    };
+
+    if (!target_file_.empty())
+      add({target_file_, target_file_.stem().string(), {}, false, {}});
+    if (!target_dir_.empty())
+      for (auto &f : flat_files(target_dir_))
+        add(std::move(f));
+    if (!data_dir_.empty()) {
+      if (data_dir_ != fs::weakly_canonical(target_dir_))
+        for (auto &f : flat_files(data_dir_))
+          add(std::move(f));
+      for (auto &f : case_dirs(data_dir_))
+        add(std::move(f));
+    }
+
+    // Stable order for assigning NEW ids: by path.
+    std::sort(found.begin(), found.end(), [](const Found &a, const Found &b) {
+      return a.file.generic_string() < b.file.generic_string();
+    });
+    assign_ids_locked(found);
+    cache_ = std::move(found);
+    cached_ = true;
+  }
+
+  /// Give every case its id. An id, once given, is kept — persisted in
+  /// cases.json (in memory without a data dir) — so a new file whose name
+  /// collides with an existing case's never renames that case: bookmarks and
+  /// the frontend's last-used case stay valid. New cases get case_slug of
+  /// their name, with "-2", "-3", … when it is taken.
+  void assign_ids_locked(std::vector<Found> &found) const {
+    std::lock_guard<std::mutex> lock(meta_mutex_);
+    std::set<std::string> taken;
+    auto stored_id = [this](const Found &f) -> std::string {
+      auto meta = meta_.find(f.key);
+      if (meta == meta_.end())
+        return {};
+      auto id = meta->second.find("id");
+      return id != meta->second.end() && id->is_string()
+                 ? id->get<std::string>()
+                 : std::string{};
+    };
+    for (auto &f : found) {
+      const std::string id = stored_id(f);
+      if (!id.empty() && case_slug(id) == id && taken.insert(id).second)
+        f.id = id;
+    }
+    bool changed = false;
+    for (auto &f : found) {
+      if (!f.id.empty())
+        continue;
+      const std::string base = case_slug(f.base);
+      std::string id = base;
+      for (int n = 2; taken.count(id) != 0; ++n) {
+        const std::string suffix = "-" + std::to_string(n);
+        id = base.substr(0, kMaxSlugLength - suffix.size()) + suffix;
+      }
+      taken.insert(id);
+      f.id = id;
+      json &entry = meta_[f.key];
+      if (!entry.is_object())
+        entry = json::object();
+      entry["id"] = id;
+      changed = true;
+    }
+    if (changed) {
+      try {
+        save_meta_locked();
+      } catch (const std::exception &e) {
+        spdlog::warn("Could not persist case ids: {}", e.what());
+      }
+    }
   }
 
   std::optional<CaseInfo> find(std::string_view id) const {
@@ -434,10 +578,13 @@ class LocalCaseStore::Impl {
       }
     }
     {
+      // The id goes with it: a later case may take it (and, the job history
+      // having been forgotten too, starts clean).
       std::lock_guard<std::mutex> meta_lock(meta_mutex_);
       meta_.erase(meta_key(info->path));
       save_meta_locked();
     }
+    invalidate();
     spdlog::info("Case '{}' moved to {}", info->id, dest.string());
     return dest;
   }
@@ -535,10 +682,12 @@ class LocalCaseStore::Impl {
     {
       std::lock_guard<std::mutex> meta_lock(meta_mutex_);
       meta_[meta_key(file)] =
-          json{{"name", name},
+          json{{"id", dir.filename().string()},
+               {"name", name},
                {"created_at", iso8601(std::chrono::system_clock::now())}};
       save_meta_locked();
     }
+    invalidate();
     const auto canon = fs::weakly_canonical(file);
     for (auto &info : scan())
       if (fs::weakly_canonical(info.path) == canon)
@@ -564,7 +713,7 @@ class LocalCaseStore::Impl {
   }
 
   /// Caller holds meta_mutex_. No data dir: metadata stays in memory.
-  void save_meta_locked() {
+  void save_meta_locked() const {
     if (data_dir_.empty())
       return;
     json out = json::object();
@@ -579,7 +728,14 @@ class LocalCaseStore::Impl {
 
   std::mutex write_mutex_; ///< Serializes create/adopt/update/delete.
   mutable std::mutex meta_mutex_;
-  std::map<std::string, json> meta_;
+  mutable std::map<std::string, json> meta_;
+
+  /// The cached directory walk (scan()). Lock order: scan_mutex_ before
+  /// meta_mutex_.
+  mutable std::mutex scan_mutex_;
+  mutable bool cached_ = false;
+  mutable std::vector<std::pair<fs::path, std::int64_t>> stamps_;
+  mutable std::vector<Found> cache_;
 };
 
 LocalCaseStore::LocalCaseStore(fs::path target, fs::path data_dir)
@@ -640,15 +796,27 @@ class UploadManager::Impl {
     std::lock_guard<std::mutex> lock(mutex_);
     if (sessions_.size() >= limits_.max_sessions)
       throw HttpError(429, "too many uploads in progress; try again later");
-    Entry entry;
-    entry.session.id = random_hex_id();
-    entry.session.name = name;
-    entry.session.size = size;
-    entry.touched = Clock::now();
-    std::ofstream create(part_path(entry.session.id), std::ios::binary);
+    // Room for this file AND every upload already promised space, with a
+    // margin for the migration that adopting it runs.
+    std::uint64_t promised = 0;
+    for (const auto &[id, entry] : sessions_)
+      promised += entry->session.size - entry->session.received;
+    std::error_code ec;
+    const auto space = fs::space(dir_, ec);
+    const std::uint64_t needed = size + promised + limits_.free_space_margin;
+    if (!ec && space.available < needed)
+      throw HttpError(507, fmt::format("not enough free space on the server "
+                                       "for {} bytes ({} available)",
+                                       size, space.available));
+    auto entry = std::make_shared<Entry>();
+    entry->session.id = random_hex_id();
+    entry->session.name = name;
+    entry->session.size = size;
+    entry->touched = Clock::now();
+    std::ofstream create(part_path(entry->session.id), std::ios::binary);
     if (!create)
       throw HttpError(500, "could not create the staging file");
-    auto session = entry.session;
+    auto session = entry->session;
     sessions_.emplace(session.id, std::move(entry));
     return session;
   }
@@ -659,69 +827,99 @@ class UploadManager::Impl {
       throw HttpError(413, fmt::format("chunk is {} bytes; at most {} per "
                                        "request",
                                        bytes.size(), limits_.max_chunk_bytes));
-    std::lock_guard<std::mutex> lock(mutex_);
-    Entry &entry = get(id);
-    if (offset != entry.session.received)
+    // The session's own lock: one upload's disk write never holds up
+    // another's.
+    const auto entry = get(id);
+    std::lock_guard<std::mutex> lock(entry->mutex);
+    if (entry->gone)
+      throw HttpError(404, "no such upload");
+    if (offset != entry->session.received)
       throw HttpError(409, fmt::format("offset {} does not continue the "
                                        "upload; expected offset {}",
-                                       offset, entry.session.received));
-    if (entry.session.received + bytes.size() > entry.session.size)
+                                       offset, entry->session.received));
+    if (entry->session.received + bytes.size() > entry->session.size)
       throw HttpError(413, fmt::format("chunk would grow the upload past its "
                                        "declared {} bytes",
-                                       entry.session.size));
-    std::ofstream out(part_path(entry.session.id),
-                      std::ios::binary | std::ios::app);
-    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    out.flush();
-    if (!out)
-      throw HttpError(507, "could not write the upload to disk");
-    entry.session.received += bytes.size();
-    entry.touched = Clock::now();
-    return entry.session;
+                                       entry->session.size));
+    // Positional, not append: cut the file back to what was acknowledged
+    // first, so the bytes a failed write left behind are never kept.
+    const fs::path part = part_path(entry->session.id);
+    std::error_code ec;
+    fs::resize_file(part, entry->session.received, ec);
+    if (ec)
+      throw HttpError(500, "could not reset the staging file: " + ec.message());
+    {
+      std::fstream out(part, std::ios::binary | std::ios::in | std::ios::out);
+      out.seekp(static_cast<std::streamoff>(entry->session.received));
+      out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+      out.flush();
+      if (!out) {
+        out.close();
+        fs::resize_file(part, entry->session.received, ec);
+        throw HttpError(507, "could not write the upload to disk");
+      }
+    }
+    entry->session.received += bytes.size();
+    entry->touched = Clock::now();
+    return entry->session;
   }
 
   UploadSession status(std::string_view id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return const_cast<Impl *>(this)->get(id).session;
+    const auto entry = get(id);
+    std::lock_guard<std::mutex> lock(entry->mutex);
+    return entry->session;
   }
 
   std::pair<UploadSession, fs::path> finish(std::string_view id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    Entry &entry = get(id);
-    if (entry.session.received != entry.session.size)
-      throw HttpError(409,
-                      fmt::format("upload incomplete: {} of {} bytes "
-                                  "received",
-                                  entry.session.received, entry.session.size));
-    auto out = std::make_pair(entry.session, part_path(entry.session.id));
-    sessions_.erase(std::string(id));
-    return out;
+    const auto entry = get(id);
+    std::lock_guard<std::mutex> lock(entry->mutex);
+    if (entry->gone)
+      throw HttpError(404, "no such upload");
+    if (entry->session.received != entry->session.size)
+      throw HttpError(409, fmt::format("upload incomplete: {} of {} bytes "
+                                       "received",
+                                       entry->session.received,
+                                       entry->session.size));
+    entry->gone = true;
+    forget(entry->session.id);
+    return {entry->session, part_path(entry->session.id)};
   }
 
   void abort(std::string_view id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!is_upload_id(id))
+    std::shared_ptr<Entry> entry;
+    try {
+      entry = get(id);
+    } catch (const HttpError &) {
+      return; // Unknown or malformed: nothing to do.
+    }
+    std::lock_guard<std::mutex> lock(entry->mutex);
+    if (entry->gone)
       return;
-    auto it = sessions_.find(std::string(id));
-    if (it == sessions_.end())
-      return;
+    entry->gone = true;
+    forget(entry->session.id);
     std::error_code ec;
-    fs::remove(part_path(it->first), ec);
-    sessions_.erase(it);
+    fs::remove(part_path(entry->session.id), ec);
   }
 
   std::size_t expire(Clock::time_point now) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::shared_ptr<Entry>> stale;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (const auto &[id, entry] : sessions_)
+        stale.push_back(entry);
+    }
     std::size_t dropped = 0;
-    for (auto it = sessions_.begin(); it != sessions_.end();) {
-      if (now - it->second.touched > limits_.idle_ttl) {
-        std::error_code ec;
-        fs::remove(part_path(it->first), ec);
-        it = sessions_.erase(it);
-        ++dropped;
-      } else {
-        ++it;
-      }
+    for (const auto &entry : stale) {
+      // try_lock: an upload mid-write is, by definition, not abandoned.
+      std::unique_lock<std::mutex> lock(entry->mutex, std::try_to_lock);
+      if (!lock.owns_lock() || entry->gone ||
+          now - entry->touched <= limits_.idle_ttl)
+        continue;
+      entry->gone = true;
+      forget(entry->session.id);
+      std::error_code ec;
+      fs::remove(part_path(entry->session.id), ec);
+      ++dropped;
     }
     return dropped;
   }
@@ -730,18 +928,26 @@ class UploadManager::Impl {
 
     private:
   struct Entry {
+    std::mutex mutex; ///< Guards the fields below and the .part file.
     UploadSession session;
     Clock::time_point touched;
+    bool gone = false; ///< Finished, aborted or expired.
   };
 
-  /// Caller holds mutex_. The id shape is checked before it names a file.
-  Entry &get(std::string_view id) {
+  /// The session for @p id. The id shape is checked before it names a file.
+  std::shared_ptr<Entry> get(std::string_view id) const {
     if (!is_upload_id(id))
       throw HttpError(404, "no such upload");
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = sessions_.find(std::string(id));
     if (it == sessions_.end())
       throw HttpError(404, "no such upload");
     return it->second;
+  }
+
+  void forget(const std::string &id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessions_.erase(id);
   }
 
   fs::path part_path(const std::string &id) const {
@@ -750,8 +956,8 @@ class UploadManager::Impl {
 
   fs::path dir_;
   UploadLimits limits_;
-  mutable std::mutex mutex_;
-  std::map<std::string, Entry> sessions_;
+  mutable std::mutex mutex_; ///< Guards sessions_ (the map only).
+  std::map<std::string, std::shared_ptr<Entry>> sessions_;
 };
 
 UploadManager::UploadManager(fs::path staging_dir, UploadLimits limits)

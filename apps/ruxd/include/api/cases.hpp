@@ -170,8 +170,13 @@ struct UploadLimits {
   std::uint64_t max_chunk_bytes = std::uint64_t{64} << 20; // 64 MiB
   /// Uploads in progress at once, server-wide.
   std::size_t max_sessions = 8;
-  /// An unfinished upload untouched this long is discarded.
+  /// An unfinished upload untouched this long is discarded (checked on every
+  /// begin and on the case registry's sweep).
   std::chrono::seconds idle_ttl{std::chrono::hours(6)};
+  /// Free space an upload must leave on the data dir's filesystem, beyond its
+  /// own size and that of every upload in progress: adopting a project runs a
+  /// migration, which needs room for the WAL.
+  std::uint64_t free_space_margin = std::uint64_t{1} << 30; // 1 GiB
 };
 
 /// One upload in progress.
@@ -182,7 +187,12 @@ struct UploadSession {
   std::uint64_t received = 0;
 };
 
-/// Chunked, resumable `.rux` uploads into a staging dir. Thread-safe.
+/// Chunked `.rux` uploads into a staging dir. Thread-safe; each upload has its
+/// own lock, so a disk write of one never holds up another.
+///
+/// The protocol is resumable (`status()` says where to continue, and a chunk
+/// is written at its offset after cutting the file back to what was
+/// acknowledged), though today's frontend starts over instead of resuming.
 class UploadManager {
     public:
   using Clock = std::chrono::steady_clock;
@@ -197,7 +207,8 @@ class UploadManager {
 
   /// Start an upload of @p size bytes. Clears stale staging files first.
   /// @throws HttpError(400) bad name/size, HttpError(413) over max_bytes,
-  ///         HttpError(429) too many uploads in progress.
+  ///         HttpError(429) too many uploads in progress, HttpError(507) not
+  ///         enough free space for it and the uploads already in progress.
   UploadSession begin(const std::string &name, std::uint64_t size);
 
   /// Append @p bytes at @p offset, which must equal what has been received.
@@ -228,6 +239,17 @@ class UploadManager {
 
 /// True when @p file starts with the SQLite 3 header ("SQLite format 3\0").
 bool has_sqlite_header(const std::filesystem::path &file);
+
+/// Why @p file is not a ReUseX project, or "" when it is one: it must be a
+/// SQLite database (header) that ReUseX wrote — a `schema_version` table with
+/// a version of at least 1, or the pre-versioning `material_passports`
+/// table. Read-only; nothing is migrated. Any other SQLite file is refused:
+/// adopting it would add ReUseX's tables to someone else's database.
+///
+/// Not a full integrity check: `PRAGMA quick_check` reads the whole file
+/// (minutes for a multi-GB scan) and belongs with the multi-user server's
+/// untrusted-upload handling (spec phase S3).
+std::string reusex_project_problem(const std::filesystem::path &file);
 
 // --- wire shapes (docs/gui/openapi.yaml: Case, CaseList, Upload) -----------
 

@@ -96,6 +96,10 @@ inline constexpr int kMaxImageSize = 4096;
 /// pointless: the honest answer is "busy, retry", not a stalled request.
 inline constexpr int kWriteLockTimeoutMs = 250;
 
+/// Largest WebSocket frame ruxd accepts. The events socket only ever receives
+/// `ping` and `subscribe` (a job id); Crow's own default is unbounded.
+inline constexpr std::uint64_t kMaxWebSocketPayload = 64 * 1024;
+
 /// Thrown by a handler to produce a non-200 JSON error response.
 class HttpError : public std::runtime_error {
     public:

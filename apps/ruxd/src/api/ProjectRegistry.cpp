@@ -49,141 +49,244 @@ ProjectRegistry::~ProjectRegistry() {
   if (sweeper_.joinable())
     sweeper_.join();
 
-  std::map<std::string, std::shared_ptr<ProjectContext>, std::less<>> closing;
+  std::vector<std::pair<std::string, std::shared_ptr<ProjectContext>>> closing;
   {
-    std::lock_guard<std::mutex> lock(mutex_);
-    closing.swap(open_);
+    std::unique_lock<std::mutex> lock(mutex_);
+    // An open or close in flight finishes first (Crow is stopped by now, so
+    // nothing new starts).
+    changed_.wait(lock, [this] {
+      return std::none_of(entries_.begin(), entries_.end(), [](const auto &e) {
+        return e.second.state == State::opening ||
+               e.second.state == State::closing;
+      });
+    });
+    for (auto &[id, entry] : entries_)
+      if (entry.state == State::open) {
+        entry.state = State::closing;
+        closing.emplace_back(id, std::move(entry.ctx));
+      }
   }
-  closing.clear(); // Each waits for its running job, outside the lock.
+  finish_closing(std::move(closing)); // Each waits for its running job.
 }
 
-bool ProjectRegistry::is_idle(const std::shared_ptr<ProjectContext> &ctx) {
-  return ctx.use_count() == 1 && ctx->subscriber_count() == 0 &&
-         !ctx->is_busy();
+void ProjectRegistry::set_maintenance(std::function<void()> task) {
+  std::lock_guard<std::mutex> lock(sweeper_mutex_);
+  maintenance_ = std::move(task);
+}
+
+bool ProjectRegistry::is_idle(const Entry &entry) {
+  return entry.state == State::open && entry.ctx.use_count() == 1 &&
+         entry.ctx->subscriber_count() == 0 && !entry.ctx->is_busy();
+}
+
+void ProjectRegistry::finish_closing(
+    std::vector<std::pair<std::string, std::shared_ptr<ProjectContext>>>
+        closing) {
+  if (closing.empty())
+    return;
+  // Destroy outside the lock: a context's destructor joins its warm-up and
+  // its job queue.
+  for (auto &[id, ctx] : closing)
+    ctx.reset();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto &[id, ctx] : closing) {
+      auto it = entries_.find(id);
+      if (it != entries_.end() && it->second.state == State::closing)
+        entries_.erase(it);
+    }
+  }
+  changed_.notify_all();
 }
 
 std::shared_ptr<ProjectContext> ProjectRegistry::acquire(std::string_view id) {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = open_.find(id); it != open_.end()) {
-      it->second->touch(clock_());
-      return it->second;
+  for (;;) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    for (;;) {
+      auto it = entries_.find(id);
+      if (it == entries_.end())
+        break;
+      if (it->second.state == State::open) {
+        it->second.ctx->touch(clock_());
+        return it->second.ctx;
+      }
+      if (it->second.state == State::deleting)
+        throw HttpError(409, "case '" + std::string(id) + "' is being deleted");
+      // opening or closing: wait for it to settle, then look again.
+      changed_.wait(lock);
     }
-  }
 
-  const auto info = store_->find(id);
-  if (!info)
-    return nullptr;
+    lock.unlock();
+    const auto info = store_->find(id); // A directory scan; not under the lock.
+    if (!info)
+      return nullptr;
+    lock.lock();
+    if (entries_.find(id) != entries_.end())
+      continue; // Someone else got there first; take it from the top.
 
-  // One opener at a time: two requests racing for the same new case must not
-  // open it twice (two WAL anchors, two queues for one project).
-  std::lock_guard<std::mutex> opening(open_mutex_);
-  std::vector<std::shared_ptr<ProjectContext>> evicted;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = open_.find(id); it != open_.end()) {
-      it->second->touch(clock_());
-      return it->second;
-    }
-    while (open_.size() >= options_.max_open) {
-      auto lru = open_.end();
-      for (auto it = open_.begin(); it != open_.end(); ++it)
+    std::vector<std::pair<std::string, std::shared_ptr<ProjectContext>>>
+        evicted;
+    auto live = [this] {
+      return static_cast<std::size_t>(
+          std::count_if(entries_.begin(), entries_.end(), [](const auto &e) {
+            return e.second.state == State::open ||
+                   e.second.state == State::opening;
+          }));
+    };
+    while (live() >= options_.max_open) {
+      auto lru = entries_.end();
+      for (auto it = entries_.begin(); it != entries_.end(); ++it)
         if (is_idle(it->second) &&
-            (lru == open_.end() ||
-             it->second->last_used() < lru->second->last_used()))
+            (lru == entries_.end() ||
+             it->second.ctx->last_used() < lru->second.ctx->last_used()))
           lru = it;
-      if (lru == open_.end())
+      if (lru == entries_.end())
         throw HttpError(503, "too many cases are open and in use (" +
-                                 std::to_string(open_.size()) +
-                                 "); retry shortly");
+                                 std::to_string(live()) + "); retry shortly");
       spdlog::info("Closing case '{}' to make room for '{}'", lru->first,
                    info->id);
-      evicted.push_back(std::move(lru->second));
-      open_.erase(lru);
+      lru->second.state = State::closing;
+      evicted.emplace_back(lru->first, std::move(lru->second.ctx));
     }
-  }
-  evicted.clear(); // Closed outside the registry lock.
+    entries_[info->id] = Entry{State::opening, nullptr};
+    lock.unlock();
+    finish_closing(std::move(evicted));
 
-  auto ctx = opener_(*info);
-  ctx->touch(clock_());
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    open_.emplace(info->id, ctx);
+    std::shared_ptr<ProjectContext> ctx;
+    try {
+      ctx = opener_(*info);
+    } catch (...) {
+      {
+        std::lock_guard<std::mutex> relock(mutex_);
+        entries_.erase(info->id);
+      }
+      changed_.notify_all();
+      throw;
+    }
+    ctx->touch(clock_());
+    {
+      std::lock_guard<std::mutex> relock(mutex_);
+      Entry &entry = entries_[info->id];
+      entry.state = State::open;
+      entry.ctx = ctx;
+    }
+    changed_.notify_all();
+    return ctx;
   }
-  return ctx;
 }
 
 std::shared_ptr<ProjectContext>
 ProjectRegistry::find_open(std::string_view id) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto it = open_.find(id);
-  return it == open_.end() ? nullptr : it->second;
+  auto it = entries_.find(id);
+  return it != entries_.end() && it->second.state == State::open
+             ? it->second.ctx
+             : nullptr;
 }
 
 std::size_t ProjectRegistry::sweep() {
   const auto cutoff = clock_() - options_.idle_timeout;
-  std::vector<std::shared_ptr<ProjectContext>> closing;
+  std::vector<std::pair<std::string, std::shared_ptr<ProjectContext>>> closing;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (auto it = open_.begin(); it != open_.end();) {
-      if (is_idle(it->second) && it->second->last_used() <= cutoff) {
-        spdlog::info("Closing idle case '{}'", it->first);
-        closing.push_back(std::move(it->second));
-        it = open_.erase(it);
-      } else {
-        ++it;
+    for (auto &[id, entry] : entries_)
+      if (is_idle(entry) && entry.ctx->last_used() <= cutoff) {
+        spdlog::info("Closing idle case '{}'", id);
+        entry.state = State::closing;
+        closing.emplace_back(id, std::move(entry.ctx));
       }
-    }
   }
   const std::size_t count = closing.size();
-  closing.clear();
+  finish_closing(std::move(closing));
+
+  std::function<void()> task;
+  {
+    std::lock_guard<std::mutex> lock(sweeper_mutex_);
+    task = maintenance_;
+  }
+  if (task)
+    task();
   return count;
 }
 
-bool ProjectRegistry::force_close(std::string_view id,
-                                  std::chrono::milliseconds wait) {
-  std::shared_ptr<ProjectContext> ctx;
+DeleteStart ProjectRegistry::begin_delete(std::string_view id,
+                                          std::chrono::milliseconds wait) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  changed_.wait(lock, [&] {
+    auto it = entries_.find(id);
+    return it == entries_.end() || it->second.state == State::open ||
+           it->second.state == State::deleting;
+  });
+  auto it = entries_.find(id);
+  if (it == entries_.end()) {
+    entries_[std::string(id)] = Entry{State::deleting, nullptr};
+    return DeleteStart::started;
+  }
+  if (it->second.state == State::deleting)
+    return DeleteStart::deleting;
+  if (it->second.ctx->is_busy())
+    return DeleteStart::busy;
+
+  // Tombstone now: from here on no new lease is handed out (acquire answers
+  // 409) and the sweeper leaves it alone. The context stays in the entry, so
+  // "only the registry holds it" is still use_count() == 1.
+  it->second.state = State::deleting;
+  const auto deadline = std::chrono::steady_clock::now() + wait;
+  auto rollback = [&](DeleteStart why) {
+    auto again = entries_.find(id);
+    again->second.state = State::open;
+    lock.unlock();
+    changed_.notify_all();
+    return why;
+  };
+  for (;;) {
+    auto again = entries_.find(id);
+    if (again->second.ctx.use_count() == 1)
+      break;
+    if (std::chrono::steady_clock::now() >= deadline)
+      return rollback(DeleteStart::in_use);
+    lock.unlock();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    lock.lock();
+  }
+  auto entry = entries_.find(id);
+  // A request that held it may have queued a job before letting go.
+  if (entry->second.ctx->is_busy())
+    return rollback(DeleteStart::busy);
+
+  std::shared_ptr<ProjectContext> ctx = std::move(entry->second.ctx);
+  lock.unlock();
+  // The close is certain now: tell the open tabs, then close it HERE so the
+  // WAL is checkpointed and the files released before they move.
+  ctx->broadcast_message({{"type", "case.closed"}});
+  ctx.reset();
+  return DeleteStart::started;
+}
+
+void ProjectRegistry::end_delete(std::string_view id) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = open_.find(id);
-    if (it == open_.end())
-      return true;
-    if (it->second->is_busy())
-      return false;
-    ctx = std::move(it->second);
-    open_.erase(it);
+    auto it = entries_.find(id);
+    if (it != entries_.end() && it->second.state == State::deleting)
+      entries_.erase(it);
   }
-  // Tell open tabs the case went away; their sockets stop receiving.
-  ctx->broadcast_message({{"type", "case.closed"}});
-
-  // Wait for in-flight requests to drop their leases, then close it HERE, so
-  // the WAL anchor has checkpointed and closed before the caller moves the
-  // files.
-  const auto deadline = std::chrono::steady_clock::now() + wait;
-  while (ctx.use_count() > 1 && std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  if (ctx.use_count() == 1) {
-    ctx.reset();
-    return true;
-  }
-
-  // A request still holds it: put it back rather than leave a half-closed
-  // case that a new request would open a second time.
-  std::lock_guard<std::mutex> lock(mutex_);
-  open_.emplace(std::string(id), std::move(ctx));
-  return false;
+  changed_.notify_all();
 }
 
 std::size_t ProjectRegistry::open_count() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return open_.size();
+  return static_cast<std::size_t>(
+      std::count_if(entries_.begin(), entries_.end(), [](const auto &e) {
+        return e.second.state == State::open;
+      }));
 }
 
 std::vector<std::string> ProjectRegistry::open_ids() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<std::string> ids;
-  for (const auto &[id, ctx] : open_)
-    ids.push_back(id);
+  for (const auto &[id, entry] : entries_)
+    if (entry.state == State::open)
+      ids.push_back(id);
   return ids;
 }
 

@@ -45,9 +45,13 @@ ProjectContext::ProjectContext(std::string id, std::filesystem::path project,
 
   queue_ = scheduler.make_queue(id_, project_, std::move(executor));
   listener_ = queue_->add_listener([this](const pipeline::JobEvent &event) {
-    // A finished stage may have rewritten instances, poses or depth.
-    if (event.type == pipeline::JobEvent::Type::finished)
+    // A finished stage may have rewritten instances, poses or depth. It also
+    // counts as use: a long stage must not leave the case looking idle the
+    // moment it ends.
+    if (event.type == pipeline::JobEvent::Type::finished) {
       photo_cache_.invalidate();
+      touch(Clock::now());
+    }
     broadcast(event);
   });
   spdlog::info("Case '{}' opened: {} (schema v{})", id_, file_name(),
@@ -59,8 +63,12 @@ ProjectContext::~ProjectContext() {
   if (warmup_.joinable())
     warmup_.join();
   if (queue_) {
-    // Closing the queue cancels its backlog and waits for a running job; its
-    // events still reach the subscribers, which are destroyed after this.
+    // No new deliveries to `this`. A delivery already in flight (the worker
+    // emits without the scheduler lock) is not stopped by removal — but
+    // closing the queue waits for it: ~JobQueue returns only once the running
+    // job has stopped and every event already raised has reached its
+    // listeners. Only then do the members the listener touches go away.
+    queue_->remove_listener(listener_);
     queue_.reset();
   }
   {
@@ -73,12 +81,14 @@ ProjectContext::~ProjectContext() {
   spdlog::info("Case '{}' closed", id_);
 }
 
-bool ProjectContext::is_busy() const {
-  return queue_->is_busy() || queue_->queued_count() > 0;
-}
+bool ProjectContext::is_busy() const { return queue_->has_work(); }
 
 void ProjectContext::start_photo_warmup() {
-  if (warmup_.joinable())
+  std::call_once(warmup_once_, [this] { launch_photo_warmup(); });
+}
+
+void ProjectContext::launch_photo_warmup() {
+  if (stopping_)
     return;
   warmup_ = std::thread([this] {
     try {

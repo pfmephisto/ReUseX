@@ -213,6 +213,7 @@ TEST_CASE("EndpointTable_DocumentedRoutes_MatchesContract", "[gui][routes]") {
       "POST /api/v1/cases/<string>/survey/sync",
       "POST /api/v1/cases/<string>/survey/types",
       "PATCH /api/v1/cases/<string>/survey/types/<int>",
+      "DELETE /api/v1/cases/<string>/survey/types/<int>",
       "PATCH /api/v1/cases/<string>/survey/parts/<string>",
       "POST /api/v1/cases/<string>/samples",
       "PATCH /api/v1/cases/<string>/samples/<int>",

@@ -19,9 +19,11 @@
 
 #include "../../support/temp_path.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -211,7 +213,7 @@ TEST_CASE("ProjectRegistry_Cap_EvictsLeastRecentlyUsedIdleCase",
   }
 }
 
-TEST_CASE("ProjectRegistry_ForceClose_RefusedWhileBusy",
+TEST_CASE("ProjectRegistry_Delete_TombstonesAndRollsBack",
           "[ruxd_api][registry]") {
   CaseDir cases(1);
   pipeline::JobScheduler scheduler;
@@ -228,20 +230,135 @@ TEST_CASE("ProjectRegistry_ForceClose_RefusedWhileBusy",
       manual());
 
   auto ctx = registry.acquire("a");
+  std::vector<std::string> told;
+  int key = 0;
+  ctx->subscribe(&key, [&](const std::string &m) { told.push_back(m); });
+
   ctx->jobs().submit(pipeline::JobStage::planes);
   REQUIRE(wait_for([&] { return ctx->jobs().is_busy(); }));
-  CHECK_FALSE(registry.force_close("a", std::chrono::milliseconds(10)));
+  CHECK(registry.begin_delete("a", std::chrono::milliseconds(10)) ==
+        DeleteStart::busy);
   gate.open();
   ctx->jobs().wait_idle();
 
-  // A lease still held past the wait: put back, not half-closed.
-  CHECK_FALSE(registry.force_close("a", std::chrono::milliseconds(20)));
+  // A lease held past the wait: rolled back, still open, and open tabs were
+  // NOT told the case closed (review: case.closed only once it is certain).
+  CHECK(registry.begin_delete("a", std::chrono::milliseconds(30)) ==
+        DeleteStart::in_use);
   CHECK(registry.find_open("a") == ctx);
+  for (const auto &m : told)
+    CHECK(m.find("case.closed") == std::string::npos);
+
   std::weak_ptr<ProjectContext> weak = ctx;
   ctx.reset();
-  CHECK(registry.force_close("a", std::chrono::seconds(1)));
-  CHECK(weak.expired()); // closed by force_close itself, files released
-  CHECK(registry.force_close("not-open", std::chrono::milliseconds(1)));
+  REQUIRE(registry.begin_delete("a", std::chrono::seconds(1)) ==
+          DeleteStart::started);
+  CHECK(weak.expired()); // closed by begin_delete itself: files released
+  CHECK(told.back().find("case.closed") != std::string::npos);
+
+  // The tombstone holds until end_delete: no reopen, no second delete.
+  try {
+    registry.acquire("a");
+    FAIL("expected 409 while deleting");
+  } catch (const HttpError &e) {
+    CHECK(e.status() == 409);
+  }
+  CHECK(registry.begin_delete("a", std::chrono::milliseconds(1)) ==
+        DeleteStart::deleting);
+  registry.end_delete("a");     // e.g. the move failed: rolled back
+  CHECK(registry.acquire("a")); // openable again
+
+  // A case that is not open is tombstoned at once.
+  ctx.reset();
+  CHECK(registry.begin_delete("never-open", std::chrono::milliseconds(1)) ==
+        DeleteStart::started);
+  registry.end_delete("never-open");
+}
+
+TEST_CASE("ProjectRegistry_ConcurrentOpenSweepDelete_NeverTwoContexts",
+          "[ruxd_api][registry][stress]") {
+  // Review I2: a close or delete racing an open must never leave two live
+  // contexts for one case (two WAL anchors, a clash over the job-queue key —
+  // which the scheduler reports by throwing). Hammer one case from several
+  // threads with acquire, sweep and delete (rolled back), under a clock that
+  // makes every case look idle.
+  CaseDir cases(2);
+  pipeline::JobScheduler scheduler;
+  // Live contexts per case id: "a" -> [0], "b" -> [1].
+  std::array<std::atomic<int>, 2> live{};
+  std::array<std::atomic<int>, 2> max_live{};
+  std::atomic<int> opener_failures{0};
+  struct Counted : ProjectContext {
+    Counted(const CaseInfo &info, pipeline::JobScheduler &s,
+            std::atomic<int> &live, std::atomic<int> &max_live)
+        : ProjectContext(info.id, info.path, s,
+                         pipeline::default_stage_executor()),
+          live_(live) {
+      const int now = ++live_;
+      int seen = max_live.load();
+      while (now > seen && !max_live.compare_exchange_weak(seen, now)) {
+      }
+    }
+    ~Counted() { --live_; }
+    std::atomic<int> &live_;
+  };
+  FakeClock clock;
+  clock.now += std::chrono::hours(24);
+  RegistryOptions options = manual(/*max_open=*/1);
+  options.idle_timeout = std::chrono::seconds(0);
+  ProjectRegistry registry(
+      cases.store,
+      [&](const CaseInfo &info) -> std::shared_ptr<ProjectContext> {
+        try {
+          const std::size_t slot = info.id == "a" ? 0 : 1;
+          return std::make_shared<Counted>(info, scheduler, live[slot],
+                                           max_live[slot]);
+        } catch (...) {
+          ++opener_failures;
+          throw;
+        }
+      },
+      options, clock.fn());
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> unexpected{0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 4; ++t)
+    threads.emplace_back([&, t] {
+      for (int i = 0; i < 150 && !stop; ++i) {
+        const std::string id = (t + i) % 2 == 0 ? "a" : "b";
+        try {
+          switch ((t * 7 + i) % 3) {
+          case 0:
+            if (auto ctx = registry.acquire(id))
+              ctx->touch(ProjectRegistry::Clock::time_point{});
+            break;
+          case 1:
+            registry.sweep();
+            break;
+          default:
+            if (registry.begin_delete(id, std::chrono::milliseconds(5)) ==
+                DeleteStart::started)
+              registry.end_delete(id); // rolled back: the files stay
+            break;
+          }
+        } catch (const HttpError &e) {
+          // 409 while another thread's delete holds the tombstone, 503 when
+          // the single slot is in use: both are correct answers.
+          if (e.status() != 409 && e.status() != 503)
+            ++unexpected;
+        } catch (...) {
+          ++unexpected;
+        }
+      }
+    });
+  for (auto &t : threads)
+    t.join();
+  CHECK(unexpected.load() == 0);
+  CHECK(opener_failures.load() == 0);
+  // Never two live contexts for one case, ever.
+  CHECK(max_live[0].load() <= 1);
+  CHECK(max_live[1].load() <= 1);
 }
 
 TEST_CASE("ProjectContext_Broadcast_ReachesOnlyItsOwnSubscribers",

@@ -31,7 +31,9 @@ add_library(rux_qt_core STATIC
     src/core/launch.cpp
     src/core/palette_table.cpp
     src/core/background.cpp
-    src/core/database_logic.cpp)
+    src/core/database_logic.cpp
+    src/core/cli_command.cpp
+    src/core/workspace_logic.cpp)
 target_include_directories(rux_qt_core PUBLIC include)
 target_compile_features(rux_qt_core PUBLIC cxx_std_20)
 
@@ -70,6 +72,8 @@ target_link_libraries(rux_qt_lib
         Qt6::Widgets
         Qt6::OpenGLWidgets
         reusex_core
+        # the Pipeline workspace runs stages in-process (pipeline::JobRunner)
+        reusex_pipeline
     PRIVATE
         reusex_visualize
         # slam: frame-pair ICP for the pair strip (slam/frame_pair_icp.hpp)

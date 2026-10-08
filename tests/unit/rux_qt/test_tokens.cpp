@@ -317,6 +317,9 @@ TEST_CASE("QtSources_EveryTokenStringLiteral_ExistsInRealTokens",
     const auto ext = entry.path().extension();
     if (ext != ".cpp" && ext != ".hpp")
       continue;
+    // The rux flag table: "--radius" is `create planes -r`, not a token.
+    if (entry.path().filename() == "cli_command.cpp")
+      continue;
     const std::string src = slurp(entry.path());
     for (auto m = std::sregex_iterator(src.begin(), src.end(), lit);
          m != std::sregex_iterator(); ++m) {

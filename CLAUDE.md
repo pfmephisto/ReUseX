@@ -149,7 +149,7 @@ because temp-file helpers derived names from object addresses; that was
 fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`,
 `utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
 `fixtures/`. Catch2 v3.
 
@@ -247,7 +247,9 @@ ReUseX/
 │   └── extern/                     # Vendored headers
 ├── apps/rux/                       # CLI application
 │   └── include/ + src/             # Subcommands, grouped in subdirs
-├── apps/ruxd/                      # HTTP service worker (ruxd)
+├── apps/ruxd/                      # HTTP service worker (ruxd); serves the web GUI
+│   └── src/api/ + include/api/     #   ruxd_api_lib: the GUI's REST + WS API (light);
+│                                   #   the SPA it serves lives in apps/rux/frontend
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
 ├── python/                         # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
@@ -289,7 +291,10 @@ CMake edit assigning it to the CPU or the CUDA half.
 
 The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
-**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker).
+**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker
+and, with `--local`, the web GUI server). `rux_lib` links the light
+`ruxd_api_lib` because `rux create clouds` builds the GUI's Morton tile index
+(`api/point_lod.hpp`).
 Both use CLI11 for argument parsing and spdlog as the log sink.
 
 ### Type System (types.hpp)
@@ -419,7 +424,7 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
-- Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `rux gui`
+- Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `ruxd --local`
   holds one idle read-write connection for its lifetime so the WAL index survives
   between per-request connections and the WAL is checkpointed into the .rux on
   exit (a read-only last closer cannot); a lock held past the timeout throws, never
@@ -473,12 +478,13 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
 | `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
-| `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to serve it beyond localhost, with no authentication) | `src/gui.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 `-p/--project <path.rux>` (defaults to `./project.rux`).
+
+There is **no `rux gui`** any more: the web GUI is served by `ruxd`.
 
 `ruxd` (`apps/ruxd/`) is a separate HTTP service worker binary with its own
 flags (`--port`, `--threads`, `--pg-url`, `--pg-pool-size`,
@@ -486,6 +492,23 @@ flags (`--port`, `--threads`, `--pg-url`, `--pg-pool-size`,
 query paths lease from a fixed-size connection pool
 (`apps/ruxd/include/connection_pool.hpp`) whose capacity defaults to the worker
 thread count; `/readyz` deliberately keeps its own short-lived connection.
+
+`ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
+WebSocket contract in `docs/gui/openapi.yaml` for one project (a directory must
+hold exactly one `.rux` until multi-case routes land), with no Postgres, Redis
+or S3. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
+unless `--auth-token` is set, and the token is then required on every request
+(Bearer header, `ruxd_token` cookie, or `?token=`, which sets the cookie).
+Other local-mode flags: `--allow-origin`, `--assets`, `--open-browser`,
+`--[no-]segment-cuda`, `--sam3-model`, `--models-dir`, `--sam3-manifest-url`.
+The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`
+(namespace `ruxd::api`), which links only `reusex_core` + `reusex_pipeline` so
+its tests (`tests/unit/ruxd_api/`) stay in the light binary. The heavy pieces
+it needs — SAM3 segmenters, managed-model provider, renderer, ICP, the
+`optimize` stage — are built in `ruxd_lib` (`src/injected.cpp`, `src/icp.cpp`)
+and injected by `src/local.cpp`. Multi-case routes (`/api/v1/cases/{cid}/…`)
+and users are the next phases of
+`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`.
 
 ## Development Patterns
 
@@ -698,7 +721,7 @@ SAM3 from the path:
   export, the engine-I/O contract, and how the C++ tracker consumes the engines
 - [`docs/sam3.1-export-guide.md`](docs/sam3.1-export-guide.md) — export guide
 
-**`rux gui` provisions SAM3 automatically.** The segment endpoints download the
+**`ruxd --local` provisions SAM3 automatically.** The segment endpoints download the
 portable ONNX bundle and build device-specific engines on first use — no manual
 export or engine placement is needed for GUI operation. The managed model root
 resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >

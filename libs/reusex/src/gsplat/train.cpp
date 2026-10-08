@@ -937,7 +937,7 @@ TrainResult run_gsplat_stage(ProjectDB &db, const GsplatStageOptions &opt) {
     // the whole reason a cooperative cancel exists rather than a SIGKILL.
     //
     // Serialized once and stored twice. The project copy is the artifact —
-    // `rux gui` and every later stage read it from there — and `--out` is an
+    // the web GUI and every later stage read it from there — and `--out` is an
     // export for viewers outside ReUseX. Re-serializing for the file would be
     // a second chance for the two to disagree about the same model.
     const auto ply = gaussian_ply_bytes(result.gaussians);

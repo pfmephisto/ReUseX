@@ -73,9 +73,9 @@ with the `hello` snapshot rather than persisting it.
 ### `project`
 
 Every envelope names the project it concerns, and so does the embedded `Job`.
-Against `rux gui` this is always the single open project and is therefore
+Against `ruxd --local` this is always the single open project and is therefore
 redundant; it is present anyway so that a client written today keeps working
-unchanged against a multi-project ruxd in Phase 6.
+unchanged against a multi-case ruxd.
 
 The full `Job` object is embedded in **every** event rather than a delta. It is
 small, it makes each message self-contained, and it means a client that
@@ -221,9 +221,11 @@ because of a bad client message.
 CORS does **not** apply to WebSockets — a browser will open one cross-origin
 and hand the frames to the page's script without asking the server's
 permission. The handshake is therefore the only place this can be enforced, and
-`rux gui` does enforce it: an upgrade carrying an `Origin` header that is not
-loopback and not named with `--allow-origin` is refused at the handshake. A
-request with no `Origin` (curl, a CLI client, a test) is allowed.
+`ruxd --local` does enforce it: an upgrade carrying an `Origin` header that is
+not loopback and not named with `--allow-origin` is refused at the handshake. A
+request with no `Origin` (curl, a CLI client, a test) is allowed. When the
+server runs with `--auth-token`, the upgrade must also present the token
+(`ruxd_token` cookie, `Authorization: Bearer`, or `?token=`).
 
 ## Reconnection
 

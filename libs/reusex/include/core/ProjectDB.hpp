@@ -999,13 +999,14 @@ class ProjectDB {
   bool delete_resource_template(int64_t id); // false when absent
 
   // --- Export templates: legacy view over `templates` (schema v25) ---
-  /// The schema v21 shape, kept for the /export-templates routes (rux gui
-  /// until GUI Phase 4, and ruxd). `config_json` is the template's CSV
-  /// options plus `columns`: legacy-member names and user-column labels. A
-  /// write maps `columns` back with core::legacy_column_member; other config
-  /// fields become the CSV options (only when the body has any), and repeated
-  /// columns keep their first position. An update replaces only the members
-  /// the view shows (`legacy:` ones and `col:` ones whose user column
+  /// The schema v21 shape. It was kept for the /export-templates routes,
+  /// which are gone (ruxd's legacy routes were deleted on 2026-10-08 in
+  /// favour of /templates); only tests use it now. `config_json` is the
+  /// template's CSV options plus `columns`: legacy-member names and user-column
+  /// labels. A write maps `columns` back with core::legacy_column_member; other
+  /// config fields become the CSV options (only when the body has any), and
+  /// repeated columns keep their first position. An update replaces only the
+  /// members the view shows (`legacy:` ones and `col:` ones whose user column
   /// exists); category, `sys:`, `lex:` and missing `col:` members are kept in
   /// place. A config without `columns` leaves the members untouched.
   struct ExportTemplateRecord {

@@ -11,13 +11,10 @@ info:
     The shared contract between the ReUseX web frontend and its backends
     (issue #265).
 
-    Two implementations serve this contract:
-
-    * `rux gui` — a localhost Crow server embedded in the `rux` CLI. It opens
-      one `.rux` project directly and runs pipeline stages **in-process** on a
-      single worker thread.
-    * `ruxd` — the headless daemon (Phase 6). It will implement the same paths
-      backed by a persistent job queue and remote workers.
+    `ruxd` serves this contract. Today that is `ruxd --local <file.rux>`
+    (formerly `rux gui`): a Crow server that opens one `.rux` project directly
+    and runs pipeline stages **in-process** on a single worker thread. The
+    multi-user server re-roots the same paths under `/api/v1/cases/{cid}`.
 
     The frontend is a pure client and must not be able to tell them apart.
     Consequently: job ids are opaque strings, no path ever carries a
@@ -25,7 +22,7 @@ info:
     `/jobs` + the `/events` WebSocket rather than a blocking request.
 
     A server instance is bound to exactly ONE project for its lifetime — the
-    project is selected when the server starts (`rux -p scan.rux gui`), not per
+    project is selected when the server starts (`ruxd --local scan.rux`), not per
     request. Multi-project browsing is intentionally out of scope for v1.
   license:
     name: GPL-3.0-or-later
@@ -33,10 +30,12 @@ info:
 
 servers:
   - url: http://localhost:8420/api/v1
-    description: Default `rux gui` bind address
+    description: Default `ruxd --local` bind address
 
 security: []
-# No authentication in v1: `rux gui` binds to loopback and is single-user.
+# No authentication in v1: `ruxd --local` binds to loopback and is single-user
+# (beyond loopback it requires --auth-token, presented as bearerAuth, the
+# `ruxd_token` cookie or `?token=`).
 # Access control is an Origin allowlist enforced server-side (403 for a
 # non-allowlisted browser origin) plus `Content-Type: application/json` on
 # mutating routes. See docs/gui/README.md.
@@ -44,8 +43,8 @@ security: []
 # The empty list is a real statement, not an omission: it says "this operation
 # needs no credential", and a generated client honours it by sending none.
 # `components.securitySchemes.bearerAuth` is nevertheless declared, because
-# ruxd already takes `--auth-token` and will serve this same contract in
-# Phase 6. A remote deployment overrides this document's top-level `security`
+# `ruxd --local --auth-token` already accepts it, and the multi-user server
+# will too. A remote deployment overrides this document's top-level `security`
 # with `[{bearerAuth: []}]`; the operations themselves do not change, so
 # Phase 6 is a client *configuration* change rather than a regenerate-
 # everything event.
@@ -994,7 +993,7 @@ paths:
         point keeps the one object under it.
 
         **503 without a model registered:** the endpoint returns 503 when the
-        server was started without `rux gui` (e.g. from a test harness) because
+        server was started without `ruxd --local` (e.g. from a test harness) because
         `rux_gui_lib` never links the ML backends directly.
       parameters:
         - name: id
@@ -1168,7 +1167,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "503":
           description: |
-            No SAM3 segmenter is registered (server not started via `rux gui`,
+            No SAM3 segmenter is registered (server not started via `ruxd --local`,
             or model unavailable), or the managed SAM3 model is still being
             prepared — poll `GET /models/sam3/status`.
           content:
@@ -1407,7 +1406,7 @@ paths:
         list.
 
         **503 without a model registered:** the endpoint returns 503 when the
-        server was started without `rux gui` because `rux_gui_lib` never links
+        server was started without `ruxd --local` because `ruxd_api_lib` never links
         the ML backends directly.
 
         `model_path` is optional exactly as for `POST /frames/{id}/segment`:
@@ -1526,7 +1525,7 @@ paths:
         "503":
           description: |
             No SAM3 panorama segmenter is registered (server not started via
-            `rux gui`, or model unavailable), or the managed SAM3 model is
+            `ruxd --local`, or model unavailable), or the managed SAM3 model is
             still being prepared — poll `GET /models/sam3/status`.
           content:
             application/json:
@@ -3112,7 +3111,7 @@ paths:
         warning, not an error.
 
         Computing it decodes every relevant depth image once (about 3.5–3.9 s
-        on a 3876-frame, 155-instance, 1.2M-point project), so `rux gui`
+        on a 3876-frame, 155-instance, 1.2M-point project), so `ruxd --local`
         computes it in the background at startup and keeps the per-instance
         result in memory until a pipeline job finishes, the newest
         pipeline-log entry or the sensor-frame count changes, or a part refers
@@ -3666,7 +3665,7 @@ paths:
         contract immediately) is equally valid. Never assert on it; drive the UI
         from the events or from a poll.
 
-        `rux gui` executes jobs one at a time on a single worker thread, so a
+        `ruxd --local` executes jobs one at a time on a single worker thread, so a
         submission may sit in `queued` behind another job. A remote
         implementation is free to run them in parallel — clients must not assume
         either.
@@ -3789,11 +3788,13 @@ components:
         Bearer token in the `Authorization` header, matching ruxd's
         `--auth-token`.
 
-        **No implementation requires this today.** `rux gui` binds to loopback,
-        has no notion of a user, and leaves the document-level `security: []`
-        in force — sending a token to it is harmless and ignored. The scheme is
-        declared now so that the Phase 6 remote deployment (ruxd) is a change
-        of *which* security requirement applies, not a change to the operations
+        **Required only beyond loopback.** `ruxd --local` binds to loopback by
+        default, has no notion of a user, and there leaves the document-level
+        `security: []` in force — sending a token to it is harmless and
+        ignored. Started with `--bind <non-loopback> --auth-token <t>`, it
+        requires the token on every request (this scheme, the `ruxd_token`
+        cookie, or `?token=`). The multi-user server is then a change of
+        *which* security requirement applies, not a change to the operations
         themselves.
 
   parameters:
@@ -4766,7 +4767,7 @@ components:
           description: >-
             Project this job is meant for, as reported by `GET /health` under
             `project.name`. Optional against a single-project server such as
-            `rux gui`, which answers 409 if it names anything other than the
+            `ruxd --local`, which answers 409 if it names anything other than the
             project it has open. A multi-project backend (ruxd, Phase 6) will
             require it. Send it: it costs nothing, and it is what stops a
             client pointed at the wrong server from quietly running a stage
@@ -4793,7 +4794,7 @@ components:
           description: >-
             The project this job belongs to. Always present, so a client can
             key its state on it whether it is talking to a single-project
-            `rux gui` or a multi-project ruxd.
+            `ruxd --local` or a multi-project ruxd.
         stage: { type: string }
         status:
           type: string

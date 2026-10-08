@@ -8,7 +8,7 @@
 /// vocabulary shared by ProjectDB, the REST API and the frontend, and the
 /// derivations the GUI shows — miljøstatus from linked samples, tonnes per
 /// affaldshierarki step, approved tonnes per EAK code. Everything here is pure
-/// so it is testable without a project, and so `rux`, `rux gui` and a future
+/// so it is testable without a project, and so `rux`, `ruxd` and a future
 /// Qt client all compute the same numbers.
 
 #include <array>

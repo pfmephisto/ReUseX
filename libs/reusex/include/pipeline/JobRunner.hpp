@@ -8,8 +8,8 @@
 //
 // Owns a FIFO queue of stage runs and a single worker thread, bridges the
 // global core::IProgressObserver singleton into per-job progress events, and
-// exposes a submit / status / cancel surface that both `rux gui` (today) and
-// ruxd (Phase 6) can put behind the same HTTP contract.
+// exposes a submit / status / cancel surface that ruxd's web API (`ruxd
+// --local` today, the multi-case server next) puts behind one HTTP contract.
 //
 // WHY ONE WORKER: progress reporting goes through the process-global observer
 // registered with core::set_progress_observer(). Two stages running
@@ -158,9 +158,9 @@ struct JobRunnerOptions {
 /// order, so `job()` returning nullopt means "unknown **or evicted**". Nothing
 /// survives a restart.
 ///
-/// WHY NOT PERSIST: `rux gui` is an in-process server for a single project, and
-/// a job record is a view of work the process itself is doing — a queue
-/// position, a cancel token, a live progress counter. None of that is
+/// WHY NOT PERSIST: `ruxd --local` is an in-process server for a single
+/// project, and a job record is a view of work the process itself is doing — a
+/// queue position, a cancel token, a live progress counter. None of that is
 /// meaningful once the process is gone, and persisting it would make the runner
 /// the second writer of a history the pipeline already writes. The durable
 /// record is `pipeline_log`, which every stage writes and which carries the

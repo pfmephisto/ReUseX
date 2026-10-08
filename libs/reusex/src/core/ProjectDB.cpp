@@ -374,7 +374,7 @@ class ProjectDB::Impl {
     // ~Impl never runs for a constructor that throws, so anything that fails
     // from here on (a probe that finds the file locked, a migration) must
     // close the handle itself. Leaking it would also leak its WAL read lock,
-    // once per failed open — one per 503 in `rux gui`.
+    // once per failed open — one per 503 in `ruxd --local`.
     try {
       configure();
     } catch (...) {
@@ -401,7 +401,7 @@ class ProjectDB::Impl {
     // once. With WAL, readers never block each other, but a reader whose open
     // races another connection's close (which takes the file lock to try a
     // checkpoint) or its WAL-index rebuild got SQLITE_BUSY immediately — the
-    // 503s on a full `rux gui` page load. Writers never block WAL readers, so
+    // 503s on a full web GUI page load. Writers never block WAL readers, so
     // the wait only ever covers those millisecond windows; a lock held past
     // the timeout is still reported.
     sqlite3_busy_timeout(db, BUSY_TIMEOUT_MS);

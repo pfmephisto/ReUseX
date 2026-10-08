@@ -20,32 +20,42 @@ talking to.
 
 > `docs/api/` is Doxygen output and is **not** related to this directory.
 
-## Two implementations, one contract
+## One server, one contract
 
 ```
                     ┌──── browser (React SPA) ────┐
                     │  one client, one contract   │
                     └──────┬───────────────┬──────┘
-                  localhost│               │LAN / cloud (Phase 6)
+                  localhost│               │LAN / cloud (next phases)
              ┌─────────────┴────┐   ┌──────┴──────────────┐
-             │ rux gui          │   │ ruxd                │
-             │ in-process jobs  │   │ queued jobs,        │
-             │ one ProjectDB    │   │ PG/Redis/S3 workers │
+             │ ruxd --local     │   │ ruxd (server mode)  │
+             │ in-process jobs  │   │ cases, users,       │
+             │ one project      │   │ Postgres            │
              └──────────────────┘   └─────────────────────┘
 ```
 
-`rux gui` implements the contract today (Phase 1). `ruxd` will implement the
-same paths in Phase 6. Nothing in the contract assumes the client and server
-share a filesystem, and job identifiers are opaque server-generated strings, so
-a queued/remote implementation slots in without frontend changes.
+`ruxd --local <file.rux>` implements the contract today; it replaced `rux gui`
+(2026-10-08), with the same routes. The API code is `ruxd_api_lib`
+(`apps/ruxd/src/api/`). The multi-user server re-roots the same routes under
+`/api/v1/cases/{cid}/…` (spec
+`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
+Nothing in the contract assumes the client and server share a filesystem, and
+job identifiers are opaque server-generated strings, so a queued/remote
+implementation slots in without frontend changes.
 
 ## Security model
 
-`rux gui` has **no authentication** and its `POST /jobs` endpoint executes
-pipeline stages. Two controls keep that from being reachable by any page the
-user happens to have open:
+On loopback, `ruxd --local` has **no authentication**, and its `POST /jobs`
+endpoint executes pipeline stages. Three controls keep that from being
+reachable by any page or host it should not be:
 
-1. **Loopback bind by default.** `--bind` changes it; that is a deliberate act.
+1. **Loopback bind by default.** A `--bind` beyond loopback is refused unless
+   `--auth-token` is set. The token is then required on every HTTP request and
+   on the WebSocket upgrade, as `Authorization: Bearer <token>`, as the
+   `ruxd_token` cookie, or as `?token=<token>` — which answers with that cookie
+   (HttpOnly, SameSite=Strict), so a browser opened at
+   `http://<host>:8420/?token=<token>` stays signed in for its `<img>`, `fetch`
+   and WebSocket traffic, none of which can carry a header.
 2. **A server-side origin allowlist.** A request carrying an `Origin` that is
    not loopback and not named with `--allow-origin` is refused with `403`
    before any handler runs. This is enforcement, not a CORS hint — CORS alone
@@ -61,10 +71,10 @@ The contract nevertheless **declares** a `bearerAuth` security scheme, while
 leaving the document-level requirement as `security: []`. That pair is a
 deliberate statement rather than an oversight: the empty list says every
 operation here needs no credential, and a generated client honours it by
-sending none. `ruxd` already takes `--auth-token` and will serve this same
-contract in Phase 6; declaring the scheme now means that deployment overrides
-one document-level field instead of forcing every client to be regenerated
-against a differently-shaped spec.
+sending none. `ruxd --local --auth-token` already accepts that scheme, and the
+multi-user server will too; declaring the scheme now means that deployment
+overrides one document-level field instead of forcing every client to be
+regenerated against a differently-shaped spec.
 
 ### The frontend must be same-origin
 
@@ -77,7 +87,7 @@ and no opt-out.
 This costs nothing in practice, because the frontend is same-origin in both
 supported setups:
 
-- **Production** — `rux gui` serves the bundle itself, from the same origin as
+- **Production** — `ruxd --local` serves the bundle itself, from the same origin as
   the API.
 - **Development** — point the Vite dev server's proxy at it, which is the
   normal arrangement anyway:
@@ -190,7 +200,7 @@ keys.
 ## Implementation status (Phase 1)
 
 Read endpoints, the job endpoints and the WebSocket channel are implemented by
-`rux gui` (`apps/rux/src/gui/`). One documented gap, deliberate:
+`ruxd --local` (`apps/ruxd/src/api/`). One documented gap, deliberate:
 
 - **Runnable stages are `clouds`, `planes`, `rooms`, `instances`.** `mesh`,
   `texture` and the ML `annotate` stages are described by
@@ -277,7 +287,7 @@ Two edits are refused rather than attempted:
 
 #### One writer, enforced
 
-`rux gui` has two writers — the pipeline job worker and these endpoints — and
+`ruxd --local` has two writers — the pipeline job worker and these endpoints — and
 they exclude each other through a real lock, not through hope.
 `pipeline::JobRunner` owns the project's writer lock and **holds it for the
 whole of every stage**; an editor request takes the same lock or does not run:
@@ -396,11 +406,12 @@ right.
 ## Running it
 
 ```bash
-rux -p scan.rux gui --port 8420 --no-browser
+ruxd --local scan.rux            # 127.0.0.1:8420
 curl -s localhost:8420/api/v1/project | jq
 
 # What Gaussian splats does this project hold, and what do they cost to load?
 curl -s localhost:8420/api/v1/gsplats | jq
 ```
 
-See `rux gui --help` for the asset directory, bind address and browser flags.
+See `ruxd --help` ("Local mode") for the asset directory, bind address, token
+and browser flags.

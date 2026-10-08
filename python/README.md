@@ -143,7 +143,7 @@ precision rules (`FP32_ENGINES`, `SHAPE_PROFILES`) that the Python `trtexec`
 driver uses — and that the C++ `EngineBuilder` reads to build TensorRT engines
 on-device without requiring `trtexec` or Python.
 
-This means **for `rux gui`** the primary export artifact is the ONNX bundle +
+This means **for the web GUI (`ruxd --local`)** the primary export artifact is the ONNX bundle +
 `engine-build.json`, not pre-built `.engine` files. The GUI endpoint provisions
 engines automatically on first use from the ONNX bundle.
 

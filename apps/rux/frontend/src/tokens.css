@@ -124,6 +124,11 @@
   --label-count: 8;
   /* Points whose label is 0 (unlabeled, STANDARDS §3) render in this. */
   --label-unlabeled: #4a505c;
+  /* Points whose label is out of contract — a -1 that wrapped to 0xFFFFFFFF
+     in a point cloud (STANDARDS §3.1) — render in this. Not a class, so not
+     on the categorical scale: the light --color-surface value, pending a
+     design ruling. */
+  --label-invalid: #e9e9e7;
 
   /* ------------------------------------------------- viewport: geometry -- */
   --mesh-surface: #8a8f99;

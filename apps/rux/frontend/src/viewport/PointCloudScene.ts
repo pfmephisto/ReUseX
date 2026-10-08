@@ -14,7 +14,7 @@ import {
   type LightingState,
   type ViewPreset,
 } from './cameraViews';
-import { labelColorIndex, paletteToFloats, readLabelPalette } from './labelColors';
+import { labelColorIndex, slotColor, paletteToFloats, readLabelPalette } from './labelColors';
 
 export type ColorMode = 'rgb' | 'label';
 
@@ -260,7 +260,7 @@ export class PointCloudScene {
       const palette = paletteToFloats(readLabelPalette());
       for (let i = 0; i < count; i += 1) {
         const slot = labelColorIndex(page.labels[i], palette.colors.length);
-        const [r, g, b] = slot < 0 ? palette.unlabeled : palette.colors[slot];
+        const [r, g, b] = slotColor(palette, slot);
         target[i * 3] = r;
         target[i * 3 + 1] = g;
         target[i * 3 + 2] = b;

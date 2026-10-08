@@ -47,6 +47,14 @@ inline constexpr bool is_valid_label(uint32_t label) noexcept {
   return label != kUnlabeled;
 }
 
+/// @return true if @p label is outside the point-label contract: above
+/// INT32_MAX, i.e. a negative API label (typically -1, the background or an
+/// uninitialised room) that reached a uint32 point cloud and wrapped to
+/// 0xFFFFFFFF (STANDARDS §3.1). Such a value is neither unlabeled nor a class.
+inline constexpr bool is_out_of_contract_label(uint32_t label) noexcept {
+  return label > 0x7FFFFFFFu;
+}
+
 /// Convert a point label to a zero-based vector index, replacing the
 /// error-prone bare `label - 1` idiom used to index parallel arrays such as
 /// `plane_normals`.

@@ -13,10 +13,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  INVALID_SLOT,
   labelColorIndex,
   paletteToFloats,
   parseColor,
   readLabelPalette,
+  slotColor,
 } from '../viewport/labelColors';
 import { srgbToLinear } from '../viewport/decode';
 
@@ -104,6 +106,24 @@ describe('parseColor', () => {
       expect(parsed).toEqual([0.5, 0.5, 0.5]);
       expect(parsed.every((component) => Number.isFinite(component))).toBe(true);
     }
+  });
+});
+
+describe('out-of-contract labels', () => {
+  it('gives a wrapped -1 its own sentinel, never a class slot', () => {
+    // 0xFFFFFFFF is a -1 that reached a uint32 cloud (STANDARDS §3.1). The
+    // plain modulo would put it in slot 6, the colour of label 7.
+    expect(labelColorIndex(0xffffffff, 8)).toBe(INVALID_SLOT);
+    expect(labelColorIndex(0x80000000, 8)).toBe(INVALID_SLOT);
+    expect(labelColorIndex(0x7fffffff, 8)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('colours the sentinel with the invalid colour, off the categorical scale', () => {
+    const palette = readLabelPalette();
+    expect(slotColor(palette, INVALID_SLOT)).toBe(palette.invalid);
+    expect(slotColor(palette, -1)).toBe(palette.unlabeled);
+    expect(palette.colors).not.toContain(palette.invalid);
+    expect(palette.invalid).not.toBe(palette.unlabeled);
   });
 });
 

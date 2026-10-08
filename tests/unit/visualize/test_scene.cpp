@@ -108,6 +108,14 @@ TEST_CASE("LabelPalette_Default_MatchesTheDesignTokens",
       CHECK(c->g == palette.colors[i][1]);
       CHECK(c->b == palette.colors[i][2]);
     }
+    const auto inv = rux::qt::parse_color(tokens.at("--label-invalid"));
+    REQUIRE(inv);
+    CHECK(inv->r == palette.invalid[0]);
+    CHECK(inv->g == palette.invalid[1]);
+    CHECK(inv->b == palette.invalid[2]);
+    // Not a class colour: it must not be confused with one.
+    for (const auto &c : palette.colors)
+      CHECK_FALSE((c[0] == inv->r && c[1] == inv->g && c[2] == inv->b));
     const auto u = rux::qt::parse_color(tokens.at("--label-unlabeled"));
     REQUIRE(u);
     CHECK(u->r == palette.unlabeled[0]);
@@ -124,9 +132,14 @@ TEST_CASE("LabelPalette_Slot_IsLabelMinusOneModuloSize",
   CHECK(viz::label_palette_slot(8, 8) == 7);
   CHECK(viz::label_palette_slot(9, 8) == 0);
   CHECK(viz::label_palette_slot(3, 0) == -1);
+  // A -1 that wrapped in a uint32 cloud (STANDARDS §3.1) is not slot 6.
+  CHECK(viz::label_palette_slot(0xFFFFFFFFu, 8) == viz::kInvalidSlot);
+  CHECK(viz::label_palette_slot(0x80000000u, 8) == viz::kInvalidSlot);
+  CHECK(viz::label_palette_slot(0x7FFFFFFFu, 8) >= 0);
   const auto &p = viz::default_label_palette();
   CHECK(viz::label_palette_color(p, 0) == p.unlabeled);
   CHECK(viz::label_palette_color(p, 10) == p.colors[1]);
+  CHECK(viz::label_palette_color(p, 0xFFFFFFFFu) == p.invalid);
 }
 
 TEST_CASE("LodIndices_PicksAPrefixOnlyForBitReversedMorton",
@@ -186,6 +199,34 @@ TEST_CASE("PopulateScene_CloudAndLabels_UseStoredRgbAndTheTokenPalette",
   CHECK(lab->GetTypedComponent(3, 0) == pal.colors[2][0]);
   CHECK(lab->GetTypedComponent(3, 1) == pal.colors[2][1]);
   CHECK(lab->GetTypedComponent(3, 2) == pal.colors[2][2]);
+}
+
+TEST_CASE("PopulateScene_WrappedMinusOne_IsDrawnInTheInvalidColour",
+          "[visualize][scene][palette]") {
+  TempPath tmp("test_scene_invalid");
+  ProjectDB db(tmp.path);
+  seed_cloud(db, 4);
+  CloudL labels;
+  for (const std::uint32_t l : {0u, 0xFFFFFFFFu, 7u, 0xFFFFFFFFu}) {
+    LabelT x;
+    x.label = l;
+    labels.push_back(x);
+  }
+  db.save_point_cloud("rooms", labels, "test");
+  vtkNew<vtkRenderer> renderer;
+  viz::SceneOptions o;
+  o.layers = {viz::Layer::rooms};
+  const auto info = viz::populate_scene(renderer, db, o);
+  const auto &pal = viz::default_label_palette();
+  vtkUnsignedCharArray *c = colours(info.layers[0].actors.front());
+  for (int k = 0; k < 3; ++k) {
+    CHECK(c->GetTypedComponent(1, k) ==
+          pal.invalid[static_cast<std::size_t>(k)]);
+    CHECK(c->GetTypedComponent(3, k) ==
+          pal.invalid[static_cast<std::size_t>(k)]);
+  }
+  // ... and label 7 keeps its class colour, slot 6.
+  CHECK(c->GetTypedComponent(2, 0) == pal.colors[6][0]);
 }
 
 TEST_CASE("PopulateScene_CustomPalette_IsUsed", "[visualize][scene]") {

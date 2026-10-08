@@ -24,7 +24,15 @@ export interface LabelPalette {
   colors: string[];
   /** Colour for label 0 — unlabeled (STANDARDS §3). */
   unlabeled: string;
+  /** Colour for an out-of-contract label — a -1 that wrapped to 0xFFFFFFFF in
+   *  a uint32 cloud (STANDARDS §3.1). Not a class, so not on the scale. */
+  invalid: string;
 }
+
+/** labelColorIndex() for label 0 (unlabeled). */
+export const UNLABELED_SLOT = -1;
+/** labelColorIndex() for an out-of-contract label (> INT32_MAX). */
+export const INVALID_SLOT = -2;
 
 /** Palette used when no document is available (tests, SSR). */
 const FALLBACK: LabelPalette = {
@@ -41,6 +49,7 @@ const FALLBACK: LabelPalette = {
     '#999999',
   ],
   unlabeled: '#4a505c',
+  invalid: '#e9e9e7',
 };
 
 /**
@@ -66,7 +75,8 @@ export function readLabelPalette(element?: Element | null): LabelPalette {
   }
 
   const unlabeled = style.getPropertyValue('--label-unlabeled').trim() || FALLBACK.unlabeled;
-  return { colors, unlabeled };
+  const invalid = style.getPropertyValue('--label-invalid').trim() || FALLBACK.invalid;
+  return { colors, unlabeled, invalid };
 }
 
 /**
@@ -79,7 +89,10 @@ export function readLabelPalette(element?: Element | null): LabelPalette {
  * about exactly this off-by-one.
  */
 export function labelColorIndex(label: number, paletteSize: number): number {
-  if (!Number.isFinite(label) || label < 1 || paletteSize <= 0) return -1;
+  // A uint32 label above INT32_MAX is a wrapped -1 (STANDARDS §3.1): it is
+  // neither unlabeled nor a class, and must not borrow a class's colour.
+  if (Number.isFinite(label) && label > 0x7fffffff) return INVALID_SLOT;
+  if (!Number.isFinite(label) || label < 1 || paletteSize <= 0) return UNLABELED_SLOT;
   return (Math.floor(label) - 1) % paletteSize;
 }
 
@@ -126,6 +139,7 @@ export function parseColor(value: string): [number, number, number] {
 export function paletteToFloats(palette: LabelPalette): {
   colors: [number, number, number][];
   unlabeled: [number, number, number];
+  invalid: [number, number, number];
 } {
   const toLinear = ([r, g, b]: [number, number, number]): [number, number, number] => [
     srgbToLinear(r),
@@ -135,5 +149,12 @@ export function paletteToFloats(palette: LabelPalette): {
   return {
     colors: palette.colors.map((color) => toLinear(parseColor(color))),
     unlabeled: toLinear(parseColor(palette.unlabeled)),
+    invalid: toLinear(parseColor(palette.invalid)),
   };
+}
+
+/** The colour of a labelColorIndex() slot, sentinels included. */
+export function slotColor<T>(palette: { colors: T[]; unlabeled: T; invalid: T }, slot: number): T {
+  if (slot === INVALID_SLOT) return palette.invalid;
+  return slot < 0 ? palette.unlabeled : palette.colors[slot];
 }

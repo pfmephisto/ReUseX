@@ -6,6 +6,7 @@
 
 #include "core/ProjectDB.hpp"
 #include "core/SensorIntrinsics.hpp"
+#include "core/label_semantics.hpp"
 #include "core/logging.hpp"
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/component_persistence.hpp"
@@ -557,19 +558,24 @@ const LabelPalette &default_label_palette() {
                                      {0xd5, 0x5e, 0x00},
                                      {0xcc, 0x79, 0xa7},
                                      {0x99, 0x99, 0x99}},
-                                    {0x4a, 0x50, 0x5c}};
+                                    {0x4a, 0x50, 0x5c},
+                                    {0xe9, 0xe9, 0xe7}};
   return palette;
 }
 
 int label_palette_slot(std::uint32_t label, std::size_t size) {
-  if (label == 0 || size == 0)
-    return -1;
+  if (core::is_out_of_contract_label(label))
+    return kInvalidSlot;
+  if (label == core::kUnlabeled || size == 0)
+    return kUnlabeledSlot;
   return static_cast<int>((label - 1) % size);
 }
 
 std::array<std::uint8_t, 3> label_palette_color(const LabelPalette &palette,
                                                 std::uint32_t label) {
   const int slot = label_palette_slot(label, palette.colors.size());
+  if (slot == kInvalidSlot)
+    return palette.invalid;
   return slot < 0 ? palette.unlabeled
                   : palette.colors[static_cast<std::size_t>(slot)];
 }
@@ -788,10 +794,13 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
 
       std::vector<unsigned char> colors(cloud.size() * 3);
       std::size_t unlabeled = 0;
+      std::size_t invalid = 0;
       for (std::size_t i = 0; i < cloud.size(); ++i) {
         const std::uint32_t label = (*labels)[i].label;
-        if (label == 0)
+        if (label == core::kUnlabeled)
           ++unlabeled;
+        else if (core::is_out_of_contract_label(label))
+          ++invalid;
         const auto c = label_palette_color(palette, label);
         colors[3 * i + 0] = c[0];
         colors[3 * i + 1] = c[1];
@@ -801,6 +810,14 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
         core::warn("render: every point in '{}' is unlabeled (0/{} labeled); "
                    "the '{}' layer will be uniformly grey",
                    name, cloud.size(), to_string(layer));
+      }
+      if (invalid > 0) {
+        // STANDARDS §3.1: a -1 that wrapped to 0xFFFFFFFF. Drawn in the
+        // palette's non-class `invalid` colour; the data needs fixing.
+        core::warn("render: {} of {} points in '{}' carry an out-of-contract "
+                   "label (> INT32_MAX, a wrapped -1); they are drawn as "
+                   "invalid, not as a class — re-run `{}`",
+                   invalid, cloud.size(), name, producing_command(layer));
       }
       highlight(colors, cloud.size());
       add_point_layer(drawn, cloud, colors);

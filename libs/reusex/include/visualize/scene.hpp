@@ -56,15 +56,23 @@ struct SceneBounds {
 struct LabelPalette {
   std::vector<std::array<std::uint8_t, 3>> colors; ///< labels 1..N, cyclic
   std::array<std::uint8_t, 3> unlabeled{0, 0, 0};  ///< label 0 (STANDARDS §3)
+  /// An out-of-contract label (core::is_out_of_contract_label: a wrapped -1).
+  /// Not a class: never one of @ref colors.
+  std::array<std::uint8_t, 3> invalid{0, 0, 0};
 };
 
 /// The tokens' scale (see LabelPalette).
 const LabelPalette &default_label_palette();
 
-/// Palette slot of a point label: `(label - 1) % size`, or -1 for label 0
-/// (unlabeled) or an empty palette. The same rule as the web viewport's
-/// `labelColorIndex()` — indexing with `label` itself would shift every class
-/// by one against the legend.
+/// Sentinel slots of label_palette_slot().
+inline constexpr int kUnlabeledSlot = -1;
+inline constexpr int kInvalidSlot = -2;
+
+/// Palette slot of a point label: `(label - 1) % size`; kUnlabeledSlot for
+/// label 0 or an empty palette; kInvalidSlot for an out-of-contract label
+/// (a wrapped -1), which must not borrow a class's colour. The same rule as the
+/// web viewport's `labelColorIndex()` — indexing with `label` itself would
+/// shift every class by one against the legend.
 int label_palette_slot(std::uint32_t label, std::size_t size);
 
 /// The colour of @p label in @p palette.

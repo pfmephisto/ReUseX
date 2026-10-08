@@ -126,10 +126,13 @@ add_executable(reusex_unit_tests ${LIGHT_TEST_SOURCES})
 # binary. Adding a test that needs vision means moving it to
 # tests/unit/vision/, not widening this list.
 #
-# rux_gui_lib (the `rux gui` server, #265) is deliberately in the LIGHT binary.
-# It links reusex_pipeline rather than the `reusex` umbrella, so it pulls no
-# vision/ML closure -- tests/unit/rux_gui costs nothing extra here, and keeping
-# it out of the heavy binary preserves the fast start-up this split bought.
+# ruxd_api_lib (the web GUI's API, served by `ruxd --local`; formerly
+# `rux gui`'s rux_gui_lib, #265) is deliberately in the LIGHT binary. It links
+# reusex_pipeline rather than the `reusex` umbrella, so it pulls no vision/ML
+# closure -- tests/unit/ruxd_api costs nothing extra here, and keeping it out
+# of the heavy binary preserves the fast start-up this split bought. Only
+# tests/unit/ruxd (ruxd_lib: backend clients, auth, and the injected SAM3 /
+# renderer / ICP / optimize pieces) is heavy.
 #
 # rux_core_lib (#249) is here for the same reason: it stops at reusex_core, so
 # tests/unit/rux gets the app layer's pure logic -- path_parser, filter_utils --
@@ -150,7 +153,13 @@ target_link_libraries(reusex_unit_tests
         # gsplat tests can live in this binary.
         reusex_gsplat_common
         rux_core_lib
-        rux_gui_lib
+        ruxd_api_lib
+        # ruxd's option parsing (tests/unit/ruxd_cli): CLI11 + ruxd_api_lib.
+        ruxd_cli_lib
+        # Server mode's Postgres stores (tests/unit/ruxd_pg): libpqxx only;
+        # the [postgres] tests start an ephemeral server with initdb and skip
+        # when it is not on PATH.
+        ruxd_pg_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
@@ -317,10 +326,15 @@ include(Catch)
 # Two calls on one target are safe: catch_discover_tests derives its generated
 # file names from a hash of TEST_SPEC, so the two sets do not overwrite each
 # other. Total discovered test count is unchanged.
+# [postgres] tests (tests/unit/ruxd_pg) start an ephemeral PostgreSQL and
+# SKIP without `initdb`; they carry the ctest label `postgres` (and a `Pg`
+# name prefix), so `ctest -L postgres` runs exactly them.
 function(reusex_discover_tests target)
-    catch_discover_tests(${target} TEST_SPEC "~[gpu]")
+    catch_discover_tests(${target} TEST_SPEC "~[gpu]~[postgres]")
     catch_discover_tests(${target} TEST_SPEC "[gpu]"
                          PROPERTIES RESOURCE_LOCK reusex_gpu)
+    catch_discover_tests(${target} TEST_SPEC "[postgres]"
+                         PROPERTIES LABELS postgres)
 endfunction()
 
 reusex_discover_tests(reusex_unit_tests)

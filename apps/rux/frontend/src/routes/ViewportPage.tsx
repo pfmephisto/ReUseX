@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CloudInfo, FrameVisibilityList, VisibleFrame, GsplatInfo, MeshInfo, PanoramaInfo, PoseGraph, PoseGraphEdgeType } from '../api/types';
 import { cloudRevision } from '../api/events';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { useJobs } from '../app/JobsContext';
 import { segmentHref } from '../app/links';
 import { useAsync } from '../app/useAsync';
@@ -75,6 +76,7 @@ export function ViewportPage() {
   // Three.js canvas and PUTs it as that passport's thumbnail, then returns to
   // the materials table.
   const captureFor = params.get('captureFor');
+  const canEdit = useCanEdit(); // saving a thumbnail writes the passport
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
 
@@ -649,7 +651,7 @@ export function ViewportPage() {
           setFrameToken((token) => token + 1);
         }}
       />
-      {captureFor && (
+      {canEdit && captureFor && (
         <div className={styles.captureBar}>
           {captureError && <span className={styles.captureError}>{captureError}</span>}
           <button

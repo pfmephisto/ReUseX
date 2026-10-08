@@ -28,8 +28,12 @@ struct Config {
   unsigned pg_pool_size = 0;
   unsigned pg_acquire_timeout_ms = 5000;
 
+  // Redis and S3 are RESERVED: accepted on the command line, read by the
+  // client code in src/clients/, but not used by the server yet (S3
+  // snapshots, spec "Deferred"). Empty by default so an unconfigured server
+  // has nothing to warn about.
   // Redis — redis-plus-plus URI, e.g. "tcp://127.0.0.1:6379".
-  std::string redis_url = "tcp://127.0.0.1:6379";
+  std::string redis_url;
 
   // S3 / object storage. Endpoint empty = real AWS (region-derived endpoint);
   // set it for self-hosted S3-compatible servers (MinIO/Ceph/...).
@@ -41,12 +45,9 @@ struct Config {
   bool s3_path_style = true; // path-style addressing (MinIO/Ceph need it)
 
   // Auth — Bearer token required for authenticated routes. Empty disables auth.
+  // In --local mode it is the web API's access token instead (see
+  // api::ServerOptions::auth_token), required when binding beyond loopback.
   std::string auth_token; // secret
-
-  // Project — path to the .rux project database. When set, the material editor
-  // routes (#414/#415) are registered against it. Empty = not configured, those
-  // routes are skipped.
-  std::string project; // e.g. "./project.rux"
 };
 
 } // namespace ruxd

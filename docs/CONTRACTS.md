@@ -234,7 +234,7 @@ prerequisite that lets `attributes` iterate materials.
 
 ### `survey` (`rux create survey`)
 
-Fill the Ressourcekortlægning (Kortlægning in `rux gui`) from the instances
+Fill the Ressourcekortlægning (Kortlægning in the web GUI) from the instances
 table: one survey type per semantic class, one bygningsdel (survey part) per
 instance.
 
@@ -284,7 +284,7 @@ the count and codes (`SurveySyncReport::parts_orphaned` /
 orphaned part — re-file it under a new instance, or drop it — is a Phase 3
 product decision.
 
-### Editor write: segment resource (rux gui, POST /frames/{id}/segment/resource)
+### Editor write: segment resource (web GUI, POST /frames/{id}/segment/resource)
 
 <!-- No backticks in this heading: test_stage_contract parses backticked
      `### ` headings as pipeline stages, and this is not one. -->

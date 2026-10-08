@@ -68,6 +68,44 @@ class ProjectDB {
    * invalid
    */
   explicit ProjectDB(std::filesystem::path dbPath, bool readOnly = false);
+
+  /// How a connection is opened. `hardened` is for files from a source the
+  /// process does not trust (a server's uploaded or registered cases): the
+  /// connection runs with SQLITE_DBCONFIG_DEFENSIVE, trusted_schema=OFF, and
+  /// with triggers and views disabled (a ReUseX project has neither), so
+  /// nothing stored in the file's schema executes when it is opened or read.
+  struct OpenOptions {
+    bool read_only = false;
+    bool hardened = false;
+  };
+  ProjectDB(std::filesystem::path dbPath, OpenOptions options);
+
+  /// Process-wide default for `OpenOptions::hardened`, used by the
+  /// `(path, readOnly)` constructor — and so by every open in this process
+  /// that does not pass options, pipeline stages included. A server sets it
+  /// once at startup; the local `rux` CLI leaves it off.
+  static void set_hardened_by_default(bool on) noexcept;
+  static bool hardened_by_default() noexcept;
+
+  /// Result of check_integrity().
+  struct IntegrityReport {
+    enum class Kind {
+      ok,
+      unreadable,        ///< SQLite cannot open the file at all
+      corrupt,           ///< `PRAGMA quick_check` reported a problem
+      executable_schema, ///< the schema holds a trigger or a view
+    };
+    Kind kind = Kind::ok;
+    std::string detail; ///< SQLite's own words; empty when ok
+    bool ok() const noexcept { return kind == Kind::ok; }
+  };
+
+  /// Checks a file before a server adopts it, on a hardened read-only
+  /// connection that runs no migration: `PRAGMA quick_check`, then that the
+  /// schema holds no trigger and no view. Takes time linear in the file size
+  /// (minutes for tens of GB). Never throws for a bad file.
+  static IntegrityReport check_integrity(const std::filesystem::path &file);
+
   bool is_read_only() const noexcept;
   /**
    * @brief Destructor closes database connection
@@ -997,36 +1035,6 @@ class ProjectDB {
   ResourceTemplateRecord
   update_resource_template(int64_t id, const ResourceTemplatePatch &patch);
   bool delete_resource_template(int64_t id); // false when absent
-
-  // --- Export templates: legacy view over `templates` (schema v25) ---
-  /// The schema v21 shape, kept for the /export-templates routes (rux gui
-  /// until GUI Phase 4, and ruxd). `config_json` is the template's CSV
-  /// options plus `columns`: legacy-member names and user-column labels. A
-  /// write maps `columns` back with core::legacy_column_member; other config
-  /// fields become the CSV options (only when the body has any), and repeated
-  /// columns keep their first position. An update replaces only the members
-  /// the view shows (`legacy:` ones and `col:` ones whose user column
-  /// exists); category, `sys:`, `lex:` and missing `col:` members are kept in
-  /// place. A config without `columns` leaves the members untouched.
-  struct ExportTemplateRecord {
-    int64_t id = 0;
-    std::string name;
-    std::string config_json; // JSON: {"columns": [...], ...csv options}
-    std::string created_at;  // ISO 8601 UTC
-    std::string updated_at;  // ISO 8601 UTC
-  };
-
-  /// @throws core::NameConflictError
-  ExportTemplateRecord add_export_template(const std::string &name,
-                                           const std::string &config_json);
-  [[nodiscard]] std::vector<ExportTemplateRecord> list_export_templates() const;
-  [[nodiscard]] std::optional<ExportTemplateRecord>
-  export_template(int64_t id) const;
-  /// @throws std::runtime_error when @p id is unknown, core::NameConflictError
-  ExportTemplateRecord update_export_template(int64_t id,
-                                              const std::string &name,
-                                              const std::string &config_json);
-  bool delete_export_template(int64_t id);
 
   // --- Survey (Ressourcekortlægning, schema v22) ---
   struct SurveyTypeRecord {

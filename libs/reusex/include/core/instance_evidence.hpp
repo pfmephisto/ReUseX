@@ -9,7 +9,7 @@
 // 360° panoramas were taken near it (with the equirect pixel it lands on).
 //
 // Lives in `core` next to `frame_visibility` for the same reason that does:
-// the GUI read endpoints (`rux_gui_lib`) link `reusex_core` only. Core does
+// the GUI read endpoints (`ruxd_api_lib`) link `reusex_core` only. Core does
 // not link `reusex_geometry_common`, so the equirect bearing convention of
 // `geometry/EquirectProjection.hpp` is restated here (`equirect_uv`) and
 // pinned by a test against the frontend's `bearingToUv`.

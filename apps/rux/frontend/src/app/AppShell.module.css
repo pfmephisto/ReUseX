@@ -45,3 +45,13 @@
     background: color-mix(in srgb, var(--color-scrim) 45%, transparent);
   }
 }
+
+/* A viewer's case: said once, above every screen (S3 review M9). */
+.readOnly {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--tone-wait-bg);
+  color: var(--tone-wait-ink);
+  font-size: var(--font-size-sm);
+}

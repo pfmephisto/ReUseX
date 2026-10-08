@@ -26,11 +26,13 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <random>
 #include <set>
 #include <sstream>
@@ -315,12 +317,46 @@ deserializeXYZ(const void *data, size_t size, uint32_t width, uint32_t height) {
   return cloud;
 }
 
+// ── Hardening ───────────────────────────────────────────────────────────
+
+namespace {
+
+std::atomic<bool> g_hardened_by_default{false};
+
+/// Applies ProjectDB::OpenOptions::hardened to a fresh connection, before any
+/// statement reads the schema. Each setting is checked: a connection that
+/// silently stayed unhardened would be worse than a failed open.
+void harden_connection(sqlite3 *db) {
+  const struct {
+    int op;
+    int value;
+    const char *name;
+  } settings[] = {
+      {SQLITE_DBCONFIG_DEFENSIVE, 1, "DEFENSIVE"},
+      {SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, "TRUSTED_SCHEMA"},
+      // ReUseX never creates a trigger or a view; one in a file is foreign.
+      {SQLITE_DBCONFIG_ENABLE_TRIGGER, 0, "ENABLE_TRIGGER"},
+      {SQLITE_DBCONFIG_ENABLE_VIEW, 0, "ENABLE_VIEW"},
+  };
+  for (const auto &setting : settings) {
+    int now = -1;
+    if (sqlite3_db_config(db, setting.op, setting.value, &now) != SQLITE_OK ||
+        now != setting.value)
+      throw std::runtime_error(std::string("Cannot harden the connection: "
+                                           "SQLITE_DBCONFIG_") +
+                               setting.name + " was not applied");
+  }
+}
+
+} // namespace
+
 // ── Impl ────────────────────────────────────────────────────────────────
 
 class ProjectDB::Impl {
     public:
   std::filesystem::path dbPath;
   bool readOnly;
+  bool hardened = false;
   sqlite3 *db = nullptr;
   /// survey_parts.passport_guid exists (schema v25). Set once at the end of
   /// configure(): a read-write open has migrated, a read-only open of an
@@ -357,8 +393,8 @@ class ProjectDB::Impl {
     }
   }
 
-  Impl(std::filesystem::path path, bool ro)
-      : dbPath(std::move(path)), readOnly(ro) {
+  Impl(std::filesystem::path path, bool ro, bool harden)
+      : dbPath(std::move(path)), readOnly(ro), hardened(harden) {
     reusex::info("Opening ReUseX database: {}", dbPath);
 
     // Open sqlite3 connection for project database
@@ -374,8 +410,10 @@ class ProjectDB::Impl {
     // ~Impl never runs for a constructor that throws, so anything that fails
     // from here on (a probe that finds the file locked, a migration) must
     // close the handle itself. Leaking it would also leak its WAL read lock,
-    // once per failed open — one per 503 in `rux gui`.
+    // once per failed open — one per 503 in `ruxd --local`.
     try {
+      if (hardened)
+        harden_connection(db);
       configure();
     } catch (...) {
       sqlite3_close_v2(db);
@@ -401,7 +439,7 @@ class ProjectDB::Impl {
     // once. With WAL, readers never block each other, but a reader whose open
     // races another connection's close (which takes the file lock to try a
     // checkpoint) or its WAL-index rebuild got SQLITE_BUSY immediately — the
-    // 503s on a full `rux gui` page load. Writers never block WAL readers, so
+    // 503s on a full web GUI page load. Writers never block WAL readers, so
     // the wait only ever covers those millisecond windows; a lock held past
     // the timeout is still reported.
     sqlite3_busy_timeout(db, BUSY_TIMEOUT_MS);
@@ -428,7 +466,8 @@ class ProjectDB::Impl {
       // project on its on-disk schema. Readers degrade gracefully (newer
       // columns are treated as absent), but tell the user how to upgrade.
       const int onDisk = getCurrentSchemaVersion();
-      if (onDisk >= 0 && onDisk < LATEST_SCHEMA_VERSION) {
+      if (onDisk >= 0 && onDisk < LATEST_SCHEMA_VERSION &&
+          firstStaleNotice(onDisk)) {
         reusex::warn("Project schema is v{} but this build expects v{}. "
                      "Opened read-only, so no migration was applied and "
                      "newer fields are unavailable. Open the project "
@@ -438,6 +477,26 @@ class ProjectDB::Impl {
     }
     hasPassportColumn = columnExists("survey_parts", "passport_guid");
     hasDismissedTable = tableExists("survey_dismissed_instances");
+  }
+
+  /// True the first time this process opens dbPath read-only at schema
+  /// @p onDisk. A server reads a stale case's card, render and summary over
+  /// separate read-only connections; the advice to migrate is worth saying
+  /// once, not on every one of them (final review #9). Later opens log it
+  /// at debug.
+  bool firstStaleNotice(int onDisk) const {
+    static std::mutex mutex;
+    static std::set<std::pair<std::string, int>> noticed;
+    std::error_code ec;
+    auto key = std::filesystem::weakly_canonical(dbPath, ec).string();
+    if (ec)
+      key = dbPath.string();
+    std::lock_guard<std::mutex> lock(mutex);
+    if (noticed.emplace(std::move(key), onDisk).second)
+      return true;
+    reusex::debug("Project schema is v{} (read-only, not migrated): {}", onDisk,
+                  dbPath);
+    return false;
   }
 
   /// `save_instances` (every `rux create instances` re-run) deletes the
@@ -6673,8 +6732,89 @@ class ProjectDB::Impl {
 // ── Public Interface Implementation ─────────────────────────────────────
 
 ProjectDB::ProjectDB(std::filesystem::path dbPath, bool readOnly)
-    : impl_(std::make_unique<Impl>(std::move(dbPath), readOnly)) {
+    : ProjectDB(std::move(dbPath),
+                OpenOptions{readOnly, hardened_by_default()}) {}
+
+ProjectDB::ProjectDB(std::filesystem::path dbPath, OpenOptions options)
+    : impl_(std::make_unique<Impl>(std::move(dbPath), options.read_only,
+                                   options.hardened)) {
   impl_->validateSchema();
+}
+
+void ProjectDB::set_hardened_by_default(bool on) noexcept {
+  g_hardened_by_default.store(on);
+}
+
+bool ProjectDB::hardened_by_default() noexcept {
+  return g_hardened_by_default.load();
+}
+
+ProjectDB::IntegrityReport
+ProjectDB::check_integrity(const std::filesystem::path &file) {
+  using Kind = IntegrityReport::Kind;
+  sqlite3 *db = nullptr;
+  const int rc = sqlite3_open_v2(file.string().c_str(), &db,
+                                 SQLITE_OPEN_READONLY, nullptr);
+  struct Closer {
+    sqlite3 *db;
+    ~Closer() { sqlite3_close_v2(db); }
+  } closer{db}; // after the open: sqlite3_open_v2 sets db even on failure
+  if (rc != SQLITE_OK)
+    return {Kind::unreadable, db ? sqlite3_errmsg(db) : "cannot open it"};
+  try {
+    harden_connection(db);
+  } catch (const std::exception &e) {
+    return {Kind::unreadable, e.what()};
+  }
+  sqlite3_busy_timeout(db, Impl::BUSY_TIMEOUT_MS);
+
+  // quick_check is O(N) and skips only the index-content cross-check of
+  // integrity_check; it catches the malformed b-tree pages that matter here.
+  // It answers one row "ok", or up to 100 rows naming problems.
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db, "PRAGMA quick_check;", -1, &stmt, nullptr) !=
+      SQLITE_OK)
+    return {Kind::corrupt, sqlite3_errmsg(db)};
+  std::string problems;
+  int step = SQLITE_ROW;
+  for (int rows = 0; (step = sqlite3_step(stmt)) == SQLITE_ROW && rows < 5;
+       ++rows) {
+    const auto *text =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const std::string row = text ? text : "";
+    if (row == "ok")
+      continue;
+    if (!problems.empty())
+      problems += "; ";
+    problems += row;
+  }
+  const bool step_failed = step != SQLITE_ROW && step != SQLITE_DONE;
+  const std::string step_error = step_failed ? sqlite3_errmsg(db) : "";
+  sqlite3_finalize(stmt);
+  if (step_failed)
+    return {Kind::corrupt, step_error};
+  if (!problems.empty())
+    return {Kind::corrupt, problems};
+
+  if (sqlite3_prepare_v2(db,
+                         "SELECT type, name FROM sqlite_master WHERE type IN "
+                         "('trigger', 'view') ORDER BY type, name LIMIT 5;",
+                         -1, &stmt, nullptr) != SQLITE_OK)
+    return {Kind::corrupt, sqlite3_errmsg(db)};
+  std::string found;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const auto *type =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    const auto *name =
+        reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    if (!found.empty())
+      found += ", ";
+    found += std::string(type ? type : "?") + " '" + (name ? name : "") + "'";
+  }
+  sqlite3_finalize(stmt);
+  if (!found.empty())
+    return {Kind::executable_schema, found};
+  return {};
 }
 
 ProjectDB::~ProjectDB() = default;
@@ -8250,158 +8390,6 @@ bool ProjectDB::delete_resource_template(int64_t id) {
     throw std::runtime_error("delete_resource_template: " +
                              std::string(sqlite3_errmsg(impl_->db)));
   return sqlite3_changes(impl_->db) > 0;
-}
-
-// --- Export templates: legacy view over `templates` (schema v25) ---
-
-namespace {
-ProjectDB::ExportTemplateRecord
-as_export_template(const ProjectDB::ResourceTemplateRecord &t,
-                   const std::vector<core::ResourceKey> &catalogue) {
-  auto config = nlohmann::json::parse(t.csv_json, nullptr, false);
-  if (config.is_discarded() || !config.is_object())
-    config = nlohmann::json::object();
-  config["columns"] = core::legacy_columns(
-      core::read_members(t.members_json, t.name), catalogue);
-  return {t.id, t.name, config.dump(), t.created_at, t.updated_at};
-}
-
-/// An export config split into (column members, csv_json). Either is nullopt
-/// when the config does not carry it, so an update keeps what is stored.
-std::pair<std::optional<std::vector<core::TemplateMember>>,
-          std::optional<std::string>>
-from_export_config(const std::string &config_json,
-                   const std::vector<core::ResourceKey> &catalogue,
-                   std::string_view who) {
-  auto config = nlohmann::json::parse(config_json, nullptr, false);
-  if (config.is_discarded() || !config.is_object())
-    config = nlohmann::json::object();
-  std::optional<std::vector<core::TemplateMember>> members;
-  if (config.contains("columns") && config["columns"].is_array())
-    members = column_members(config["columns"], catalogue, who);
-  config.erase("columns");
-  std::optional<std::string> csv;
-  if (!config.empty())
-    csv = config.dump();
-  return {members, csv};
-}
-
-/// A member the legacy view owns, i.e. one core::legacy_columns renders into
-/// `columns`: a `legacy:` member, or a `col:` member whose user column still
-/// exists. A `col:` member whose column was deleted is not in the view, so a
-/// write through the view never removes it (spec: kept as missing).
-bool is_column_member(const core::TemplateMember &m,
-                      const std::vector<core::ResourceKey> &catalogue) {
-  if (m.kind != core::MemberKind::key)
-    return false;
-  if (m.ref.rfind(core::kLegacyKeyPrefix, 0) == 0)
-    return true;
-  return m.ref.rfind("col:", 0) == 0 && core::find_key(catalogue, m.ref);
-}
-
-/// R-P4: replace only the view's members (see is_column_member) of @p stored
-/// with @p columns. Every other member (category, sys:, lex:, a missing
-/// col:) keeps its relative position; the new column members go where the
-/// first old one was, or at the end when there was none. A column that maps
-/// onto a member already kept is not added twice.
-std::vector<core::TemplateMember>
-merge_column_members(const std::vector<core::TemplateMember> &stored,
-                     const std::vector<core::TemplateMember> &columns,
-                     const std::vector<core::ResourceKey> &catalogue) {
-  const auto owned = [&](const core::TemplateMember &m) {
-    return is_column_member(m, catalogue);
-  };
-  std::vector<core::TemplateMember> kept;
-  for (const auto &m : stored)
-    if (!owned(m))
-      kept.push_back(m);
-  std::vector<core::TemplateMember> fresh;
-  for (const auto &m : columns)
-    if (std::find(kept.begin(), kept.end(), m) == kept.end() &&
-        std::find(fresh.begin(), fresh.end(), m) == fresh.end())
-      fresh.push_back(m);
-  std::vector<core::TemplateMember> out;
-  bool placed = false;
-  for (const auto &m : stored) {
-    if (!owned(m)) {
-      out.push_back(m);
-      continue;
-    }
-    if (!placed) {
-      out.insert(out.end(), fresh.begin(), fresh.end());
-      placed = true;
-    }
-  }
-  if (!placed)
-    out.insert(out.end(), fresh.begin(), fresh.end());
-  return out;
-}
-} // namespace
-
-ProjectDB::ExportTemplateRecord
-ProjectDB::add_export_template(const std::string &name,
-                               const std::string &config_json) {
-  const auto catalogue = core::key_catalogue(list_property_definitions());
-  const auto [members, csv] =
-      from_export_config(config_json, catalogue, "add_export_template");
-  ResourceTemplateRecord rec;
-  rec.name = name;
-  rec.members_json =
-      core::members_json(members.value_or(std::vector<core::TemplateMember>{}))
-          .dump();
-  rec.csv_json = csv.value_or("{}");
-  return as_export_template(add_resource_template(rec), catalogue);
-}
-
-std::vector<ProjectDB::ExportTemplateRecord>
-ProjectDB::list_export_templates() const {
-  const auto catalogue = core::key_catalogue(list_property_definitions());
-  std::vector<ExportTemplateRecord> out;
-  for (const auto &t : resource_templates())
-    out.push_back(as_export_template(t, catalogue));
-  return out;
-}
-
-std::optional<ProjectDB::ExportTemplateRecord>
-ProjectDB::export_template(int64_t id) const {
-  const auto t = resource_template(id);
-  if (!t)
-    return std::nullopt;
-  return as_export_template(*t,
-                            core::key_catalogue(list_property_definitions()));
-}
-
-ProjectDB::ExportTemplateRecord
-ProjectDB::update_export_template(int64_t id, const std::string &name,
-                                  const std::string &config_json) {
-  impl_->checkWritable();
-  // Read, merge and write as one unit, so a concurrent writer on the same
-  // file cannot slip in between the read of the members and the UPDATE.
-  Savepoint sp(impl_->db, "update_export_template");
-  const auto stored = resource_template(id);
-  if (!stored)
-    throw std::runtime_error("update_export_template: id not found: " +
-                             std::to_string(id));
-  const auto catalogue = core::key_catalogue(list_property_definitions());
-  const auto [columns, csv] =
-      from_export_config(config_json, catalogue, "update_export_template");
-  ResourceTemplatePatch p;
-  p.name = name;
-  if (columns)
-    p.members_json =
-        core::members_json(
-            merge_column_members(
-                core::read_members(stored->members_json, stored->name),
-                *columns, catalogue))
-            .dump();
-  p.csv_json = csv;
-  auto out = as_export_template(update_resource_template(id, p), catalogue);
-  sp.release();
-  return out;
-}
-
-bool ProjectDB::delete_export_template(int64_t id) {
-  return delete_resource_template(id);
 }
 
 // --- Survey (Ressourcekortlægning, schema v22) ---

@@ -1,25 +1,32 @@
-title: Sager: list, switch and create cases through ruxd
-labels: gui, enhancement, backend, frontend
+title: Sager: show a case's running job on its card
+labels: gui, enhancement, frontend
+
+## Background
+Most of this draft's original scope shipped with the ruxd server work
+(spec `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`,
+phases S2 and S3):
+- `GET /api/v1/cases` lists cases (id, name, file name, size, archived, the
+  caller's role) with each card's survey figures read without opening the
+  case, and a server-rendered plan thumbnail (`/cases/{cid}/renders`).
+- Every project route is case-scoped (`/api/v1/cases/{cid}/…`), and the
+  frontend's case screens live under `/sager/:cid/…`, so switching a case is
+  navigation.
+- `/sager` creates a case and uploads a `.rux` (chunked `/api/v1/uploads`),
+  in `ruxd --local <dir>` and in server mode alike.
 
 ## Problem
-`rux gui` serves one `.rux`, so Phase 6's Sager screen (`/sager`) shows that
-project as its single card and a panel saying how to open another
-(`rux -p <fil>.rux gui`). The prototype shows four cases with statuses that
-only a server deployment has (`Scanning i gang`, `Afventer upload`) and a
-`+ Nyt projekt` button. The spec assigns multi-project listing and switching
-to `ruxd` (#265's own Phase 6 — a different numbering from the redesign's).
+What is left is the prototype's job-driven status (`Scanning i gang`,
+`Afventer upload`). The card's pill is derived from the survey only (Kladde /
+Gennemgang / Klar til indberetning / Gennemgået, `src/sager/model.ts`), so a
+case whose pipeline is running reads the same as an idle one.
 
 ## Proposed fix
-- [ ] A `GET /api/v1/cases` contract (id, name, address, the survey summary
-      figures the card shows, a status, a thumbnail URL) that `ruxd`
-      implements and `rux gui` answers with its one project, so the frontend
-      has one code path.
-- [ ] Case switching in the shell (the selected case scopes every other
-      route's requests), and `+ Nyt projekt` creating one on the server.
-- [ ] Map `ruxd`'s capture/upload job states onto the card's status pill,
-      next to Phase 6's derived Kladde / Gennemgang / Klar til indberetning /
-      Gennemgået.
-- [ ] The card grid already uses the prototype's `auto-fill` columns, so a
-      longer list needs no layout change.
+- [ ] Carry the case's active job (stage, state, progress) in `GET /cases`,
+      from the job store, without opening the case.
+- [ ] Show it on the card next to the survey-derived pill, and keep it live
+      (events are per case today: a server-level job channel, or polling the
+      list while a job runs).
+- [ ] An upload in progress (an open `/api/v1/uploads` session of the
+      caller's) as a placeholder card.
 
-category=CLI estimate=1w
+category=CLI estimate=2d

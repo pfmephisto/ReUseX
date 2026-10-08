@@ -5,13 +5,13 @@
 #
 # Bring the rux GUI up for a screenshot pass, or tear it down.
 #
-# The frontend is a pure client of `rux gui`, and the Vite dev server MUST proxy
-# to it (rux gui / Crow 1.3 cannot answer a CORS preflight, so a bare
+# The frontend is a pure client of `ruxd --local`, and the Vite dev server MUST
+# proxy to it (ruxd / Crow 1.3 cannot answer a CORS preflight, so a bare
 # cross-origin call fails — see apps/rux/frontend/README.md). This script starts
 # both halves against a project and prints the URL to screenshot.
 #
 # The project is never served in place. `start` copies it into the run
-# directory and serves the copy, because `rux gui` migrates the schema and
+# directory and serves the copy, because `ruxd --local` migrates the schema and
 # leaves -wal/-shm files beside whatever it opens — a git-tracked fixture
 # included. Every `start` serves a fresh copy, so a flow that mutates the
 # project can simply be re-run.
@@ -22,14 +22,18 @@
 # time, so `stop` from another shell missed the servers.
 #
 # Usage:
-#   dev_env.sh start [project.rux] [gui_port] [vite_port]
+#   dev_env.sh start [project.rux | dir] [gui_port] [vite_port]
+#
+# A directory serves a copy of every .rux in it, each one a case
+# (`ruxd --local <dir>`); open /sager to pick one.
 #   dev_env.sh stop
 #   dev_env.sh status
 #
 # Defaults: project=tests/fixtures/scans/office_corridor.rux, gui_port=8420,
-# vite_port=5173. Run from inside `nix develop` (provides node + the rux binary).
-# Override the rux binary with RUX_BIN=... (defaults to `rux` on PATH, then
-# ./build/apps/rux/rux).
+# vite_port=5173. Run from inside `nix develop` (provides node).
+# Override the ruxd binary with RUXD_BIN=... (defaults to this checkout's
+# ./build/apps/ruxd/ruxd, then `ruxd` on PATH — in that order, because a ruxd
+# on PATH may be an older build without --local, or another checkout's).
 set -euo pipefail
 
 # Repo root = four dirs above this script (scripts/ → design-studio/ → skills/ → .claude/ → root).
@@ -41,29 +45,29 @@ mkdir -p "$RUN_DIR"
 
 cmd="${1:-start}"
 
-resolve_rux() {
-  if [[ -n "${RUX_BIN:-}" ]]; then echo "$RUX_BIN"; return; fi
-  if command -v rux >/dev/null 2>&1; then command -v rux; return; fi
-  if [[ -x "$REPO_ROOT/build/apps/rux/rux" ]]; then echo "$REPO_ROOT/build/apps/rux/rux"; return; fi
+resolve_ruxd() {
+  if [[ -n "${RUXD_BIN:-}" ]]; then echo "$RUXD_BIN"; return; fi
+  if [[ -x "$REPO_ROOT/build/apps/ruxd/ruxd" ]]; then echo "$REPO_ROOT/build/apps/ruxd/ruxd"; return; fi
+  if command -v ruxd >/dev/null 2>&1; then command -v ruxd; return; fi
   echo ""; return
 }
 
 # Who each pidfile's process must be: its executable name (`ps -o comm=`) and
-# a substring of its command line (`ps -o args=`). `rux gui` is the rux binary
-# serving the copy under $RUN_DIR/project/; the dev server is node running
+# a substring of its command line (`ps -o args=`). `ruxd --local` is the ruxd
+# binary serving the copy under $RUN_DIR/project/; the dev server is node running
 # vite with the flags `start` gives it. Both are checked: a command line alone
 # is not enough, since any shell whose script merely mentions "vite" would
 # match it. A live pid that fails the check is a stale pidfile whose pid the
 # system has reused — it is never signalled.
 expected_comm() {
   case "$1" in
-    gui) echo "rux" ;;
+    gui) echo "ruxd" ;;
     vite) echo "node" ;;
   esac
 }
 expected_args() {
   case "$1" in
-    gui) echo " -p $RUN_DIR/project/" ;;
+    gui) echo " --local $RUN_DIR/project/" ;;
     vite) echo "node_modules/.bin/vite --port " ;;
   esac
 }
@@ -124,12 +128,12 @@ case "$cmd" in
       echo "error: already running (bash $SCRIPT_DIR/dev_env.sh status); stop it first" >&2
       exit 1
     fi
-    rux_bin="$(resolve_rux)"
-    if [[ -z "$rux_bin" ]]; then
-      echo "error: no rux binary found. Build it (cmake --build build) or set RUX_BIN=." >&2
+    ruxd_bin="$(resolve_ruxd)"
+    if [[ -z "$ruxd_bin" ]]; then
+      echo "error: no ruxd binary found. Build it (cmake --build build) or set RUXD_BIN=." >&2
       exit 1
     fi
-    if [[ ! -f "$project" ]]; then
+    if [[ ! -f "$project" && ! -d "$project" ]]; then
       echo "error: project not found: $project" >&2
       exit 1
     fi
@@ -141,13 +145,25 @@ case "$cmd" in
     # Serve a throwaway copy, never the original (see the header).
     rm -rf "$RUN_DIR/project"
     mkdir -p "$RUN_DIR/project"
-    served="$RUN_DIR/project/$(basename "$project")"
-    cp "$project" "$served"
-    if [[ -f "$project-wal" ]]; then cp "$project-wal" "$served-wal"; fi
+    if [[ -d "$project" ]]; then
+      # Every case of the directory; reflinks keep a multi-GB scan cheap.
+      served="$RUN_DIR/project/"
+      shopt -s nullglob
+      for f in "$project"/*.rux; do
+        cp --reflink=auto "$f" "$served"
+        if [[ -f "$f-wal" ]]; then cp --reflink=auto "$f-wal" "$served"; fi
+      done
+      shopt -u nullglob
+    else
+      served="$RUN_DIR/project/$(basename "$project")"
+      cp --reflink=auto "$project" "$served"
+      if [[ -f "$project-wal" ]]; then cp "$project-wal" "$served-wal"; fi
+    fi
 
-    echo "Starting rux gui  ($rux_bin) on :$gui_port against a copy of $(basename "$project")…"
+    echo "Starting ruxd --local ($ruxd_bin) on :$gui_port against a copy of $(basename "$project")…"
     RUX_GUI_LOG="$RUN_DIR/gui.log"
-    setsid nohup "$rux_bin" -p "$served" gui --port "$gui_port" --no-browser \
+    # -v: info-level log, so gui.log shows requests and job progress.
+    setsid nohup "$ruxd_bin" --local "$served" --port "$gui_port" -v \
       >"$RUX_GUI_LOG" 2>&1 &
     echo $! > "$RUN_DIR/gui.pid"
 
@@ -165,7 +181,7 @@ case "$cmd" in
     for _ in $(seq 1 60); do
       if curl -sf -o /dev/null "$url" 2>/dev/null; then
         echo
-        echo "  UP:      $url        (screenshot this, never :$gui_port directly)"
+        echo "  UP:      $url/sager  (screenshot this, never :$gui_port directly)"
         echo "  api:     proxied to  http://localhost:$gui_port"
         echo "  project: $served   (a copy; refreshed by every start)"
         echo "  logs:    $RUX_GUI_LOG , $VITE_LOG"

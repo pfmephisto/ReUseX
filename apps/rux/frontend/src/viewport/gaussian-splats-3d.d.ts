@@ -45,7 +45,7 @@ declare module '@mkkellogg/gaussian-splats-3d' {
   export interface DropInViewerOptions {
     /**
      * Must be `false` here: a `SharedArrayBuffer` needs a cross-origin-isolated
-     * document, and `rux gui` sends no COOP/COEP headers.
+     * document, and `ruxd --local` sends no COOP/COEP headers.
      */
     sharedMemoryForWorkers?: boolean;
     gpuAcceleratedSort?: boolean;

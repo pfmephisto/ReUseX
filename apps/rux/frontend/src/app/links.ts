@@ -21,6 +21,8 @@ export const SEGMENTERING_PATH = '/segmentering';
 
 /** Skabeloner — the template editor (resources/templates spec §6.2). Its page arrives in Phase 4. */
 export const SKABELONER_PATH = '/skabeloner';
+/** A case's settings: its members (server mode). */
+export const INDSTILLINGER_PATH = '/indstillinger';
 
 export const VIEWPORT_PATH = '/viewport';
 

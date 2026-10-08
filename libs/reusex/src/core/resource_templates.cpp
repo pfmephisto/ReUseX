@@ -181,24 +181,6 @@ TemplateMember legacy_column_member(std::string_view column,
   return {MemberKind::key, std::string(kLegacyKeyPrefix) + std::string(column)};
 }
 
-std::vector<std::string>
-legacy_columns(const std::vector<TemplateMember> &members,
-               const std::vector<ResourceKey> &catalogue) {
-  std::vector<std::string> out;
-  for (const auto &m : members) {
-    if (m.kind != MemberKind::key)
-      continue;
-    if (m.ref.rfind(kLegacyKeyPrefix, 0) == 0) {
-      out.push_back(m.ref.substr(kLegacyKeyPrefix.size()));
-      continue;
-    }
-    if (const auto *k = find_key(catalogue, m.ref);
-        k && k->source == KeySource::column)
-      out.push_back(k->label);
-  }
-  return out;
-}
-
 std::string unique_name(std::string_view base, std::string_view tag,
                         const std::vector<std::string> &taken) {
   auto is_taken = [&](const std::string &n) {

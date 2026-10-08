@@ -42,7 +42,7 @@ inline int exit_code_for(int status) {
 ///   therefore remains the only user-visible diagnostic, unchanged.
 ///
 /// A successful status returns normally, so long-running and interactive
-/// subcommands (`view`, `gui`) keep their existing lifecycle: the throw can
+/// subcommands (`view`) keep their existing lifecycle: the throw can
 /// only happen after `run_subcommand_*` has already returned.
 inline void finish(int status) {
   if (status != RuxError::SUCCESS)

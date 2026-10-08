@@ -178,10 +178,6 @@
   outline-color: var(--color-on-chrome);
 }
 
-.back .backActive {
-  color: var(--color-on-chrome);
-}
-
 .theme {
   display: none; /* the title bar carries the theme control above the breakpoint */
 }

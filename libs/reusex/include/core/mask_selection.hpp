@@ -8,7 +8,7 @@
 /// survey part (Segmentering view, spec B2).
 ///
 /// Lives in `core` (not `vision`) for the same reason `frame_visibility` does:
-/// the GUI server (`rux_gui_lib`) links `reusex_core` but not `reusex_vision`,
+/// the GUI server (`ruxd_api_lib`) links `reusex_core` but not `reusex_vision`,
 /// and the existing batch projector `vision::project()` drags in RTABMap. The
 /// projection here is a plain pinhole model plus an occlusion test against the
 /// frame's own depth image — no z-buffer, no RTABMap, no PCL in this header.

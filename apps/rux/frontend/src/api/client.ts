@@ -12,15 +12,22 @@
  * Two rules from `docs/gui/README.md` are baked in and must not be worked
  * around in calling code:
  *
+ *  0. **Case-scoped.** Every project route lives under
+ *     `/api/v1/cases/{cid}` (ruxd multi-case spec, phase S2). The app's `api`
+ *     is pointed at one case with {@link RuxApiClient.selectCase} before the
+ *     first render (`main.tsx`); the few server-level routes (the SAM3 model
+ *     status) resolve against `serverBaseUrl` instead. The case list itself
+ *     lives in `cases.ts`.
  *  1. **Same-origin only.** The default base URL is a relative `/api/v1`. In
- *     development, Vite's `server.proxy` forwards it to `rux gui`, so the
- *     browser never makes a cross-origin request. `rux gui` cannot answer a
+ *     development, Vite's `server.proxy` forwards it to `ruxd --local`, so the
+ *     browser never makes a cross-origin request. `ruxd --local` cannot answer a
  *     CORS preflight (Crow 1.3 replies to `OPTIONS` before it has parsed the
  *     request headers), so any JSON-bodied cross-origin call would fail.
  *  2. **Mutating routes carry `Content-Type: application/json`.** The server
  *     requires it — it is what a forged "simple request" cannot set.
  */
 
+import { authAwareFetch } from '../app/unauthorized';
 import type {
   CloudInfo,
   CloudPointsPage,
@@ -96,6 +103,11 @@ import type {
 /** Default base path. Relative on purpose — see rule 1 above. */
 export const DEFAULT_BASE_URL = '/api/v1';
 
+/** The base URL of one case's routes: `/api/v1/cases/{cid}`. */
+export function caseBaseUrl(cid: string, serverBaseUrl: string = DEFAULT_BASE_URL): string {
+  return `${serverBaseUrl.replace(/\/+$/, '')}/cases/${encodeURIComponent(cid)}`;
+}
+
 /**
  * A non-2xx response, carrying the status so a caller can branch on it.
  *
@@ -157,8 +169,13 @@ export type FetchLike = (
 ) => Promise<Response>;
 
 export interface ClientOptions {
-  /** Base URL including the version prefix. Defaults to `/api/v1`. */
+  /**
+   * Base URL of the project routes: a case's `/api/v1/cases/{cid}`
+   * ({@link caseBaseUrl}). Defaults to `/api/v1`, which only the tests use.
+   */
   baseUrl?: string;
+  /** Base URL of the server-level routes. Defaults to `/api/v1`. */
+  serverBaseUrl?: string;
   /** Override the transport. Defaults to the global `fetch`. */
   fetch?: FetchLike;
 }
@@ -240,22 +257,49 @@ export async function describeFailure(response: Response): Promise<string> {
 }
 
 export class RuxApiClient {
-  private readonly baseUrl: string;
+  private baseUrl: string;
+  private readonly serverBaseUrl: string;
   private readonly doFetch: FetchLike;
 
   constructor(options: ClientOptions = {}) {
     // Trailing slashes would produce `//clouds`, which the router does not match.
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+    this.serverBaseUrl = (options.serverBaseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+    this.doFetch = options.fetch ?? ((input, init) => authAwareFetch(input, init as RequestInit));
   }
+
+  /**
+   * Point this client at case `cid`. The app calls it once, before the first
+   * render; switching case is a page load, so nothing in flight ever straddles
+   * two cases.
+   */
+  selectCase(cid: string): void {
+    this.baseUrl = caseBaseUrl(cid, this.serverBaseUrl);
+    this.currentCase = cid;
+  }
+
+  /** The case selected with {@link selectCase}, if any. */
+  get caseId(): string | undefined {
+    return this.currentCase;
+  }
+
+  private currentCase: string | undefined;
 
   /** Absolute (or root-relative) URL for a contract path. Public for <img src>. */
   url(path: string, query?: Query): string {
     return `${this.baseUrl}${path}${buildQuery(query)}`;
   }
 
+  /** URL of a server-level (not per-case) route. */
+  private serverUrl(path: string, query?: Query): string {
+    return `${this.serverBaseUrl}${path}${buildQuery(query)}`;
+  }
+
   private async requestJson<T>(path: string, query?: Query, signal?: AbortSignal): Promise<T> {
-    const url = this.url(path, query);
+    return this.getJsonAt<T>(this.url(path, query), signal);
+  }
+
+  private async getJsonAt<T>(url: string, signal?: AbortSignal): Promise<T> {
     const response = await this.doFetch(url, { method: 'GET', signal });
     if (!response.ok) {
       throw new ApiRequestError(response.status, await describeFailure(response), url);
@@ -330,11 +374,7 @@ export class RuxApiClient {
   }
 
   async endpoints(signal?: AbortSignal): Promise<EndpointInfo[]> {
-    const body = await this.requestJson<{ endpoints: EndpointInfo[] }>(
-      '/endpoints',
-      undefined,
-      signal,
-    );
+    const body = await this.getJsonAt<{ endpoints: EndpointInfo[] }>(this.serverUrl('/endpoints'), signal);
     return body.endpoints;
   }
 
@@ -740,7 +780,8 @@ export class RuxApiClient {
    * no managed model provider.
    */
   sam3Status(cuda?: boolean, signal?: AbortSignal): Promise<Sam3ModelStatus> {
-    return this.requestJson<Sam3ModelStatus>('/models/sam3/status', { cuda }, signal);
+    // Server-level: one managed model serves every case.
+    return this.getJsonAt<Sam3ModelStatus>(this.serverUrl('/models/sam3/status', { cuda }), signal);
   }
 
   /**
@@ -898,7 +939,7 @@ export class RuxApiClient {
    */
   async uploadThumbnail(guid: string, file: File): Promise<void> {
     const url = this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
-    const response = await fetch(url, {
+    const response = await authAwareFetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': file.type || 'image/jpeg' },
       body: file,
@@ -1295,5 +1336,8 @@ export class RuxApiClient {
   }
 }
 
-/** The client the app uses. Same-origin, default base path. */
+/**
+ * The client the app uses: same-origin, pointed at the open case by
+ * `main.tsx` (`api.selectCase`) before anything renders.
+ */
 export const api = new RuxApiClient();

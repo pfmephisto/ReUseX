@@ -26,6 +26,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { api } from '../api/client';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { useLabelQueue } from '../app/LabelQueueContext';
 import { useSam3 } from '../app/useSam3';
 import type { QueueItem } from '../data/labelQueue';
@@ -199,6 +200,8 @@ function LabelLibrarySection() {
 function QueueSection() {
   const { items, dequeue, clearFinished, setItemStatus, pendingCount } = useLabelQueue();
   const sam3 = useSam3();
+  // Running the queue saves label images: not for a viewer of the case.
+  const canEdit = useCanEdit();
 
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -292,7 +295,7 @@ function QueueSection() {
       {items.length > 0 && sam3.available && <Sam3StatusChip view={sam3.view} />}
 
       {/* ---- run controls ---- */}
-      {items.length > 0 && (
+      {canEdit && items.length > 0 && (
         <div className={styles.runBar}>
           {isRunning ? (
             <>

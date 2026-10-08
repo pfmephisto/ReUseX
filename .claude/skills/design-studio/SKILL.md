@@ -117,15 +117,16 @@ before handing off.
 
 ### 5. Look at it (mandatory), in both themes
 
-Run the app and screenshot it. The frontend is a client of `rux gui`, so bring
+Run the app and screenshot it. The frontend is a client of `ruxd --local`, so bring
 the backend up first (fixture project provided):
 
 ```bash
-# one command: starts `rux gui` on a COPY of the fixture (never the tracked file) + the Vite dev server, prints URLs; state in .superpowers/dev-env/
+# one command: starts `ruxd --local` on a COPY of the fixture (never the tracked file) + the Vite dev server, prints URLs; state in .superpowers/dev-env/
 bash <skill-dir>/scripts/dev_env.sh start
-# then capture the route you changed, BOTH themes:
-bash <skill-dir>/scripts/shot.sh http://localhost:5173/viewport --out shots/ --theme dark
-bash <skill-dir>/scripts/shot.sh http://localhost:5173/viewport --out shots/ --theme light
+# then capture the route you changed, BOTH themes. Case screens live under
+# /sager/<case id>/ (the fixture's id is office-corridor); /sager is the list:
+bash <skill-dir>/scripts/shot.sh http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme dark
+bash <skill-dir>/scripts/shot.sh http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme light
 bash <skill-dir>/scripts/dev_env.sh stop
 ```
 

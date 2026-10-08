@@ -23,6 +23,7 @@
 
 import type { KeyboardEvent, RefObject } from 'react';
 
+import { useCanEdit } from '../../app/CaseRoleContext';
 import { fieldKeyAction as sharedFieldKeyAction } from '../../app/editorKeys';
 import { useArmedConfirm } from '../../app/useArmedConfirm';
 import type { Resource, ResourceKey, Sample, SurveyPart, SurveyType, Treatment } from '../../api/types';
@@ -173,6 +174,9 @@ export function DetailPanel({
   // The entity whose quantity/note/star this panel edits: the selected part
   // when one is selected, otherwise the type itself.
   const current = part ?? type;
+  // A viewer reads the panel: fields are read-only and the actions that
+  // write (★, delete, approve, reject, reopen) are not shown.
+  const canEdit = useCanEdit();
   const { quantityProps, noteProps, revertQuantity, revertNote } = useQuantityNoteDrafts(current, { onQuantity, onNote });
 
   function onFieldKey(e: KeyboardEvent<HTMLElement>, singleLine: boolean, revert: ((el: HTMLElement) => void) | null) {
@@ -227,6 +231,7 @@ export function DetailPanel({
               className={`${styles.input} mono`}
               aria-label={quantityLabel(part)}
               {...quantityProps}
+              readOnly={!canEdit}
               onKeyDown={(e) => onFieldKey(e, true, revertQuantity)}
             />
             <span className={styles.unit}>{type.unit}</span>
@@ -245,6 +250,7 @@ export function DetailPanel({
           <select
             className={styles.select}
             value={type.treatment}
+            disabled={!canEdit}
             onChange={(e) => onTreatment(e.target.value as Treatment)}
             onKeyDown={(e) => onFieldKey(e, false, null)}
           >
@@ -271,6 +277,7 @@ export function DetailPanel({
           rows={3}
           aria-label="Note"
           {...noteProps}
+          readOnly={!canEdit}
           onKeyDown={(e) => onFieldKey(e, false, revertNote)}
         />
       </div>
@@ -299,7 +306,7 @@ export function DetailPanel({
                     <ResourceCell
                       resourceKey={key}
                       value={resource?.values[key.id] ?? null}
-                      editing={key.editable}
+                      editing={canEdit && key.editable}
                       variant="field"
                       onCommit={(v) => onCellCommit(part.code, key.id, v)}
                       onInvalid={onInvalid}
@@ -314,25 +321,29 @@ export function DetailPanel({
       </section>
 
       <div className={styles.actions}>
-        <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>
-          {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
-        </button>
-        <button
-          type="button"
-          className={styles.danger}
-          disabled={busy}
-          onBlur={confirm.disarm}
-          onClick={(e) => {
-            if (!armed) {
-              if (selectionKey) confirm.arm(selectionKey, e.currentTarget);
-              return;
-            }
-            confirm.disarm();
-            onDelete();
-          }}
-        >
-          {deleteLabel(type, part, armed)}
-        </button>
+        {canEdit && (
+          <button type="button" className={styles.ghost} onClick={onStar} disabled={busy}>
+            {current.starred ? '★ Fjern vigtig' : '☆ Markér vigtig'}
+          </button>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            className={styles.danger}
+            disabled={busy}
+            onBlur={confirm.disarm}
+            onClick={(e) => {
+              if (!armed) {
+                if (selectionKey) confirm.arm(selectionKey, e.currentTarget);
+                return;
+              }
+              confirm.disarm();
+              onDelete();
+            }}
+          >
+            {deleteLabel(type, part, armed)}
+          </button>
+        )}
         {onSegment && (
           <button
             type="button"
@@ -344,7 +355,7 @@ export function DetailPanel({
           </button>
         )}
         <div className={styles.spacer} />
-        {queued ? (
+        {!canEdit ? null : queued ? (
           <>
             <button type="button" className={styles.ghost} onClick={onReject} disabled={busy}>
               Afvis
@@ -365,7 +376,7 @@ export function DetailPanel({
         )}
       </div>
 
-      {queued && gateNote && <p className={styles.gateNote}>{gateNote}</p>}
+      {canEdit && queued && gateNote && <p className={styles.gateNote}>{gateNote}</p>}
     </div>
   );
 }

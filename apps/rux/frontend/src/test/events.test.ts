@@ -309,7 +309,7 @@ function harness(options: { minReconnectDelayMs?: number; maxReconnectDelayMs?: 
   const timers: ScheduledTimer[] = [];
 
   const stream = new EventStream({
-    url: 'ws://localhost:8420/api/v1/events',
+    url: 'ws://localhost:8420/api/v1/cases/scan/events',
     createSocket: () => {
       const socket = new FakeSocket();
       sockets.push(socket);
@@ -505,6 +505,21 @@ describe('EventStream', () => {
     expect(sockets).toHaveLength(0);
     expect(stream.currentState()).toBe(emptyJobState);
     expect(stream.currentStatus()).toBe('closed');
+  });
+});
+
+describe('case.closed', () => {
+  it('notifies onCaseClosed once and stops reconnecting', () => {
+    const { stream, latest, timers } = harness();
+    let closed = 0;
+    stream.onCaseClosed(() => {
+      closed += 1;
+    });
+    stream.start();
+    latest().deliver(JSON.stringify({ type: 'case.closed', case: 'kontor' }));
+    expect(closed).toBe(1);
+    // No reconnect is scheduled to a deleted case.
+    expect(timers.filter((t) => !t.cleared)).toHaveLength(0);
   });
 });
 

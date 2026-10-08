@@ -163,7 +163,7 @@ layout must preserve it.
 the *host's* byte order and offer no way to override it. On a big-endian host
 every float and every `u32` label would silently decode as garbage.
 
-This is a deliberate non-goal, not an oversight. Every platform `rux gui` and
+This is a deliberate non-goal, not an oversight. Every platform `ruxd` and
 its browser client run on is little-endian (x86-64, aarch64 in LE mode, wasm is
 LE by definition). If a big-endian client ever matters, the honest fix is a
 `flags` bit advertising byte order plus a byte-swapping slow path — not a

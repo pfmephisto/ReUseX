@@ -1,0 +1,112 @@
+diff -ru a/include/crow/app.h b/include/crow/app.h
+--- a/include/crow/app.h
++++ b/include/crow/app.h
+@@ -227,6 +227,29 @@
+             router_.handle_upgrade(req, res, adaptor);
+         }
+ 
++        // ReUseX patch sentinel: ruxd refuses to compile without this patch.
++#define CROW_REUSEX_HEADER_CHECK 1
++
++        /// ReUseX patch: a check run once a request's headers are parsed and
++        /// before its body is read. Return false to refuse the request; the
++        /// response it filled in is sent and the connection closed. Unset (the
++        /// default) accepts everything. Middleware still runs afterwards for
++        /// accepted requests, so it must not rely on this having run.
++        using header_check_handler = std::function<bool(const request&, response&)>;
++
++        /// ReUseX patch: install the header-phase check (see above).
++        self_t& header_check(header_check_handler handler)
++        {
++            header_check_ = std::move(handler);
++            return *this;
++        }
++
++        /// ReUseX patch: run the header-phase check (http_connection.h).
++        bool check_headers(const request& req, response& res)
++        {
++            return !header_check_ || header_check_(req, res);
++        }
++
+         /// \brief Process only the method and URL of a request and provide a route (or an error response)
+         std::unique_ptr<routing_handle_result> handle_initial(request& req, response& res)
+         {
+@@ -824,6 +847,7 @@
+         size_t res_stream_threshold_ = 1048576;
+         Router router_;
+         bool static_routes_added_{false};
++        header_check_handler header_check_; // ReUseX patch
+ 
+ #ifdef CROW_ENABLE_COMPRESSION
+         compression::algorithm comp_algorithm_;
+diff -ru a/include/crow/http_connection.h b/include/crow/http_connection.h
+--- a/include/crow/http_connection.h
++++ b/include/crow/http_connection.h
+@@ -121,8 +121,31 @@
+             }
+         }
+ 
+-        void handle_header()
++        bool handle_header()
+         {
++            // ReUseX patch: a header-phase check (Crow::header_check) runs once
++            // the headers are in and before the body is read, so a request it
++            // refuses (say, an unauthenticated upload) never gets its body
++            // buffered. A refusal is written synchronously and the connection
++            // is closed: the unread body makes it unusable for keep-alive.
++            // Only for a request that declares a body (a bodyless one costs
++            // nothing to read, and middleware refuses it without closing the
++            // connection), and only for one that found a route: handle_url
++            // has already answered one that did not (404).
++            const bool has_body = (parser_.flags & F_CHUNKED) ||
++                                  (parser_.content_length != static_cast<uint64_t>(-1) &&
++                                   parser_.content_length > 0);
++            req_.remote_ip_address = adaptor_.address();
++            if (has_body &&
++                (routing_handle_result_->rule_index || routing_handle_result_->catch_all) &&
++                !handler_->check_headers(req_, res))
++            {
++                close_connection_ = true;
++                add_keep_alive_ = false;
++                need_to_call_after_handlers_ = false;
++                complete_request();
++                return false;
++            }
+             // HTTP 1.1 Expect: 100-continue
+             if (req_.http_ver_major == 1 && req_.http_ver_minor == 1 && get_header_value(req_.headers, "expect") == "100-continue")
+             {
+@@ -142,6 +165,7 @@
+                 need_to_call_after_handlers_ = true;
+                 complete_request();
+             }
++            return true;
+         }
+ 
+         void handle()
+diff -ru a/include/crow/parser.h b/include/crow/parser.h
+--- a/include/crow/parser.h
++++ b/include/crow/parser.h
+@@ -99,7 +99,10 @@
+ 
+             self->set_connection_parameters();
+ 
+-            self->process_header();
++            // ReUseX patch: the header-phase check (Crow::header_check) may
++            // answer the request itself; the body is then never read.
++            if (!self->process_header())
++                return -1;
+             return 0;
+         }
+         static int on_body(http_parser* self_, const char* at, size_t length)
+@@ -175,9 +178,9 @@
+             handler_->handle_url();
+         }
+ 
+-        inline void process_header()
++        inline bool process_header()
+         {
+-            handler_->handle_header();
++            return handler_->handle_header();
+         }
+ 
+         inline void process_message()

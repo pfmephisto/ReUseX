@@ -206,26 +206,29 @@ other.
 ```bash
 nix develop
 npm --prefix apps/rux/frontend install
-rux -p tests/fixtures/scans/office_corridor.rux gui --port 8420 --no-browser  # backend
-npm --prefix apps/rux/frontend run dev                                         # http://localhost:5173
+cp tests/fixtures/scans/office_corridor.rux /tmp/oc.rux
+build/apps/ruxd/ruxd --local /tmp/oc.rux       # backend, http://127.0.0.1:8420
+npm --prefix apps/rux/frontend run dev          # http://localhost:5173
 ```
 
-`scripts/dev_env.sh start [project.rux]` does both and prints the URLs; `stop` tears them down from any shell. It serves a fresh **copy** of the project (`.superpowers/dev-env/project/`), never the file you name — `rux gui` migrates and leaves -wal/-shm beside whatever it opens. Do not run the bare `rux -p tests/fixtures/... gui` line above against the tracked fixture; copy it first.
+`scripts/dev_env.sh start [project.rux | dir]` does both and prints the URLs (a directory serves a copy of every `.rux` in it, each one a case); `stop` tears them down from any shell. It serves a fresh **copy** of the project (`.superpowers/dev-env/project/`), never the file you name — `ruxd --local` migrates and leaves -wal/-shm beside whatever it opens. Never point `ruxd --local` at the tracked fixture itself; copy it first, as above. (`rux gui` no longer exists; the GUI backend moved into ruxd on 2026-10-08.)
 
-The Vite dev server proxies `/api` (REST **and** the `/api/v1/events` WebSocket)
+Case screens live under `/sager/:cid/…` (the case router's basename), `/sager` is the case list, and an old unprefixed URL like `http://localhost:5173/kortlaegning` forwards to the last-used case or to `/sager` — screenshot `/sager/<cid>/<route>` to be explicit. Case ids are slugs of the file name (`office_corridor.rux` → `office-corridor`).
+
+The Vite dev server proxies `/api` (REST **and** each case's `/api/v1/cases/{cid}/events` WebSocket)
 to `http://localhost:8420` (override with `RUX_GUI_URL`). **The proxy is
-mandatory:** `rux gui` (Crow 1.3) answers `OPTIONS` before parsing headers, so it
+mandatory:** `ruxd` (Crow 1.3) answers `OPTIONS` before parsing headers, so it
 can't do a CORS preflight — a bare cross-origin call fails. Proxying keeps the
 browser same-origin. Screenshot `http://localhost:5173/...`, never `:8420`
 directly.
 
-Production: `npm run build` → `dist/`, served by `rux gui --assets ./dist` (Nix
+Production: `npm run build` → `dist/`, served by `ruxd --local <p>.rux --assets ./dist` (Nix
 build wires this into `$out/share/reusex/gui` as a separate derivation).
 
 For Kortlægning screenshots/manual testing, seed the prototype's demo survey
 (Måløv Byvej 229 — 11 types, 18 parts, 3 samples; 7 in the review queue,
 4 approved) into a scratch copy with `dev/seed-survey-demo.sh <in.rux>
-<out.rux>`, then point `rux gui` at the copy. Never run it on a real project.
+<out.rux>`, then point `ruxd --local` at the copy. Never run it on a real project.
 `--varied` adds two samples for Miljø & prøver (multi-link answered, unlinked
 planned). `--varied` also seeds three report versions (v1 and v2 drafts, v3
 complete) for Rapport, a ★ part with a note (RX-014) and P-06 taken at
@@ -235,9 +238,10 @@ RX-013.
 
 The frontend is a **pure client of the shared contract**, not of a particular
 server: `docs/gui/openapi.yaml` + `docs/gui/websocket-events.md`
-(+ `docs/gui/binary-points.md` for the point stream). `rux gui` implements it
-today; `ruxd` will implement the same paths later (issue #265, Phase 6) and the
-frontend must not be able to tell which. So when a new view needs data:
+(+ `docs/gui/binary-points.md` for the point stream). `ruxd --local`
+implements it today; every project route lives under `/api/v1/cases/{cid}`,
+and `src/api/client.ts`'s `api` is already scoped to the open case, so a view
+just calls `api.foo()` — never build an `/api/v1/...` URL by hand. So when a new view needs data:
 - If the endpoint exists, mirror its shape into `src/api/types.ts` exactly.
 - If it doesn't, design against the *intended* shape, stub it, and flag the
   missing endpoint in hand-off — do not invent fields silently.
@@ -247,7 +251,7 @@ frontend must not be able to tell which. So when a new view needs data:
 `npm --prefix apps/rux/frontend test` (vitest) — **not** part of `ctest` (keeping
 Node off the C++ test critical path is deliberate). CI runs it as a separate
 `frontend` job. Tests cover pure-logic modules against recorded fixtures in
-`src/test/fixtures.ts` (captured from a real `rux gui` on
+`src/test/fixtures.ts` (captured from a real server — then `rux gui` — on
 `office_corridor.rux` — re-record, never hand-edit). No DOM env is configured, so
 presentational components aren't unit-tested — that's what §5 screenshots are
 for. Always `npm run typecheck` before hand-off.

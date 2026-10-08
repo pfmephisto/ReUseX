@@ -5,9 +5,11 @@
 import type { RefObject } from 'react';
 
 import type { ConnectionStatus } from '../api/events';
+import type { AuthUser } from '../api/types';
 import type { ThemePreference } from '../theme';
 import { JobIndicator } from './JobIndicator';
 import { ThemeToggle } from './ThemeToggle';
+import { UserMenu } from './UserMenu';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -18,10 +20,11 @@ export interface TitleBarProps {
   schemaVersion?: number;
   /** ReUseX build version of the server. */
   version?: string;
-  /** Which backend is answering — `rux-gui` today, `ruxd` in Phase 6. */
+  /** Which backend is answering — `ruxd` (an older server says `rux-gui`). */
   implementation?: string;
-  connection: ConnectionStatus;
-  activeJobCount: number;
+  /** The events socket; omitted outside a case (the case list), which has none. */
+  connection?: ConnectionStatus;
+  activeJobCount?: number;
   /** True when even `GET /health` failed. */
   unreachable?: boolean;
   /** Below 900px: the sidebar drawer is open (R5). */
@@ -36,6 +39,9 @@ export interface TitleBarProps {
   /** The shell's single `useTheme()` state, shared with the drawer's toggle. */
   themePreference: ThemePreference;
   onThemeChange: (preference: ThemePreference) => void;
+  /** Who is signed in (server mode); omitted in local mode, which has no login. */
+  user?: AuthUser;
+  onLogout?: () => void;
 }
 
 /**
@@ -54,7 +60,7 @@ export function TitleBar({
   version,
   implementation,
   connection,
-  activeJobCount,
+  activeJobCount = 0,
   unreachable = false,
   menuOpen = false,
   onMenu,
@@ -63,6 +69,8 @@ export function TitleBar({
   menuControls,
   themePreference,
   onThemeChange,
+  user,
+  onLogout,
 }: TitleBarProps) {
   const title = unreachable
     ? 'Server utilgængelig'
@@ -102,13 +110,14 @@ export function TitleBar({
       </div>
 
       <div className={styles.status}>
-        <JobIndicator connection={connection} activeJobCount={activeJobCount} />
+        {connection && <JobIndicator connection={connection} activeJobCount={activeJobCount} />}
         {implementation && <span className={styles.meta}>{implementation}</span>}
         {version && <span className={`${styles.meta} mono`}>{version}</span>}
         {/* Below the breakpoint the theme control lives in the drawer. */}
         <span className={styles.theme}>
           <ThemeToggle preference={themePreference} setPreference={onThemeChange} />
         </span>
+        {user && onLogout && <UserMenu user={user} onLogout={onLogout} />}
       </div>
     </header>
   );

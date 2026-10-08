@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Sager as data: the one card `rux gui` can show (R1) and the command that
- * opens another case. Every figure is read off a server response; this module
+ * Sager as data: the case list's cards (R1), and the words for creating and
+ * uploading a case. Every figure is read off a server response; this module
  * only words it.
  */
 
-import type { ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
+import { ApiRequestError, caseBaseUrl } from '../api/client';
+import type { CaseSummary, ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
+import { formatBytes } from '../app/cases';
 import type { Tone } from '../kortlaegning/vocab';
 import { danishDate, percentText } from '../overblik/model';
 
@@ -83,5 +85,101 @@ export function cardDate(p: ProjectInfo | undefined): string {
   return date ? `Registreret ${danishDate(date)}` : '—';
 }
 
-/** How to open another case: `rux gui` serves the project it was started with. */
-export const OPEN_ANOTHER_COMMAND = 'rux -p <fil>.rux gui';
+/** How to serve more cases: every `.rux` in a directory is one. */
+export const SERVE_DIRECTORY_COMMAND = 'ruxd --local <mappe>';
+
+/**
+ * The card's heading: the building record's name when the project has one,
+ * else the case's own name (the file stem, or what it was named on creation).
+ */
+export function cardTitle(c: CaseSummary, record: ProjectInfo | undefined): string {
+  const recordName = record?.name?.trim();
+  return recordName ? recordName : c.name;
+}
+
+/**
+ * The small print under a card: what tells two copies of one scan apart. The
+ * file name, or — for a case the server created or received, whose file is
+ * always `project.rux` — the case's own name; then the size.
+ */
+export function cardFileLine(c: CaseSummary): string {
+  const what = c.file_name === 'project.rux' ? c.name : c.file_name;
+  return `${what} · ${formatBytes(c.size_bytes)}`;
+}
+
+/** Cases in list order: active ones first, then archived; each by name. */
+export function sortCases(cases: readonly CaseSummary[]): CaseSummary[] {
+  return [...cases].sort(
+    (a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name, 'da'),
+  );
+}
+
+/** "37 %" for an upload in progress. */
+export function uploadPercent(sent: number, total: number): string {
+  if (!(total > 0)) return '0 %';
+  return `${Math.min(100, Math.floor((sent / total) * 100))} %`;
+}
+
+/** Why creating or uploading a case failed, said so the user can act on it. */
+export function caseWriteErrorText(cause: unknown, action: 'create' | 'upload'): string {
+  if (cause instanceof ApiRequestError) {
+    switch (cause.status) {
+      case 413:
+        return 'Filen er større, end serveren tager imod.';
+      case 422:
+        return 'Filen er ikke et ReUseX-projekt (.rux).';
+      case 429:
+        return 'Der er for mange uploads i gang. Prøv igen om lidt.';
+      case 409:
+        // Only refusing to START is about the server having no data dir; a
+        // 409 on a chunk or on completing means the upload fell out of step.
+        if (action === 'upload' && !/\/uploads$/.test(cause.url))
+          return 'Uploaden kom ud af trit med serveren. Start den forfra.';
+        return action === 'upload'
+          ? 'Serveren kan ikke modtage sager (den viser én fil). Start den med en mappe.'
+          : 'Serveren kan ikke oprette sager (den viser én fil). Start den med en mappe.';
+      case 507:
+        return 'Der er ikke plads nok på serveren til filen.';
+      case 400:
+        return 'Navnet kan ikke bruges. Skriv et navn uden kontroltegn.';
+      default:
+        break;
+    }
+  }
+  if (cause instanceof DOMException && cause.name === 'AbortError') return 'Upload afbrudt.';
+  return action === 'upload'
+    ? 'Upload mislykkedes. Tjek forbindelsen og prøv igen.'
+    : 'Sagen kunne ikke oprettes. Prøv igen.';
+}
+
+/** What a card shows, from the list's `summary` alone (no per-case request). */
+export interface CardFigures {
+  record: ProjectInfo | undefined;
+  survey: SurveySummary | undefined;
+  status: CaseStatus;
+  /** The server could not read the project at all. */
+  unreadable: boolean;
+}
+
+export function cardFigures(c: CaseSummary): CardFigures {
+  const s = c.summary;
+  if (!s) {
+    return {
+      record: undefined,
+      survey: undefined,
+      status: s === null ? { label: 'Kan ikke læses', tone: 'crit' } : { label: 'Ukendt', tone: 'wait' },
+      unreadable: s === null,
+    };
+  }
+  const record = s.project ?? undefined;
+  if (!s.survey) {
+    // An older project the server has not migrated yet: the record only.
+    return { record, survey: undefined, status: { label: 'Åbn for status', tone: 'wait' }, unreadable: false };
+  }
+  return { record, survey: s.survey, status: caseStatus(s.survey, s.fractions), unreadable: false };
+}
+
+/** The card's plan thumbnail (lazy; cached by the server). */
+export function caseThumbUrl(cid: string): string {
+  return `${caseBaseUrl(cid)}/renders?view=plan&width=640&height=248`;
+}

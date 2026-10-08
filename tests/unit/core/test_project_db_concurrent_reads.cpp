@@ -4,7 +4,7 @@
 
 // Concurrent read-only ProjectDB connections (GUI Phase 5, R1). A reader must
 // wait out a briefly held lock instead of failing at once, and many readers
-// opening and closing together — what `rux gui` does on a full page load —
+// opening and closing together — what `ruxd --local` does on a full page load —
 // must never see SQLITE_BUSY.
 
 #include <catch2/catch_test_macros.hpp>
@@ -136,8 +136,8 @@ TEST_CASE("ProjectDbReadOnly_LockHeldPastTheTimeout_ThrowsInsteadOfMinusOne",
           "[projectdb][concurrency]") {
   // When a lock outlasts the busy timeout, the schema probe must say so. It
   // used to read a busy step as "no schema_version table" and report -1, so a
-  // locked project looked like a pre-versioning one (STANDARDS §5). `rux gui`
-  // turns the "locked" in the message into its 503.
+  // locked project looked like a pre-versioning one (STANDARDS §5). `ruxd
+  // --local` turns the "locked" in the message into its 503.
   TempDB tmp;
   {
     ProjectDB db(tmp.path);
@@ -213,8 +213,8 @@ TEST_CASE("ProjectDbReadOnly_OpenFailsOnALock_ClosesItsHandle",
           "[projectdb][concurrency]") {
   // An open that throws after sqlite3_open_v2 (here: the schema probe finds
   // the file locked past the timeout) must still close the handle; ~Impl
-  // never runs for a constructor that throws. In `rux gui` that is one leaked
-  // connection, file descriptor and WAL read lock per 503.
+  // never runs for a constructor that throws. In `ruxd --local` that is one
+  // leaked connection, file descriptor and WAL read lock per 503.
   TempDB tmp;
   {
     ProjectDB db(tmp.path);

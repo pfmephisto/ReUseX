@@ -6,8 +6,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # ReUseX GUI frontend
 
-The web frontend for `rux gui`
-([issue #265](https://github.com/pfmephisto/ReUseX/issues/265)) — a Vite +
+The web frontend served by `ruxd --local` (formerly `rux gui`,
+[issue #265](https://github.com/pfmephisto/ReUseX/issues/265)) — a Vite +
 React + TypeScript single-page app that renders a `.rux` project: its summary,
 pipeline log, stages, jobs, and a three.js point-cloud viewport. Phase 2 built
 the shell, dashboard and viewport; Phase 3 ([#305]) added the pipeline runner —
@@ -19,9 +19,19 @@ progress, and the durable history timeline.
 It is a **pure client of the shared API contract** in
 [`docs/gui/openapi.yaml`](../../../docs/gui/openapi.yaml) and
 [`docs/gui/websocket-events.md`](../../../docs/gui/websocket-events.md), never
-of a particular server. `rux gui` implements that contract today; `ruxd` will
-implement the same paths in Phase 6, and the frontend is not supposed to be
-able to tell the difference.
+of a particular server. `ruxd` implements that contract: `ruxd --local`
+serves every `.rux` it is given as a case under `/api/v1/cases/{cid}/…`; users
+follow (spec `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
+
+**Cases in the URL.** Every case screen lives under `/sager/:cid/…`, and
+`/sager` is the case list (create, upload). `main.tsx` reads the path: inside a
+case it points `api` at `/api/v1/cases/{cid}` (`api.selectCase`) and runs the
+case app in a router whose basename is the case prefix, so in-case paths and
+links keep their case-relative spelling (`/kortlaegning`). Entering or leaving
+a case is a page load — a fresh client, events socket and viewport per case.
+An old unprefixed path goes to the same place in the last-used case, or to
+`/sager` (`src/app/cases.ts`).
+The `rux gui` subcommand that used to serve it is gone.
 
 ## Development
 
@@ -34,17 +44,21 @@ npm run dev                 # http://localhost:5173  (or: gui-dev)
 In another terminal, start the server the dev app talks to:
 
 ```bash
-rux -p scan.rux gui --port 8420 --no-browser
+ruxd --local scan.rux        # one case; http://127.0.0.1:8420/sager
+ruxd --local ~/sager         # every .rux in the directory is a case
 ```
 
-The Vite dev server proxies `/api` — REST **and** the `/api/v1/events`
-WebSocket — to `http://localhost:8420`. Override the target with `RUX_GUI_URL`:
+Or let `.claude/skills/design-studio/scripts/dev_env.sh start [project.rux | dir]`
+start both halves against a throwaway copy.
+
+The Vite dev server proxies `/api` — REST **and** each case's
+`/api/v1/cases/{cid}/events` WebSocket — to `http://localhost:8420`. Override the target with `RUX_GUI_URL`:
 
 ```bash
 RUX_GUI_URL=http://localhost:9000 npm run dev
 ```
 
-**The proxy is mandatory, not a convenience.** `rux gui` cannot answer a CORS
+**The proxy is mandatory, not a convenience.** `ruxd` cannot answer a CORS
 preflight — Crow 1.3 replies to `OPTIONS` from `Router::handle_initial()`,
 before the request headers are parsed, so the server never sees the `Origin`
 and cannot emit a correct preflight response — which means any JSON-bodied
@@ -55,7 +69,7 @@ same-origin".
 
 For Kortlægning work, seed the prototype's demo survey into a scratch copy:
 `bash dev/seed-survey-demo.sh <project.rux> /tmp/kort-demo.rux`, then
-`rux -p /tmp/kort-demo.rux gui --port 8420 --no-browser`. Never run it on a
+`ruxd --local /tmp/kort-demo.rux`. Never run it on a
 real project.
 
 For Miljø & prøver work, add `--varied`
@@ -71,15 +85,15 @@ seed.
 
 ```bash
 npm run build               # tsc --noEmit && vite build  ->  dist/
-rux -p scan.rux gui --assets ./dist
+ruxd --local scan.rux --assets ./dist
 ```
 
-`rux gui` resolves its asset directory as `--assets`, then `$RUX_GUI_ASSETS`,
-then `<install prefix>/share/reusex/gui` (`apps/rux/src/gui/assets.cpp`). The
-Nix build takes the third path: `pkgs/reusex-gui-frontend/package.nix` builds
-this bundle as its own derivation and `default.nix` copies it into
-`$out/share/reusex/gui`, so `nix run .#default -- -p scan.rux gui` serves a UI
-with no flags. Keeping it a separate derivation is deliberate — a lockfile
+`ruxd --local` resolves its asset directory as `--assets`, then
+`$RUX_GUI_ASSETS`, then `<install prefix>/share/reusex/gui`
+(`apps/ruxd/src/api/assets.cpp`). The Nix build takes the third path:
+`pkgs/reusex-gui-frontend/package.nix` builds this bundle as its own derivation
+and `default.nix` copies it into `$out/share/reusex/gui`, so
+`nix shell .#default -c ruxd --local scan.rux` serves a UI with no flags. Keeping it a separate derivation is deliberate — a lockfile
 change must not invalidate the multi-hour C++ build, and a `.cpp` edit must not
 re-run npm.
 
@@ -99,8 +113,8 @@ runs them as a separate `frontend` job in `.github/workflows/ci.yml`.
 Tests cover the pure-logic modules (API client with an injected `fetch`, the
 event reducer, the chunk/pagination state machine, the stage-card view model,
 the parameter form and the history timeline) against the recorded payloads in
-`src/test/fixtures.ts`. Those are captured verbatim from a real `rux gui`
-serving `tests/fixtures/scans/office_corridor.rux` — re-record them when the
+`src/test/fixtures.ts`. Those are captured verbatim from a real server (then
+`rux gui`, now `ruxd --local`) serving `tests/fixtures/scans/office_corridor.rux` — re-record them when the
 contract changes, never hand-edit. No DOM environment is configured, so no
 jsdom dependency is carried, and nothing under `pipeline/` may reach for one.
 

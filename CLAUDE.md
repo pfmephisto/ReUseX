@@ -149,7 +149,7 @@ because temp-file helpers derived names from object addresses; that was
 fixed in #262 by `tests/support/temp_path.hpp`, which every test must use
 for temp paths.
 
-Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`,
+Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`, `ruxd`, `ruxd_api`, `ruxd_cli`, `ruxd_pg`,
 `utils`, `vision`, `visualize`), `integration/`, `benchmarks/`, `support/`,
 `fixtures/`. Catch2 v3.
 
@@ -247,7 +247,9 @@ ReUseX/
 │   └── extern/                     # Vendored headers
 ├── apps/rux/                       # CLI application
 │   └── include/ + src/             # Subcommands, grouped in subdirs
-├── apps/ruxd/                      # HTTP service worker (ruxd)
+├── apps/ruxd/                      # HTTP service worker (ruxd); serves the web GUI
+│   └── src/api/ + include/api/     #   ruxd_api_lib: the GUI's REST + WS API (light);
+│                                   #   the SPA it serves lives in apps/rux/frontend
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
 ├── python/                         # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
@@ -289,7 +291,12 @@ CMake edit assigning it to the CPU or the CUDA half.
 
 The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
-**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker).
+**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker
+and, with `--local`, the web GUI server). ruxd's `main.cpp` is one statement;
+its CLI is `ruxd::run()` in `ruxd_lib` (`src/run.cpp`), with the option
+parsing itself in the light `ruxd_cli_lib` (`src/cli/`). The Morton tile index
+the GUI streams clouds by is built by the clouds stage itself
+(`reusex/pipeline/tile_index.hpp`), whichever front end runs it.
 Both use CLI11 for argument parsing and spdlog as the log sink.
 
 ### Type System (types.hpp)
@@ -419,8 +426,13 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
-- Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `rux gui`
-  holds one idle read-write connection for its lifetime so the WAL index survives
+- `ProjectDB::OpenOptions::hardened` (DEFENSIVE, `trusted_schema=OFF`, no
+  triggers or views) is for files from untrusted sources; `ruxd` makes it the
+  process default (`set_hardened_by_default`) and refuses uploads and
+  registrations that fail `ProjectDB::check_integrity()` (`quick_check`, no
+  trigger or view). The `rux` CLI opens files plainly
+- Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `ruxd --local`
+  holds one idle read-write connection per open case for as long as it is open so the WAL index survives
   between per-request connections and the WAL is checkpointed into the .rux on
   exit (a read-only last closer cannot); a lock held past the timeout throws, never
   reads as "no table" / schema `-1`
@@ -473,19 +485,85 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `view` | — (interactive viewer, needs a display) | `src/view/` |
 | `render` | — (headless render to PNG: `--view top\|plan[:h]\|front\|orbit:N\|frame:<id>`) | `src/render.cpp` |
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
-| `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to serve it beyond localhost, with no authentication) | `src/gui.cpp` |
 
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 `-p/--project <path.rux>` (defaults to `./project.rux`).
 
-`ruxd` (`apps/ruxd/`) is a separate HTTP service worker binary with its own
-flags (`--port`, `--threads`, `--pg-url`, `--pg-pool-size`,
-`--pg-acquire-timeout-ms`, `--redis-url`, `--s3-*`, `--auth-token`). Postgres
-query paths lease from a fixed-size connection pool
-(`apps/ruxd/include/connection_pool.hpp`) whose capacity defaults to the worker
-thread count; `/readyz` deliberately keeps its own short-lived connection.
+There is **no `rux gui`** any more: the web GUI is served by `ruxd`.
+
+`ruxd` (`apps/ruxd/`) serves the web GUI in two modes: `ruxd --local` for one
+person (below), and, without `--local`, the **multi-user server** (phase S3):
+users, sessions, API tokens, cases, case membership, jobs and an audit log in
+Postgres (`--pg-url`/`DATABASE_URL`, schema in `apps/ruxd/migrations/NNN_*.sql`,
+embedded at build time and applied at start under an advisory lock), case
+files in `--data-dir` (`<data-dir>/<slug>/project.rux`). Logins are cookie
+sessions (`ruxd_session_<port>`, HttpOnly, SameSite=Strict, Secure unless on
+loopback; only the token's SHA-256 is stored; argon2id passwords via OpenSSL 3
+`EVP_KDF`); scripts use `Authorization: Bearer rxt_…` API tokens; `--auth-token`
+is a superuser token. Roles per case: viewer (GET only), editor (all but
+deleting the case and managing members), owner (all); admins everything; a
+non-member gets 404. The access decision (`api/access.hpp`, `AuthService`)
+runs in a patched Crow header phase, before a request body is read.
+`ruxd admin create-user|set-password|list-users|disable-user|create-token|
+register-case` manages it; passwords come from a prompt or stdin, never argv.
+The Postgres stores are `ruxd_pg_lib` (`apps/ruxd/src/pg/`, light; tests in
+`tests/unit/ruxd_pg/`, tagged `[postgres]` with the ctest label `postgres` —
+`ctest -L postgres` — start an ephemeral cluster with `initdb`, which the
+devshell carries, and skip without it, as in the nix check sandbox).
+API tokens expire (90 days by default), are listed and revoked in the user
+menu, over `/api/v1/auth/tokens`, or with `ruxd admin list-tokens |
+revoke-token`. Failed logins back off per account and per client address
+(IPv6 /64); `--trusted-proxy` makes `X-Forwarded-For` count. Secrets:
+`--auth-token-file`, `--pg-url-file`. Deployment (first admin,
+TLS via a reverse proxy, the Secure cookie): `docs/gui/README.md`. Other
+flags: `--port`, `--threads`, `--pg-pool-size`, `--pg-acquire-timeout-ms`,
+`--cookie-secure`, `--trusted-proxy`, `--audit-retention-days`;
+`--redis-url`/`--s3-*` are accepted but unused yet.
+
+`ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
+WebSocket contract in `docs/gui/openapi.yaml`, with no Postgres, Redis or S3.
+Every `.rux` it is given is a **case** (UI: "sag"): a lone file, or every
+`.rux` directly in a directory plus `<data-dir>/<id>/project.rux` case
+directories, where created and uploaded cases go (`--data-dir`, default the
+`--local` directory; a lone file is read-only). Case ids are slugs of the file
+name (`office_corridor.rux` → `office-corridor`). Every project route lives
+under `/api/v1/cases/{cid}/…`, the events WebSocket too; `/api/v1/cases`,
+`/api/v1/uploads` (chunked), `/health`, `/endpoints` and `/models/sam3/status`
+are server-level. Cases open lazily and close when idle (`ProjectRegistry`,
+`--max-open-cases`, `--case-idle-minutes`); each open case
+(`ProjectContext`) holds its WAL anchor, job queue + writer lock, photo cache
+and socket subscribers. Jobs of every case share one
+`reusex::pipeline::JobScheduler` (`--job-workers`, default 1, at most one
+running job per case); progress is per job via `core::ScopedProgressObserver`,
+not the process-global observer. Deleting a case moves it to
+`<data-dir>/.ruxd/trash/` (the case is tombstoned meanwhile; its job history
+is dropped). Case ids, once assigned, persist in `<data-dir>/.ruxd/cases.json`.
+`GET /cases` carries each card's figures read WITHOUT opening the case
+(`case_meta.hpp`, cached by file stamp); renders are cached the same way and
+never open a case either. Crow is patched (`overlays/crow.nix`) with a
+request-body cap, `CROW_MAX_REQUEST_BODY` (a PUBLIC define of `ruxd_api_lib`,
+72 MiB): bodies are buffered in memory otherwise. After the overlay changes,
+reconfigure with the new `Crow_DIR` (`cmake -B build -UCrow_DIR`). The
+frontend's case screens live under `/sager/:cid/…`. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
+unless `--auth-token` is set, and the token is then required on every request
+(Bearer header, the per-port `ruxd_token_<port>` cookie, or `?token=`, which
+sets the cookie and 303-redirects to the URL without it); the page's own
+origin is then allowed for mutations. Every request's Host header must name
+the server (DNS-rebinding guard: loopback names on a loopback bind). Crow's
+request log goes through spdlog (`-vv`) with query strings redacted.
+The web GUI's flags serve both modes; only `--open-browser` requires `--local`.
+Others: `--allow-origin`, `--assets`, `--[no-]segment-cuda`, `--sam3-model`,
+`--models-dir`, `--sam3-manifest-url`.
+The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`
+(namespace `ruxd::api`), which links only `reusex_core` + `reusex_pipeline` so
+its tests (`tests/unit/ruxd_api/`) stay in the light binary. The heavy pieces
+it needs — SAM3 segmenters, managed-model provider, renderer, ICP, the
+`optimize` stage — are built in `ruxd_lib` (`src/injected.cpp`, `src/icp.cpp`)
+and injected by `src/local.cpp` (`serve_web`, shared by `src/server.cpp`).
+Crow is also patched with a header-phase check (`app.header_check`), and
+`Server.cpp` refuses to compile without both patch sentinels.
 
 ## Development Patterns
 
@@ -698,7 +776,7 @@ SAM3 from the path:
   export, the engine-I/O contract, and how the C++ tracker consumes the engines
 - [`docs/sam3.1-export-guide.md`](docs/sam3.1-export-guide.md) — export guide
 
-**`rux gui` provisions SAM3 automatically.** The segment endpoints download the
+**`ruxd --local` provisions SAM3 automatically.** The segment endpoints download the
 portable ONNX bundle and build device-specific engines on first use — no manual
 export or engine placement is needed for GUI operation. The managed model root
 resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >

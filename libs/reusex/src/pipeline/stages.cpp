@@ -4,6 +4,7 @@
 
 #include "reusex/pipeline/stages.hpp"
 #include "reusex/pipeline/stage_parameters.hpp"
+#include "reusex/pipeline/tile_index.hpp"
 
 #include "reusex/core/ProjectDB.hpp"
 #include "reusex/core/filter_expression.hpp"
@@ -213,6 +214,12 @@ StageResult run_clouds(ProjectDB &db, const StageContext &ctx,
     outputs.push_back({"cloud", "cloud", static_cast<int64_t>(cloud->size())});
   if (db.has_point_cloud("normals"))
     outputs.push_back({"cloud", "normals", -1});
+
+  // The spatial tile index the web GUI streams the cloud by (#395). Built
+  // here, not by a front end, so `rux create clouds` and a GUI-submitted job
+  // leave the same project behind.
+  if (const auto bytes = build_tile_index(db, "cloud"); bytes > 0)
+    info("built spatial tile index for 'cloud' ({} bytes)", bytes);
 
   // A cancel that arrived mid-run could not stop this stage, and the output IS
   // written. Reporting "cancelled" would be a lie that makes the user think

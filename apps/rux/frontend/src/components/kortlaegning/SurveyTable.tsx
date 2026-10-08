@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
 import { api } from '../../api/client';
+import { useCanEdit } from '../../app/CaseRoleContext';
 import type { PartPhotos, ResourceKey, SurveyType, Template } from '../../api/types';
 import { EVIDENCE_LAST_KEY } from '../../kortlaegning/keys';
 import {
@@ -139,6 +140,7 @@ function Cells(props: {
   home: RefObject<HTMLElement | null>;
 }) {
   const { row, type, columns, resources, selected } = props;
+  const canEdit = useCanEdit(); // a viewer's cells never open an editor
   return (
     <>
       {columns.map((column) => {
@@ -157,7 +159,7 @@ function Cells(props: {
             <ResourceCell
               resourceKey={column.key}
               value={m.value}
-              editing={selected && target !== null}
+              editing={canEdit && selected && target !== null}
               onCommit={(v) => (target !== null ? props.onCellCommit(target, column.key.id, v) : undefined)}
               onInvalid={props.onInvalid}
               home={props.home}
@@ -177,6 +179,7 @@ function Cells(props: {
  * component only derives the flattened row list for render.
  */
 export function SurveyTable(props: SurveyTableProps) {
+  const canEdit = useCanEdit();
   const {
     types,
     counts,
@@ -311,14 +314,16 @@ export function SurveyTable(props: SurveyTableProps) {
           />
           Kun vigtige ★
         </label>
-        <div className={styles.toolActions}>
-          <button type="button" className={styles.btnGhost} onClick={onAddResource}>
-            + Tilføj ressource
-          </button>
-          <button type="button" className={styles.btnGhost} onClick={onAddColumn} disabled={templateId === null}>
-            + Tilføj kolonne
-          </button>
-        </div>
+        {canEdit && (
+          <div className={styles.toolActions}>
+            <button type="button" className={styles.btnGhost} onClick={onAddResource}>
+              + Tilføj ressource
+            </button>
+            <button type="button" className={styles.btnGhost} onClick={onAddColumn} disabled={templateId === null}>
+              + Tilføj kolonne
+            </button>
+          </div>
+        )}
       </div>
 
       <div className={styles.keyBar} aria-label="Tastaturgenveje">

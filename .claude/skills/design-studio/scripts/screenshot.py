@@ -3,8 +3,8 @@
 
 Examples:
   python screenshot.py page.html --out shots/
-  python screenshot.py http://localhost:5173/viewport --out shots/ --theme dark
-  python screenshot.py http://localhost:5173/viewport --out shots/ --theme light
+  python screenshot.py http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme dark
+  python screenshot.py http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme light
   python screenshot.py deck.html --out shots/ --selector .slide --viewports 1920x1080
   python screenshot.py onepager.html --out shots/ --pdf
 

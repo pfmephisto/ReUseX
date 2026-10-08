@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../api/client';
 import type { ReportPdfVersion, Template, TemplateCsv } from '../api/types';
+import { useCanEdit } from '../app/CaseRoleContext';
 import { explainLoadError } from '../app/errorCopy';
 import { createOnceGuard } from '../app/onceGuard';
 import { useAsync } from '../app/useAsync';
@@ -88,6 +89,7 @@ export function RapportPage() {
   }, [tpl.data]);
 
   const toast = useToast(3200);
+  const canEdit = useCanEdit(); // generating a version writes to the case
   const { busy, mutate } = useMutationQueue({
     scope: 'page',
     onError: (cause) => toast.show(generateErrorMessage(cause)),
@@ -171,22 +173,24 @@ export function RapportPage() {
       <header className={styles.head}>
         <h2 className={styles.title}>Rapport</h2>
         <span className={styles.sub}>Ressourcekortlægningsrapport</span>
-        <div className={styles.actions}>
-          <div className={styles.ressourcetabel}>
-            <TemplateSelect
-              id="rapport-ressourcetabel"
-              label="Ressourcetabel"
-              templates={templates}
-              value={validChoice(templates, pdfTemplate)}
-              onChange={setPdfTemplate}
-              allowNone
-              disabled={busy}
-            />
+        {canEdit && (
+          <div className={styles.actions}>
+            <div className={styles.ressourcetabel}>
+              <TemplateSelect
+                id="rapport-ressourcetabel"
+                label="Ressourcetabel"
+                templates={templates}
+                value={validChoice(templates, pdfTemplate)}
+                onChange={setPdfTemplate}
+                allowNone
+                disabled={busy}
+              />
+            </div>
+            <button type="button" className={styles.btnPrimary} onClick={generate} disabled={busy || !listReady}>
+              {busy ? 'Genererer…' : 'Generér ny version'}
+            </button>
           </div>
-          <button type="button" className={styles.btnPrimary} onClick={generate} disabled={busy || !listReady}>
-            {busy ? 'Genererer…' : 'Generér ny version'}
-          </button>
-        </div>
+        )}
       </header>
       <p className={styles.hint}>
         {ressourcetabelHint(templates.find((t) => t.id === validChoice(templates, pdfTemplate)) ?? null)}

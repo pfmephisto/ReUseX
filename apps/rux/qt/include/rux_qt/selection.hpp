@@ -32,6 +32,9 @@ struct SelectionSection {
   QVector<SelectionRow> rows;
   /// Free text under the rows (a JSON blob, an error), shown in mono.
   QString block;
+  /// @ref block is a shell command: wrap it between words with `\`
+  /// continuations (CommandBlock), never inside a flag.
+  bool command = false;
 };
 
 struct Selection {

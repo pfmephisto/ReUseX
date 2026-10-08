@@ -407,3 +407,19 @@ TEST_CASE("WriteErrors_AreClassifiedWithDanishMessages",
         std::string::npos);
   CHECK_FALSE(write_error_da(WriteErrorKind::other).empty());
 }
+
+TEST_CASE("PendingEdits_Degrees_MatchDegreePerFrame", "[rux_qt][database]") {
+  PendingEdgeEdits e;
+  e.set_base({{{1, 2, "odometry"}, 0, 1},
+              {{2, 3, "odometry"}, 0, 1},
+              {{1, 2, "odometry"}, 0, 1}, // duplicate row, counted once
+              {{3, 1, "loop_closure"}, 0, 1}});
+  e.remove({2, 3, "odometry"});
+  e.add({{4, 1, "loop_closure"}, 0, 1});
+  const auto all = e.degrees();
+  for (int f : {1, 2, 3, 4}) {
+    INFO(f);
+    const auto it = all.find(f);
+    CHECK((it == all.end() ? 0 : it->second) == e.degree(f));
+  }
+}

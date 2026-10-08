@@ -273,7 +273,8 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
   border: 1px solid var(--color-border-focus);
   background: var(--color-surface-raised);
 }
-QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+QDoubleSpinBox:disabled {
   color: var(--color-text-faint);
 }
 QComboBox::drop-down {

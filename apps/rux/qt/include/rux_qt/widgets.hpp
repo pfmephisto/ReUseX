@@ -186,6 +186,28 @@ class PropertyList : public QWidget {
   QGridLayout *grid_ = nullptr;
 };
 
+/// A shell command in mono that re-wraps to its width between words, with
+/// ` \` continuations so the shown text still pastes as one command
+/// (wrap_shell_command). Selectable.
+class CommandBlock : public QLabel {
+  Q_OBJECT
+    public:
+  explicit CommandBlock(const QString &command = {}, QWidget *parent = nullptr);
+  void set_command(const QString &command);
+  QString command() const { return command_; }
+  QSize sizeHint() const override;
+  QSize minimumSizeHint() const override;
+  bool hasHeightForWidth() const override { return true; }
+  int heightForWidth(int width) const override;
+
+    protected:
+  void resizeEvent(QResizeEvent *e) override;
+
+    private:
+  QString wrapped(int width) const;
+  QString command_;
+};
+
 /// Format a count the Danish way (12.345), as the web GUI's da-DK figures.
 QString format_count(qulonglong n);
 

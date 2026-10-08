@@ -26,9 +26,13 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QGraphicsView>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QTimer>
+
+#include <cstdio>
 
 namespace rux::qt::gallery {
 namespace {
@@ -296,6 +300,72 @@ AppShell *make_pg(const PageContext &ctx) {
 
 QWidget *make_posegraf(const PageContext &ctx) { return make_pg(ctx); }
 
+/// Stress: 10 000 stored edges (WRITTEN to the project copy) — odometry
+/// along the capture, then deterministic pseudo-random loop closures and
+/// panorama edges — and the paint and edit cost measured, on stderr.
+QWidget *make_posegraf_stress(const PageContext &ctx) {
+  constexpr std::size_t kEdges = 10000;
+  if (!ctx.project_path.isEmpty()) {
+    reusex::ProjectDB db(ctx.project_path.toStdString());
+    const auto ids = db.sensor_frame_ids();
+    std::vector<reusex::ProjectDB::PoseGraphEdge> edges;
+    for (std::size_t i = 1; i < ids.size() && edges.size() < kEdges / 2; ++i)
+      edges.push_back({ids[i - 1], ids[i], "odometry", 0.1, 100.0});
+    std::uint64_t x = 0x9E3779B97F4A7C15ULL; // fixed seed: the same shot
+    while (edges.size() < kEdges && ids.size() > 1) {
+      x ^= x << 13;
+      x ^= x >> 7;
+      x ^= x << 17;
+      const int a = ids[x % ids.size()];
+      const int b = ids[(x >> 32) % ids.size()];
+      if (a != b)
+        edges.push_back(
+            {a, b, (x & 15) == 0 ? "panorama" : "loop_closure", 0.5, 25.0});
+    }
+    db.save_pose_graph_edges(edges);
+  }
+  auto *shell = make_pg(ctx);
+  // Measure once the graph is on screen at its shot size: poll until the
+  // poses have loaded and the shell is shown by the gallery.
+  auto *probe = new QTimer(shell);
+  probe->setInterval(50);
+  QObject::connect(probe, &QTimer::timeout, shell, [shell, probe] {
+    QGraphicsView *v = shell->posegraph()->view();
+    if (!shell->isVisible() || shell->posegraph()->node_count() == 0)
+      return;
+    probe->stop();
+    QElapsedTimer t;
+    constexpr int kFrames = 30;
+    t.start();
+    for (int i = 0; i < kFrames; ++i)
+      v->viewport()->repaint();
+    const double paint_ms =
+        static_cast<double>(t.nsecsElapsed()) / 1e6 / kFrames;
+    // One staged edit rebuilds the edge batches.
+    const auto &ids = shell->database()->frames()->pair().ids();
+    t.restart();
+    if (ids.size() > 2)
+      shell->database()->editor().add(
+          {{ids.front(), ids[ids.size() / 2], "loop_closure"}, 0.0, 9.0});
+    QApplication::processEvents();
+    const double edit_ms = static_cast<double>(t.nsecsElapsed()) / 1e6;
+    std::fprintf(
+        stderr, "%s\n",
+        qPrintable(QString("posegraf-stress: %1 nodes, %2 stored edges, "
+                           "%3x%4 px: %5 ms/frame (%6 fps); a staged edit "
+                           "%7 ms")
+                       .arg(shell->posegraph()->node_count())
+                       .arg(kEdges)
+                       .arg(v->viewport()->width())
+                       .arg(v->viewport()->height())
+                       .arg(paint_ms, 0, 'f', 2)
+                       .arg(1000.0 / std::max(paint_ms, 1e-3), 0, 'f', 0)
+                       .arg(edit_ms, 0, 'f', 2)));
+  });
+  probe->start();
+  return shell;
+}
+
 /// A click on a staged edge: the Database opens with A and B on its ends.
 QWidget *make_posegraf_click(const PageContext &ctx) {
   auto *shell = make_pg(ctx);
@@ -407,6 +477,10 @@ void register_shell_pages() {
   register_page({"posegraf",
                  "Posegraf: billeder, A/B og ventende løkkelukninger",
                  make_posegraf});
+  register_page({"posegraf-stress",
+                 "Posegraf: 10.000 kanter (skriver til projektkopien), måler "
+                 "tegnetid",
+                 make_posegraf_stress});
   register_page({"posegraf-click",
                  "Posegraf: klik på en kant åbner Database med A og B",
                  make_posegraf_click});

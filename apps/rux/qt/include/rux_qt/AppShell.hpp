@@ -20,6 +20,7 @@
 
 #include <QFrame>
 #include <QWidget>
+#include <functional>
 
 class QAction;
 class QLabel;
@@ -78,6 +79,11 @@ class AppShell : public QWidget {
   /// before @p action (Danish infinitive: "lukke projektet"). True when it is
   /// fine to go on — nothing pending, saved, or discarded.
   bool resolve_pending_edits(const QString &action);
+  /// A pipeline run in progress before @p action ("lukke projektet"): true
+  /// when none runs. Otherwise asks; "Stop kørslen" cancels the job and runs
+  /// @p retry once it has ended — the GUI thread never waits on a stage (a
+  /// MIP solve may not stop for minutes). False means "not now".
+  bool resolve_running_job(const QString &action, std::function<void()> retry);
   /// The QFileDialog for .rux files.
   void browse();
 
@@ -119,6 +125,8 @@ class AppShell : public QWidget {
   PipelineWorkspace *pipeline_ = nullptr;
   PipelineLogView *log_ = nullptr;
   Selection log_selection_;
+  /// What to do once the running job has ended (resolve_running_job).
+  std::function<void()> after_job_;
   QString log_command_;
   Inspector *inspector_ = nullptr;
   CommandPalette *palette_ = nullptr;

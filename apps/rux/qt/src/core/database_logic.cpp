@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <rux_qt/database_logic.hpp>
+#include <set>
+#include <tuple>
 
 #include <algorithm>
 #include <charconv>
@@ -207,6 +209,29 @@ std::vector<EdgeView> PendingEdgeEdits::between(int a, int b) const {
   for (const auto &e : adds_)
     if (match(e.key))
       out.push_back({e, true, false, e.key.from != a});
+  return out;
+}
+
+std::map<int, int> PendingEdgeEdits::degrees() const {
+  using Key = std::tuple<int, int, std::string>;
+  std::set<Key> removed_keys;
+  for (const auto &k : removes_)
+    removed_keys.emplace(k.from, k.to, k.type);
+  std::set<Key> seen;
+  std::map<int, int> out;
+  for (const auto &e : base_) {
+    Key k{e.key.from, e.key.to, e.key.type};
+    if (removed_keys.count(k) || !seen.insert(k).second)
+      continue;
+    ++out[e.key.from];
+    if (e.key.to != e.key.from)
+      ++out[e.key.to];
+  }
+  for (const auto &e : adds_) {
+    ++out[e.key.from];
+    if (e.key.to != e.key.from)
+      ++out[e.key.to];
+  }
   return out;
 }
 

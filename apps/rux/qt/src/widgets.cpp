@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/cli_command.hpp>
 #include <rux_qt/widgets.hpp>
 
 #include <QButtonGroup>
@@ -11,6 +12,8 @@
 #include <QPainter>
 #include <QStyleOption>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace rux::qt {
 
@@ -392,6 +395,57 @@ void PropertyList::add_swatch(const QString &colour_token, const QString &name,
 
 QString format_count(qulonglong n) {
   return QLocale(QLocale::Danish, QLocale::Denmark).toString(n);
+}
+
+// ------------------------------------------------------------- CommandBlock --
+
+CommandBlock::CommandBlock(const QString &command, QWidget *parent)
+    : QLabel(parent) {
+  setObjectName("commandBlock");
+  setTextInteractionFlags(Qt::TextSelectableByMouse);
+  setWordWrap(false);
+  setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  set_command(command);
+}
+
+void CommandBlock::set_command(const QString &command) {
+  command_ = command;
+  setText(wrapped(width()));
+  updateGeometry();
+}
+
+QString CommandBlock::wrapped(int width) const {
+  // rect() - contentsRect() includes the QSS padding and border, which
+  // contentsMargins() alone does not.
+  const int chrome_w = rect().width() - contentsRect().width();
+  const int inner = width - chrome_w - 2 * margin();
+  const int ch = std::max(1, fontMetrics().horizontalAdvance(QLatin1Char('m')));
+  const std::size_t cols =
+      inner > ch * 12 ? static_cast<std::size_t>(inner / ch) : 1000;
+  return QString::fromStdString(
+      wrap_shell_command(command_.toStdString(), cols));
+}
+
+int CommandBlock::heightForWidth(int width) const {
+  const int lines = static_cast<int>(wrapped(width).count('\n')) + 1;
+  const int chrome_h = rect().height() - contentsRect().height();
+  return lines * fontMetrics().lineSpacing() + fontMetrics().descent() +
+         chrome_h + 2 * margin();
+}
+
+QSize CommandBlock::sizeHint() const {
+  return {0, heightForWidth(std::max(width(), 1))};
+}
+
+QSize CommandBlock::minimumSizeHint() const { return sizeHint(); }
+
+void CommandBlock::resizeEvent(QResizeEvent *e) {
+  QLabel::resizeEvent(e);
+  const QString t = wrapped(width());
+  if (t != text()) {
+    setText(t);
+    updateGeometry();
+  }
 }
 
 } // namespace rux::qt

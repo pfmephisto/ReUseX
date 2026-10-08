@@ -317,10 +317,16 @@ TEST_CASE("QtSources_EveryTokenStringLiteral_ExistsInRealTokens",
     const auto ext = entry.path().extension();
     if (ext != ".cpp" && ext != ".hpp")
       continue;
-    // The rux flag table: "--radius" is `create planes -r`, not a token.
-    if (entry.path().filename() == "cli_command.cpp")
-      continue;
-    const std::string src = slurp(entry.path());
+    // A line marked `token-lint: allow` (the rux flag table's "--radius",
+    // which is `create planes -r`) is not a token lookup — same rule as
+    // token_lint.py. Every other line of every file is scanned.
+    std::string src;
+    {
+      std::istringstream lines(slurp(entry.path()));
+      for (std::string line; std::getline(lines, line);)
+        if (line.find("token-lint: allow") == std::string::npos)
+          src += line + "\n";
+    }
     for (auto m = std::sregex_iterator(src.begin(), src.end(), lit);
          m != std::sregex_iterator(); ++m) {
       const std::string name = (*m)[1].str();

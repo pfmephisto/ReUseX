@@ -69,56 +69,101 @@ bool EdgeEditor::save() {
     return false;
   }
 
+  if (!pipeline_busy_.isEmpty()) {
+    error_ = busy_message();
+    emit changed();
+    emit save_finished(false);
+    return false;
+  }
+
   const auto snapshot = edits_.ops();
   const unsigned id = ++save_id_;
+  // The pipeline's writer lease, taken on the save's thread (a timed_mutex
+  // must be unlocked by the thread that locked it).
+  std::weak_ptr<reusex::pipeline::JobRunner> runner;
+  if (runner_source_)
+    runner = runner_source_();
   saving_ = true;
   emit changed();
 
   const std::string path = session_.path().toStdString();
   auto work = std::make_shared<BackgroundWork>();
   QPointer<EdgeEditor> guard(this);
-  std::thread([path, snapshot, id, guard, work]() mutable {
+  std::thread([path, snapshot, id, guard, work, runner]() mutable {
     bool ok = false;
+    bool busy = false;
     QString what;
-    try {
-      reusex::ProjectDB db(path, /*readOnly=*/false);
-      reusex::ProjectDB::Transaction tx(db);
-      for (const auto &op : snapshot) {
-        const auto &e = op.edge;
-        if (op.kind == PendingEdgeEdits::Op::Kind::remove) {
-          db.delete_pose_graph_edges(e.key.from, e.key.to, e.key.type);
-        } else {
-          reusex::ProjectDB::PoseGraphEdge row;
-          row.from_node_id = e.key.from;
-          row.to_node_id = e.key.to;
-          row.edge_type = e.key.type;
-          row.residual = e.residual;
-          row.weight = e.weight;
-          db.add_pose_graph_edge(row);
-        }
-      }
-      tx.commit();
-      ok = true;
-    } catch (const std::exception &ex) {
-      what = QString::fromUtf8(ex.what());
+    // Holds the runner (and its lease) until the write is done.
+    std::shared_ptr<reusex::pipeline::JobRunner> holder = runner.lock();
+    reusex::pipeline::WriterLease lease;
+    if (holder) {
+      lease = holder->try_acquire_writer(kLeaseTimeout);
+      busy = !lease.owns_lock();
     }
+    if (!busy)
+      try {
+        reusex::ProjectDB db(path, /*readOnly=*/false);
+        reusex::ProjectDB::Transaction tx(db);
+        for (const auto &op : snapshot) {
+          const auto &e = op.edge;
+          if (op.kind == PendingEdgeEdits::Op::Kind::remove) {
+            db.delete_pose_graph_edges(e.key.from, e.key.to, e.key.type);
+          } else {
+            reusex::ProjectDB::PoseGraphEdge row;
+            row.from_node_id = e.key.from;
+            row.to_node_id = e.key.to;
+            row.edge_type = e.key.type;
+            row.residual = e.residual;
+            row.weight = e.weight;
+            db.add_pose_graph_edge(row);
+          }
+        }
+        tx.commit();
+        ok = true;
+      } catch (const std::exception &ex) {
+        what = QString::fromUtf8(ex.what());
+      }
     QMetaObject::invokeMethod(
         qApp,
-        [guard, id, ok, what, snapshot] {
+        [guard, id, ok, busy, what, snapshot] {
           if (guard)
-            guard->save_done(id, ok, what, snapshot);
+            guard->save_done(id, ok, busy, what, snapshot);
         },
         Qt::QueuedConnection);
-    work.reset(); // last: counted until the thread has let go of everything
+    if (lease.owns_lock())
+      lease.unlock();
+    holder.reset(); // may be the last reference: joins an idle runner here
+    work.reset();   // last: counted until the thread has let go of everything
   }).detach();
   return true;
 }
 
-void EdgeEditor::save_done(unsigned id, bool ok, const QString &what,
+void EdgeEditor::set_pipeline_busy(const QString &stage) {
+  pipeline_busy_ = stage;
+  if (stage.isEmpty() && error_ == busy_message())
+    error_.clear();
+  emit changed();
+}
+
+QString EdgeEditor::busy_message() const {
+  return QString("Et pipeline-trin%1 skriver til projektet — gem, når det er "
+                 "færdigt.")
+      .arg(pipeline_busy_.isEmpty() ? QString()
+                                    : QString(" (%1)").arg(pipeline_busy_));
+}
+
+void EdgeEditor::save_done(unsigned id, bool ok, bool busy, const QString &what,
                            const std::vector<PendingEdgeEdits::Op> &snapshot) {
   if (id != save_id_ || !saving_)
     return; // a reload or a new project dropped this save's state
   saving_ = false;
+  if (busy) {
+    error_ = busy_message();
+    error_detail_.clear();
+    emit changed();
+    emit save_finished(false);
+    return;
+  }
   if (!ok) {
     error_ = QString::fromStdString(
         write_error_da(classify_write_error(what.toStdString())));

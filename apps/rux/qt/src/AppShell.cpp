@@ -3,6 +3,7 @@
 
 #include <rux_qt/AppShell.hpp>
 #include <rux_qt/DatabaseWorkspace.hpp>
+#include <rux_qt/EdgeEditor.hpp>
 #include <rux_qt/FrameBrowser.hpp>
 #include <rux_qt/PipelineWorkspace.hpp>
 #include <rux_qt/PoseGraphWorkspace.hpp>
@@ -255,6 +256,24 @@ AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
       session_.reload();
   });
   connect(&session_, &ProjectSession::opened, log_, &PipelineLogView::reload);
+  // While a stage runs, pose-graph saves wait (they take the runner's
+  // writer lease too, so a stage started meanwhile still wins cleanly).
+  database_->editor().set_runner_source(
+      [this] { return pipeline_->runner_handle(); });
+  pipeline_->set_pending_edits_source(
+      [this] { return database_->pending_edits(); });
+  connect(pipeline_, &PipelineWorkspace::job_started, this,
+          [this](const QString &stage) {
+            database_->editor().set_pipeline_busy(stage);
+          });
+  connect(pipeline_, &PipelineWorkspace::job_finished, this, [this] {
+    database_->editor().set_pipeline_busy({});
+    if (after_job_) {
+      auto next = std::move(after_job_);
+      after_job_ = nullptr;
+      next();
+    }
+  });
   connect(&session_, &ProjectSession::closed, log_, &PipelineLogView::reload);
   connect(start_, &StartPage::browse_requested, this, &AppShell::browse);
   connect(start_, &StartPage::open_requested, this, &AppShell::open_project);
@@ -339,11 +358,15 @@ void AppShell::build_actions() {
   };
   open_action_ = make("Åbn projekt…", key("open"), [this] { browse(); });
   close_action_ = make("Luk projekt", key("close"), [this] {
-    if (resolve_pending_edits("lukke projektet"))
+    if (resolve_running_job("lukke projektet",
+                            [this] { close_action_->trigger(); }) &&
+        resolve_pending_edits("lukke projektet"))
       session_.close();
   });
   reload_action_ = make("Genindlæs projekt", key("reload"), [this] {
-    if (resolve_pending_edits("genindlæse projektet"))
+    if (resolve_running_job("genindlæse projektet",
+                            [this] { reload_action_->trigger(); }) &&
+        resolve_pending_edits("genindlæse projektet"))
       session_.reload();
   });
   inspector_action_ =
@@ -489,6 +512,35 @@ bool AppShell::resolve_pending_edits(const QString &action) {
   return false;
 }
 
+bool AppShell::resolve_running_job(const QString &action,
+                                   std::function<void()> retry) {
+  if (!pipeline_ || !pipeline_->is_running())
+    return true;
+  const QString stage = pipeline_->running_stage();
+  QMessageBox box(this);
+  box.setIcon(QMessageBox::Question);
+  box.setWindowTitle("Et trin kører");
+  box.setText(QString("%1 kører stadig på projektet.").arg(stage));
+  box.setInformativeText(
+      QString("Vil du stoppe kørslen og derefter %1? Trinnet stopper ved sit "
+              "næste kontrolpunkt; en MIP-løsning kan tage tid om det. "
+              "Vinduet kan bruges imens.")
+          .arg(action));
+  auto *stop = box.addButton(NavItem::escape_mnemonic("Stop kørslen"),
+                             QMessageBox::DestructiveRole);
+  auto *keep = box.addButton(NavItem::escape_mnemonic("Fortsæt kørslen"),
+                             QMessageBox::RejectRole);
+  box.setDefaultButton(keep);
+  box.setEscapeButton(keep);
+  box.exec();
+  if (box.clickedButton() == stop) {
+    after_job_ = std::move(retry);
+    pipeline_->cancel_running();
+    show_page(Workspace::pipeline);
+  }
+  return false;
+}
+
 Workspace AppShell::current_page() const {
   return static_cast<Workspace>(stack_->currentIndex());
 }
@@ -506,7 +558,11 @@ void AppShell::set_inspector_visible(bool on) {
 bool AppShell::inspector_visible() const { return !inspector_->isHidden(); }
 
 void AppShell::open_project(const QString &path, bool read_only) {
-  if (path.isEmpty() || !resolve_pending_edits("åbne et andet projekt"))
+  if (path.isEmpty() ||
+      !resolve_running_job(
+          "åbne et andet projekt",
+          [this, path, read_only] { open_project(path, read_only); }) ||
+      !resolve_pending_edits("åbne et andet projekt"))
     return;
   // Only an existing file goes into the recent list; one that fails to open
   // stays (it may be locked) — the start page shows why.
@@ -740,7 +796,10 @@ void Inspector::show_selection() {
       l->addWidget(p);
     }
     if (!sec.block.isEmpty()) {
-      l->addWidget(new TextBlock(sec.block));
+      if (sec.command)
+        l->addWidget(new CommandBlock(sec.block));
+      else
+        l->addWidget(new TextBlock(sec.block));
     }
   }
   l->addStretch(1);

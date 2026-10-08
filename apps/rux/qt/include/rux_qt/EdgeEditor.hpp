@@ -17,9 +17,14 @@
 
 #include <rux_qt/database_logic.hpp>
 
+#include <reusex/pipeline/JobRunner.hpp>
+
 #include <QObject>
 #include <QString>
 
+#include <chrono>
+#include <functional>
+#include <memory>
 #include <vector>
 
 class QWidget;
@@ -61,6 +66,20 @@ class EdgeEditor : public QObject {
   /// edits — callers ask first.
   void reload();
 
+  /// The in-process pipeline runner whose writer lease a save must hold
+  /// (JobRunner::try_acquire_writer): a save never writes while a stage
+  /// does. Asked on the GUI thread at save(); the lease is taken on the
+  /// save's own thread.
+  using RunnerSource =
+      std::function<std::weak_ptr<reusex::pipeline::JobRunner>()>;
+  void set_runner_source(RunnerSource source) { runner_source_ = source; }
+  /// A pipeline stage is running (Danish stage name), or empty: saving is
+  /// held back until it ends.
+  void set_pipeline_busy(const QString &stage);
+  QString pipeline_busy() const { return pipeline_busy_; }
+  /// How long a save waits for a running stage to release the project.
+  static constexpr std::chrono::milliseconds kLeaseTimeout{1500};
+
     signals:
   /// The stored or pending edges changed.
   void changed();
@@ -70,8 +89,11 @@ class EdgeEditor : public QObject {
   void save_finished(bool ok);
 
     private:
-  void save_done(unsigned id, bool ok, const QString &what,
+  void save_done(unsigned id, bool ok, bool busy, const QString &what,
                  const std::vector<PendingEdgeEdits::Op> &snapshot);
+  QString busy_message() const;
+  RunnerSource runner_source_;
+  QString pipeline_busy_;
   ProjectSession &session_;
   bool saving_ = false;
   unsigned save_id_ = 0;

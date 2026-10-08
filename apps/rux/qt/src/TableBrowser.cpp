@@ -855,7 +855,9 @@ Selection PipelineLogView::entry_selection(int row) const {
         cli_for_parameters(*stage, qs(e.parameters), session_.path());
     if (c.supported) {
       cmd = QString::fromStdString(c.text);
-      s.sections.push_back({"Som rux-kommando", {}, cmd});
+      SelectionSection sec{"Som rux-kommando", {}, cmd};
+      sec.command = true;
+      s.sections.push_back(sec);
     }
   }
   return s;

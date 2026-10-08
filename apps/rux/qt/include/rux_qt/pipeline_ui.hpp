@@ -28,6 +28,10 @@ QString stage_blurb_da(reusex::pipeline::JobStage stage);
 /// descriptor's own label).
 QString parameter_label_da(reusex::pipeline::JobStage stage,
                            const reusex::pipeline::ParameterDescriptor &d);
+/// An ISO-8601 UTC time ("2026-10-08T14:28:40Z", JobRecord) as Danish local
+/// time ("8. okt. 2026 16:28:40"); the text unchanged if it does not parse.
+QString local_time_da(const std::string &iso_utc);
+
 /// The stage contract entry a job stage is checked against.
 reusex::core::PipelineStage contract_stage(reusex::pipeline::JobStage stage);
 

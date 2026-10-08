@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -139,6 +140,9 @@ class PendingEdgeEdits {
   std::vector<EdgeView> between(int a, int b) const;
   /// Effective edge count of a frame (stored minus deleted plus added).
   int degree(int frame) const;
+  /// degree() of every frame with an edge, in one O(E log E) pass (the
+  /// filmstrip marks; degree() per frame is O(E) each).
+  std::map<int, int> degrees() const;
 
   /// After a successful save: fold the ops into the base, clear pending.
   void commit_succeeded();

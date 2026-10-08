@@ -62,7 +62,10 @@ class MainWindow : public QMainWindow {
   void closeEvent(QCloseEvent *e) override {
     // Unsaved pose-graph edits: save, discard or stay (RTABMap writes its
     // pending link edits on close too, but asks nothing).
-    if (!shell_->resolve_pending_edits("afslutte")) {
+    // A pipeline run: stop it and close when it has ended, never by joining
+    // it here.
+    if (!shell_->resolve_running_job("afslutte", [this] { close(); }) ||
+        !shell_->resolve_pending_edits("afslutte")) {
       e->ignore();
       return;
     }

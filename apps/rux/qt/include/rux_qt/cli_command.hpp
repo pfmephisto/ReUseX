@@ -60,6 +60,14 @@ std::string shell_quote(std::string_view word);
 /// pasting a command back.
 std::vector<std::string> split_shell_words(std::string_view line);
 
+/// Wrap a shell line to @p columns with ` \` continuations (so the wrapped
+/// text still pastes as one command), breaking only between words — never
+/// inside a quoted word or a flag — and keeping a flag with its value.
+/// Continuation lines are indented two spaces. An unquoted word longer than
+/// a line (a deep path) is cut with a bare backslash-newline, which a shell
+/// joins with nothing between; a quoted one stays whole.
+std::string wrap_shell_command(std::string_view line, std::size_t columns);
+
 /// Shortest decimal text that reads back as @p value ("0.05", "25", "1e-06").
 std::string format_number(double value);
 /// The same for a float: the shortest text that reads back as the FLOAT

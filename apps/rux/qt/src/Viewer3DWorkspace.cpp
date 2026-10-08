@@ -9,6 +9,7 @@
 #include <rux_qt/widgets.hpp>
 
 #include <reusex/core/ProjectDB.hpp>
+#include <reusex/core/label_semantics.hpp>
 #include <reusex/visualize/scene.hpp>
 
 #include <QApplication>
@@ -103,12 +104,23 @@ vis::LabelPalette theme_palette() {
   for (int i = 0; i < n; ++i)
     p.colors.push_back(rgb(t.color(QString("--label-%1").arg(i))));
   p.unlabeled = rgb(t.color("--label-unlabeled"));
+  p.invalid = rgb(t.color("--label-invalid"));
   return p;
 }
 
 QString metres(double v) { return da().toString(v, 'f', 2) + " m"; }
 
 } // namespace
+
+QString label_swatch_token(std::uint32_t label, int nslots) {
+  const int slot = vis::label_palette_slot(
+      label, static_cast<std::size_t>(std::max(nslots, 1)));
+  if (slot == vis::kInvalidSlot)
+    return "--label-invalid";
+  if (slot < 0)
+    return "--label-unlabeled";
+  return QString("--label-%1").arg(slot);
+}
 
 struct Viewer3DWorkspace::LayerState {
   bool loading = false;
@@ -241,6 +253,22 @@ Viewer3DWorkspace::Viewer3DWorkspace(ProjectSession &session, bool interactive,
   });
   connect(&session_, &ProjectSession::state_changed, this,
           &Viewer3DWorkspace::reset);
+  // Colours read from tokens at build time follow a theme switch.
+  connect(&theme(), &Theme::changed, this, [this] {
+    auto paint = [](vtkActor *a, const QColor &c) {
+      if (a)
+        a->GetProperty()->SetColor(c.redF(), c.greenF(), c.blueF());
+    };
+    const std::pair<Layer, const char *> tokens[] = {
+        {Layer::frustums, "--color-on-chrome-muted"},
+        {Layer::panoramas, "--color-star"}};
+    for (const auto &[layer, token] : tokens)
+      if (auto it = layers_.find(static_cast<int>(layer)); it != layers_.end())
+        for (const auto &a : it->second->actors)
+          paint(a, theme().color(token));
+    paint(static_cast<vtkActor *>(marker_), theme().color("--color-accent"));
+    view_->request_render();
+  });
   reset();
 }
 
@@ -274,9 +302,7 @@ bool Viewer3DWorkspace::has_data(Layer l) const {
 
 void Viewer3DWorkspace::reset() {
   ++generation_;
-  vtkRenderer *r = view_->renderer();
-  r->RemoveAllViewProps();
-  view_->set_lod_pairs({});
+  view_->clear_scene();
   layers_.clear();
   marker_ = nullptr;
   camera_placed_ = false;
@@ -467,8 +493,13 @@ void Viewer3DWorkspace::rebuild_panel() {
 
 void Viewer3DWorkspace::ensure_layer(Layer layer) {
   const int key = static_cast<int>(layer);
-  if (layers_.count(key))
-    return;
+  if (auto it = layers_.find(key); it != layers_.end()) {
+    // A layer that failed is tried again (the user may have fixed the data,
+    // or a lock may have gone); a built or loading one is left alone.
+    if (it->second->loading || it->second->error.isEmpty())
+      return;
+    layers_.erase(it);
+  }
   auto state = std::make_unique<LayerState>();
   state->loading = true;
   layers_[key] = std::move(state);
@@ -755,25 +786,36 @@ void Viewer3DWorkspace::update_legend() {
   constexpr int kShown = 10;
   int shown = 0;
   std::size_t rest = 0, rest_points = 0;
+  // Unlabeled and out-of-contract points first: they are not classes, so
+  // they never take a class's place in the list (or its colour).
+  std::size_t unlabeled = 0, invalid = 0;
   for (const auto &[label, n] : st.counts) {
-    const QString pct =
-        total ? da().toString(100.0 * n / total, 'f', 1) + " %" : QString();
-    if (label == 0) {
-      entries.prepend({"Uden mærkat", "--label-unlabeled", pct});
+    if (label == reusex::core::kUnlabeled)
+      unlabeled += n;
+    else if (reusex::core::is_out_of_contract_label(label))
+      invalid += n;
+  }
+  auto pct = [&](std::size_t n) {
+    return total ? da().toString(100.0 * n / total, 'f', 1) + " %" : QString();
+  };
+  if (unlabeled > 0)
+    entries.push_back({"Uden mærkat", "--label-unlabeled", pct(unlabeled)});
+  if (invalid > 0)
+    entries.push_back({"Ugyldig mærkat (−1)", "--label-invalid", pct(invalid)});
+  for (const auto &[label, n] : st.counts) {
+    if (label == reusex::core::kUnlabeled ||
+        reusex::core::is_out_of_contract_label(label))
       continue;
-    }
     if (shown++ >= kShown) {
       ++rest;
       rest_points += n;
       continue;
     }
     const auto nm = st.names.find(static_cast<int>(label));
-    const QString name = nm != st.names.end() ? qs(nm->second)
-                         : label == 0xFFFFFFFFu
-                             ? QString("Ugyldig (−1)")
+    const QString name = nm != st.names.end()
+                             ? qs(nm->second)
                              : QString(choice->item).arg(label);
-    const int slot = vis::label_palette_slot(label, nslots);
-    entries.push_back({name, QString("--label-%1").arg(slot), pct});
+    entries.push_back({name, label_swatch_token(label, nslots), pct(n)});
   }
   l->addWidget(new LabelLegend(entries));
   if (rest > 0) {
@@ -836,7 +878,7 @@ bool Viewer3DWorkspace::pick_at(const QPoint &pos) {
       view_->pick(pos, {st.actors.front().GetPointer()});
   vtkRenderer *r = view_->renderer();
   if (marker_) {
-    r->RemoveActor(static_cast<vtkActor *>(marker_));
+    view_->remove_actor(static_cast<vtkActor *>(marker_));
     marker_ = nullptr;
   }
   if (!hit.hit) {
@@ -905,10 +947,12 @@ bool Viewer3DWorkspace::pick_at(const QPoint &pos) {
         std::memcpy(&label, page.data.data(), sizeof label);
         // 0 is unlabeled (STANDARDS §3); an all-ones value is a -1 that
         // reached a point cloud, which the contract does not allow.
-        QString value = label == 0             ? QString("uden")
-                        : label == 0xFFFFFFFFu ? QString("−1 (ugyldig)")
-                                               : QString::number(label);
-        if (label != 0) {
+        QString value =
+            label == reusex::core::kUnlabeled ? QString("uden")
+            : reusex::core::is_out_of_contract_label(label)
+                ? QString("%1 (ugyldig)").arg(static_cast<std::int32_t>(label))
+                : QString::number(label);
+        if (label != 0 && !reusex::core::is_out_of_contract_label(label)) {
           auto it2 = layers_.find(static_cast<int>(c.layer));
           if (it2 != layers_.end()) {
             const auto nm = it2->second->names.find(static_cast<int>(label));
@@ -916,10 +960,8 @@ bool Viewer3DWorkspace::pick_at(const QPoint &pos) {
               value = QString("%1 · %2").arg(label).arg(qs(nm->second));
           }
         }
-        const int slot = vis::label_palette_slot(label, nslots);
         labels.rows.push_back({c.name, value, SelectionRow::Style::mono,
-                               slot < 0 ? QString("--label-unlabeled")
-                                        : QString("--label-%1").arg(slot)});
+                               label_swatch_token(label, nslots)});
       } catch (const std::exception &) {
       }
     }

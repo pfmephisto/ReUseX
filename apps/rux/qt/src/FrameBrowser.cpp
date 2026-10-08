@@ -925,16 +925,15 @@ void FrameBrowser::frame_ready(int id) {
 }
 
 void FrameBrowser::refresh_strip_marks() {
+  // One pass over the edges (a project may have tens of thousands).
   QHash<int, int> degrees;
-  const auto &edits = editor_.edits();
-  for (const auto &e : edits.base()) {
-    degrees[e.key.from] = edits.degree(e.key.from);
-    degrees[e.key.to] = edits.degree(e.key.to);
-  }
-  for (const auto &op : edits.ops()) {
-    degrees[op.edge.key.from] = edits.degree(op.edge.key.from);
-    degrees[op.edge.key.to] = edits.degree(op.edge.key.to);
-  }
+  for (const auto &[frame, n] : editor_.edits().degrees())
+    degrees.insert(frame, n);
+  // Frames whose edges were all staged for deletion show a 0 mark.
+  for (const auto &op : editor_.edits().ops())
+    for (int f : {op.edge.key.from, op.edge.key.to})
+      if (!degrees.contains(f))
+        degrees.insert(f, 0);
   film_model_->set_degrees(std::move(degrees));
 }
 

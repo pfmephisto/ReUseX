@@ -3,9 +3,11 @@
 
 #include <rux_qt/pipeline_ui.hpp>
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 
 #include <cmath>
 #include <map>
@@ -101,6 +103,15 @@ QString parameter_label_da(pl::JobStage stage,
   if (auto it = common.find(d.key); it != common.end())
     return it->second;
   return QString::fromStdString(d.label);
+}
+
+QString local_time_da(const std::string &iso_utc) {
+  const QString text = QString::fromStdString(iso_utc);
+  QDateTime dt = QDateTime::fromString(text, Qt::ISODate);
+  if (!dt.isValid())
+    return text;
+  return QLocale(QLocale::Danish, QLocale::Denmark)
+      .toString(dt.toLocalTime(), "d. MMM yyyy HH:mm");
 }
 
 reusex::core::PipelineStage contract_stage(pl::JobStage stage) {

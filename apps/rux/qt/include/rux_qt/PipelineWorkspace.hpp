@@ -27,6 +27,7 @@
 #include <QJsonObject>
 #include <QWidget>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -44,6 +45,7 @@ class QVBoxLayout;
 namespace rux::qt {
 
 class BackgroundWork;
+class CommandBlock;
 class Pill;
 class ProjectSession;
 
@@ -66,12 +68,27 @@ class PipelineWorkspace : public QWidget {
   /// Start the selected stage. False when it cannot run (and why is shown).
   bool run();
   bool is_running() const;
+  /// Danish name of the running stage, or empty.
+  QString running_stage() const;
+  /// Ask the running job to stop (it ends at its next checkpoint).
+  void cancel_running();
+  /// The runner, for a writer lease (EdgeEditor); empty when none exists.
+  std::weak_ptr<reusex::pipeline::JobRunner> runner_handle() const {
+    return runner_;
+  }
+  /// Unsaved pose-graph edits a run of `optimize` would not see.
+  void set_pending_edits_source(std::function<int()> source) {
+    pending_edits_ = std::move(source);
+  }
   const Selection &selection() const { return selection_; }
 
     signals:
   void selection_changed(const rux::qt::Selection &selection);
   /// A run wrote to the project: views should re-read it.
   void project_changed();
+  void job_started(const QString &stage);
+  /// The job ended (any outcome).
+  void job_finished();
 
     private:
   struct Field;
@@ -88,7 +105,11 @@ class PipelineWorkspace : public QWidget {
   ProjectSession &session_;
   reusex::pipeline::StageExecutor executor_;
   reusex::pipeline::JobStage stage_ = reusex::pipeline::JobStage::planes;
-  std::unique_ptr<reusex::pipeline::JobRunner> runner_;
+  std::shared_ptr<reusex::pipeline::JobRunner> runner_;
+  std::function<int()> pending_edits_;
+  /// The project the running (or last) job ran on: its result belongs to it,
+  /// whatever is open now.
+  QString job_path_;
   std::string runner_path_;
   QString form_path_; ///< the project the form was built for
   std::size_t log_token_ = 0;
@@ -111,7 +132,7 @@ class PipelineWorkspace : public QWidget {
   QPushButton *run_ = nullptr;
   QPushButton *cancel_ = nullptr;
   QPushButton *defaults_ = nullptr;
-  QLabel *command_ = nullptr;
+  CommandBlock *command_ = nullptr;
   QLabel *command_note_ = nullptr;
   QPushButton *copy_ = nullptr;
   QProgressBar *progress_ = nullptr;

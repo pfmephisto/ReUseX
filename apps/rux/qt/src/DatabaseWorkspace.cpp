@@ -8,10 +8,10 @@
 #include <rux_qt/ProjectSession.hpp>
 #include <rux_qt/TableBrowser.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/Viewer3DWorkspace.hpp>
 #include <rux_qt/widgets.hpp>
 
 #include <reusex/core/ProjectDB.hpp>
-#include <reusex/visualize/scene.hpp>
 
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -499,13 +499,7 @@ Selection DatabaseWorkspace::cloud_selection(const QString &name) const {
         l.rows.push_back(
             {qs(label), QString::number(id), SelectionRow::Style::name,
              // The 3D view's and the web's slot rule.
-             [&] {
-               const int slot = reusex::visualize::label_palette_slot(
-                   static_cast<std::uint32_t>(id),
-                   static_cast<std::size_t>(nslots));
-               return slot < 0 ? QString("--label-unlabeled")
-                               : QString("--label-%1").arg(slot);
-             }()});
+             label_swatch_token(static_cast<std::uint32_t>(id), nslots)});
       }
       s.sections.push_back(l);
     }
@@ -560,16 +554,26 @@ void DatabaseWorkspace::sync_banner() {
   banner_error_->setVisible(!error.isEmpty());
   // Read-only is a state, not a failure: the warning tone, like the title
   // bar's "Skrivebeskyttet" pill. A failed write (locked, other) is critical.
+  const bool busy = !editor_->pipeline_busy().isEmpty();
+  // Read-only, and a pipeline stage holding the project, are states: warn.
   const bool read_only_error =
-      !error.isEmpty() && !editor_->read_only_reason().isEmpty();
+      !error.isEmpty() && (!editor_->read_only_reason().isEmpty() || busy);
   banner_->setProperty("tone", error.isEmpty()   ? "pending"
                                : read_only_error ? "warn"
                                                  : "error");
   repolish(banner_);
-  save_->setEnabled(n > 0 && editor_->can_save() && !saving);
-  save_->setToolTip(editor_->can_save()
-                        ? QString("Skriv ændringerne til projektet (Ctrl+S)")
-                        : editor_->read_only_reason());
+  save_->setEnabled(n > 0 && editor_->can_save() && !saving && !busy);
+  save_->setToolTip(
+      !editor_->can_save() ? editor_->read_only_reason()
+      : busy ? QString("Et pipeline-trin (%1) skriver til projektet — gem, "
+                       "når det er færdigt.")
+                   .arg(editor_->pipeline_busy())
+             : QString("Skriv ændringerne til projektet (Ctrl+S)"));
+  if (busy && n > 0 && error.isEmpty()) {
+    banner_error_->setText(QString("Gem er sat på pause, mens %1 kører.")
+                               .arg(editor_->pipeline_busy()));
+    banner_error_->setVisible(true);
+  }
   discard_->setEnabled(n > 0 && !saving);
 }
 

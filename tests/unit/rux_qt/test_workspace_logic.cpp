@@ -11,6 +11,7 @@
 #include <rux_qt/cli_command.hpp>
 #include <rux_qt/workspace_logic.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,53 @@ TEST_CASE("ShellQuote_And_Split_RoundTrip", "[rux_qt][cli]") {
   }
   CHECK(split_shell_words("a  \"b c\" d\\ e") ==
         std::vector<std::string>{"a", "b c", "d e"});
+}
+
+TEST_CASE("WrapShellCommand_BreaksBetweenFlagsAndStillPastes",
+          "[rux_qt][cli]") {
+  const std::string line =
+      "rux -p '/tmp/a b/office_corridor.rux' create planes --angle-threshold "
+      "20 --plane-dist-threshold 0.04 --filter 'rooms in [1, 2]'";
+  const std::string w = wrap_shell_command(line, 40);
+  // Never inside a flag or a quoted word, and every line within the width
+  // unless one group alone is wider.
+  CHECK(w.find("--angle-threshold 20") != std::string::npos);
+  CHECK(w.find("'rooms in [1, 2]'") != std::string::npos);
+  CHECK(w.find("--\n") == std::string::npos);
+  // A shell joins the continuations back into the same words.
+  std::string joined;
+  for (std::size_t i = 0; i < w.size(); ++i) {
+    if (w[i] == '\\' && i + 1 < w.size() && w[i + 1] == '\n') {
+      ++i;
+      continue;
+    }
+    joined += w[i];
+  }
+  CHECK(split_shell_words(joined) == split_shell_words(line));
+  CHECK(wrap_shell_command(line, 1000) == line);
+
+  // A path longer than a line is cut with bare continuations, and still
+  // joins back into the same words.
+  const std::string long_line =
+      "rux -p /tmp/a-very-long-directory-name/and-another-one/project.rux "
+      "create planes --angle-threshold 20";
+  const std::string lw = wrap_shell_command(long_line, 24);
+  std::string lj;
+  for (std::size_t i = 0; i < lw.size(); ++i) {
+    if (lw[i] == '\\' && i + 1 < lw.size() && lw[i + 1] == '\n') {
+      ++i;
+      continue;
+    }
+    lj += lw[i];
+  }
+  CHECK(split_shell_words(lj) == split_shell_words(long_line));
+  std::size_t widest = 0, start = 0;
+  for (std::size_t i = 0; i <= lw.size(); ++i)
+    if (i == lw.size() || lw[i] == '\n') {
+      widest = std::max(widest, i - start);
+      start = i + 1;
+    }
+  CHECK(widest <= 24);
 }
 
 TEST_CASE("FormatNumber_IsShortestAndLocaleFree", "[rux_qt][cli]") {

@@ -195,6 +195,26 @@ void SceneView::set_message(const QString &message) {
     impl_->stack->setCurrentWidget(impl_->image);
 }
 
+void SceneView::clear_scene() {
+  set_lod_pairs({});
+  if (impl_->gl)
+    impl_->gl->makeCurrent();
+  impl_->renderer->RemoveAllViewProps();
+  if (impl_->gl)
+    impl_->gl->doneCurrent();
+  request_render();
+}
+
+void SceneView::remove_actor(vtkActor *actor) {
+  if (!actor)
+    return;
+  if (impl_->gl)
+    impl_->gl->makeCurrent();
+  impl_->renderer->RemoveActor(actor);
+  if (impl_->gl)
+    impl_->gl->doneCurrent();
+}
+
 void SceneView::request_render() {
   if (impl_->unavailable.isEmpty())
     impl_->debounce->start();

@@ -46,6 +46,8 @@ const QLocale &da() {
 /// Screen pixels of a node's radius and of the click tolerance.
 constexpr double kNodePx = 1.6;
 constexpr double kHitPx = 7.0;
+/// Edges drawn antialiased up to this many (see EdgesItem::paint).
+constexpr std::size_t kAntialiasedEdges = 2000;
 
 QColor with_alpha(QColor c, double a) {
   c.setAlphaF(static_cast<float>(a));
@@ -64,52 +66,108 @@ int label_slots() {
 class NodesItem : public QGraphicsItem {
     public:
   NodesItem(const std::vector<GraphNode> &nodes, const std::vector<int> &scans)
-      : nodes_(nodes), scans_(scans) {
+      : scans_(scans) {
+    points_.reserve(nodes.size());
     for (const auto &n : nodes) {
       const QPointF p(n.x, -n.y);
+      points_.push_back(p);
       bounds_ = bounds_.isNull() ? QRectF(p, QSizeF(0, 0))
                                  : bounds_.united(QRectF(p, QSizeF(0, 0)));
     }
+    // The dots are screen-sized: at a far zoom a dot is wider than any fixed
+    // pad in metres. A tenth of the graph covers every zoom fit() allows.
+    pad_ = 0.1 * std::max(bounds_.width(), bounds_.height()) + 1.0;
     setZValue(2);
   }
   QRectF boundingRect() const override {
-    const double pad = 1.0; // a metre of slack for the screen-sized dots
-    return bounds_.adjusted(-pad, -pad, pad, pad);
+    return bounds_.adjusted(-pad_, -pad_, pad_, pad_);
   }
-  void paint(QPainter *p, const QStyleOptionGraphicsItem *option,
+  void paint(QPainter *p, const QStyleOptionGraphicsItem *,
              QWidget *) override {
-    const double scale =
-        option->levelOfDetailFromTransform(p->worldTransform());
-    const double r = kNodePx / std::max(scale, 1e-9);
-    p->setPen(Qt::NoPen);
+    // One drawPoints per scan with a round, cosmetic (pixel-wide) pen: no
+    // per-node ellipse path, and the size is the same at every zoom.
     const int nslots = label_slots();
-    int last = -1;
-    for (std::size_t i = 0; i < nodes_.size(); ++i) {
-      const int scan = scans_.empty() ? 0 : scans_[i];
-      if (scan != last) {
-        // Scans take the --label-* scale in turn, so two captures read apart.
-        // The first scan in the chrome's muted ink, so the coloured edges
-        // read on top; further scans take the --label-* scale in turn.
-        p->setBrush(scan <= 1 ? theme().color("--color-on-chrome-muted")
-                              : theme().color(
-                                    QString("--label-%1").arg(scan % nslots)));
-        last = scan;
-      }
-      p->drawEllipse(QPointF(nodes_[i].x, -nodes_[i].y), r, r);
+    std::size_t begin = 0;
+    while (begin < points_.size()) {
+      const int scan = scans_.empty() ? 0 : scans_[begin];
+      std::size_t end = begin + 1;
+      while (end < points_.size() && (scans_.empty() || scans_[end] == scan))
+        ++end;
+      // The first scan in the chrome's muted ink, so the coloured edges read
+      // on top; further scans take the --label-* scale in turn.
+      QPen pen(scan <= 1
+                   ? theme().color("--color-on-chrome-muted")
+                   : theme().color(QString("--label-%1").arg(scan % nslots)),
+               2.0 * kNodePx, Qt::SolidLine, Qt::RoundCap);
+      pen.setCosmetic(true);
+      p->setPen(pen);
+      p->drawPoints(points_.data() + begin, static_cast<int>(end - begin));
+      begin = end;
     }
   }
 
     private:
-  std::vector<GraphNode> nodes_;
+  std::vector<QPointF> points_;
   std::vector<int> scans_;
   QRectF bounds_;
+  double pad_ = 1.0;
+};
+
+/// Every edge in one item, batched by stroke: a project with a hundred
+/// thousand loop edges must not be a hundred thousand scene items, rebuilt
+/// on every staged edit.
+class EdgesItem : public QGraphicsItem {
+    public:
+  struct Batch {
+    QString token;
+    double width = 1.0;
+    bool dashed = false;
+    std::vector<QLineF> lines;
+  };
+  explicit EdgesItem(std::vector<Batch> batches)
+      : batches_(std::move(batches)) {
+    for (const auto &b : batches_)
+      for (const auto &l : b.lines)
+        bounds_ = bounds_.united(QRectF(l.p1(), l.p2()).normalized());
+    count_ = count();
+    setZValue(1);
+  }
+  QRectF boundingRect() const override {
+    return bounds_.adjusted(-1, -1, 1, 1);
+  }
+  void paint(QPainter *p, const QStyleOptionGraphicsItem *,
+             QWidget *) override {
+    // Antialiased lines cost ~20x aliased ones in the raster engine; past a
+    // few thousand edges the difference is not visible, the frame rate is.
+    p->setRenderHint(QPainter::Antialiasing, count_ < kAntialiasedEdges);
+    for (const auto &b : batches_) {
+      QPen pen(theme().color(b.token), b.width);
+      pen.setCosmetic(true);
+      if (b.dashed)
+        pen.setStyle(Qt::DashLine);
+      p->setPen(pen);
+      p->drawLines(b.lines.data(), static_cast<int>(b.lines.size()));
+    }
+  }
+  std::size_t count() const {
+    std::size_t n = 0;
+    for (const auto &b : batches_)
+      n += b.lines.size();
+    return n;
+  }
+
+    private:
+  std::vector<Batch> batches_;
+  QRectF bounds_;
+  std::size_t count_ = 0;
 };
 
 /// The A or B ring, constant size on screen.
 class MarkerItem : public QGraphicsItem {
     public:
-  explicit MarkerItem(QString letter, QString token)
-      : letter_(std::move(letter)), token_(std::move(token)) {
+  MarkerItem(QString letter, QString token, QString text_token)
+      : letter_(std::move(letter)), token_(std::move(token)),
+        text_token_(std::move(text_token)) {
     setFlag(ItemIgnoresTransformations);
     setZValue(5);
   }
@@ -134,13 +192,14 @@ class MarkerItem : public QGraphicsItem {
     p->setPen(Qt::NoPen);
     p->setBrush(c);
     p->drawRoundedRect(chip, t.px("--radius-sm"), t.px("--radius-sm"));
-    p->setPen(t.color("--color-on-accent"));
+    p->setPen(t.color(text_token_));
     p->drawText(chip, Qt::AlignCenter, letter_);
   }
 
     private:
   QString letter_;
   QString token_;
+  QString text_token_;
 };
 
 QString edge_type_da(const std::string &type) {
@@ -151,14 +210,6 @@ QString edge_type_da(const std::string &type) {
   if (type == "panorama")
     return "Panorama";
   return QString::fromStdString(type);
-}
-
-QString edge_token(const std::string &type) {
-  if (type == "loop_closure")
-    return "--color-accent";
-  if (type == "panorama")
-    return "--color-star";
-  return "--color-text-faint";
 }
 
 } // namespace
@@ -292,6 +343,8 @@ PoseGraphWorkspace::PoseGraphWorkspace(ProjectSession &session,
   auto *stack = new QStackedLayout(stack_host);
   view_ = new PoseGraphView;
   view_->setScene(new QGraphicsScene(view_));
+  // A handful of large items: a BSP index costs more than it saves.
+  view_->scene()->setItemIndexMethod(QGraphicsScene::NoIndex);
   view_->setBackgroundBrush(t.color("--color-canvas"));
   stack->addWidget(view_);
   empty_ = new QLabel;
@@ -426,7 +479,7 @@ void PoseGraphWorkspace::rebuild_scene() {
       path.lineTo(p);
     }
   }
-  QPen trail(with_alpha(t.color("--color-on-chrome-muted"), 0.25), 1.0);
+  QPen trail(with_alpha(t.color("--color-on-chrome-muted"), 0.45), 1.0);
   trail.setCosmetic(true);
   auto *trail_item = sc->addPath(path, trail);
   trail_item->setZValue(0);
@@ -434,8 +487,9 @@ void PoseGraphWorkspace::rebuild_scene() {
   nodes_item_ = new NodesItem(nodes_, scan_of_);
   sc->addItem(nodes_item_);
   view_->set_content_rect(path.boundingRect());
-  marker_a_ = new MarkerItem("A", "--color-accent");
-  marker_b_ = new MarkerItem("B", "--label-6");
+  // Chrome colours, not class colours: a marker must never read as a label.
+  marker_a_ = new MarkerItem("A", "--color-accent", "--color-on-accent");
+  marker_b_ = new MarkerItem("B", "--color-on-chrome", "--color-canvas");
   sc->addItem(marker_a_);
   sc->addItem(marker_b_);
   rebuild_edges();
@@ -479,21 +533,27 @@ void PoseGraphWorkspace::rebuild_edges() {
   std::map<int, QPointF> at;
   for (const auto &n : nodes_)
     at[n.id] = QPointF(n.x, -n.y);
-  const Theme &t = theme();
+  // Batches in draw order: odometry under the rest, staged edits on top.
+  std::vector<EdgesItem::Batch> batches = {
+      {"--color-text-faint", 1.0, false, {}},    // odometry
+      {"--color-accent", 2.0, false, {}},        // loop closure
+      {"--color-star", 2.0, false, {}},          // panorama
+      {"--color-accent", 2.0, true, {}},         // staged addition
+      {"--color-status-failed", 2.0, true, {}}}; // staged deletion
   for (const auto &d : edges_) {
     const auto a = at.find(d.edge.from), b = at.find(d.edge.to);
     if (a == at.end() || b == at.end())
       continue;
-    QPen pen(d.pending_delete ? t.color("--color-status-failed")
-                              : t.color(edge_token(d.type)),
-             d.type == "odometry" ? 1.0 : 2.0);
-    pen.setCosmetic(true);
-    if (d.pending_add || d.pending_delete)
-      pen.setStyle(Qt::DashLine);
-    auto *line = view_->scene()->addLine(QLineF(a->second, b->second), pen);
-    line->setZValue(d.type == "odometry" ? 1 : 3);
-    edge_items_.push_back(line);
+    const std::size_t k = d.pending_delete           ? 4
+                          : d.pending_add            ? 3
+                          : d.type == "loop_closure" ? 1
+                          : d.type == "panorama"     ? 2
+                                                     : 0;
+    batches[k].lines.emplace_back(a->second, b->second);
   }
+  auto *item = new EdgesItem(std::move(batches));
+  view_->scene()->addItem(item);
+  edge_items_.push_back(item);
 }
 
 void PoseGraphWorkspace::place_markers() {

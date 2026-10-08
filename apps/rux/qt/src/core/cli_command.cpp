@@ -182,6 +182,85 @@ std::vector<std::string> split_shell_words(std::string_view line) {
   return out;
 }
 
+std::string wrap_shell_command(std::string_view line, std::size_t columns) {
+  // Words as written (quotes kept), split at unquoted blanks.
+  std::vector<std::string> words;
+  std::string cur;
+  char quote = 0;
+  for (std::size_t i = 0; i < line.size(); ++i) {
+    const char c = line[i];
+    if (quote) {
+      cur += c;
+      if (c == quote)
+        quote = 0;
+    } else if (c == '\'' || c == '"') {
+      quote = c;
+      cur += c;
+    } else if (c == '\\' && i + 1 < line.size()) {
+      cur += c;
+      cur += line[++i];
+    } else if (c == ' ' || c == '\t' || c == '\n') {
+      if (!cur.empty())
+        words.push_back(std::move(cur));
+      cur.clear();
+    } else {
+      cur += c;
+    }
+  }
+  if (!cur.empty())
+    words.push_back(std::move(cur));
+
+  // A flag and the value after it travel together.
+  std::vector<std::string> groups;
+  for (std::size_t i = 0; i < words.size(); ++i) {
+    std::string g = words[i];
+    if (g.size() > 1 && g[0] == '-' && i + 1 < words.size() &&
+        words[i + 1][0] != '-')
+      g += " " + words[++i];
+    groups.push_back(std::move(g));
+  }
+
+  std::string out;
+  std::size_t col = 0;
+  const std::size_t cont = 2; // " \\" at a line end
+  // A group that cannot fit even on a line of its own, with no quotes in it
+  // (a long path): cut it with a bare backslash-newline, which a shell
+  // joins with nothing in between — so no indent on those lines.
+  auto emit_long = [&](const std::string &g) {
+    const std::size_t width = columns > cont + 1 ? columns - cont : 1;
+    std::size_t at = 0;
+    while (g.size() - at + col > columns) {
+      const std::size_t take = width > col ? width - col : 1;
+      out += g.substr(at, take);
+      out += "\\\n";
+      at += take;
+      col = 0;
+    }
+    out += g.substr(at);
+    col += g.size() - at;
+  };
+  auto splittable = [](const std::string &g) {
+    return g.find_first_of("'\"\\") == std::string::npos;
+  };
+  for (std::size_t i = 0; i < groups.size(); ++i) {
+    const std::string &g = groups[i];
+    if (col != 0 && col + 1 + g.size() + cont > columns) {
+      out += " \\\n  ";
+      col = 2;
+    } else if (col != 0) {
+      out += ' ';
+      col += 1;
+    }
+    if (col + g.size() + cont > columns && splittable(g))
+      emit_long(g);
+    else {
+      out += g;
+      col += g.size();
+    }
+  }
+  return out;
+}
+
 std::string cli_flag_for(std::string_view stage, std::string_view key) {
   const StageSpec *s = find_stage(stage);
   if (!s)

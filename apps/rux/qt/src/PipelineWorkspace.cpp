@@ -18,6 +18,7 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileInfo>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -25,6 +26,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QProgressBar>
@@ -39,6 +41,7 @@
 #include <climits>
 #include <cmath>
 #include <mutex>
+#include <thread>
 
 namespace rux::qt {
 
@@ -68,7 +71,7 @@ QString default_text(const pl::ParameterDescriptor &d) {
   if (const auto *x = std::get_if<long long>(&d.default_value))
     return da().toString(*x);
   if (const auto *x = std::get_if<bool>(&d.default_value))
-    return *x ? QString("til") : QString("fra");
+    return *x ? QString("slået til") : QString("slået fra");
   if (const auto *x = std::get_if<std::string>(&d.default_value))
     return qs(*x);
   return QString("ingen");
@@ -178,6 +181,7 @@ struct PipelineWorkspace::Field {
 struct PipelineWorkspace::LogBuffer {
   std::mutex mutex;
   QStringList lines;
+  std::thread::id job_thread; ///< the runner's worker, once the job started
   std::atomic<bool> capture{false};
 };
 
@@ -275,10 +279,7 @@ PipelineWorkspace::PipelineWorkspace(ProjectSession &session,
   copy_->setCursor(Qt::PointingHandCursor);
   copy_->setToolTip("Kopiér kommandoen til udklipsholderen");
   cli->add_header_widget(copy_);
-  command_ = new QLabel;
-  command_->setObjectName("commandBlock");
-  command_->setWordWrap(true);
-  command_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  command_ = new CommandBlock;
   cli->body()->addWidget(command_);
   command_note_ = new QLabel;
   command_note_->setObjectName("layerHint");
@@ -323,6 +324,11 @@ PipelineWorkspace::PipelineWorkspace(ProjectSession &session,
       return;
     static const char *tags[] = {"T", "D", "I", "W", "E", "C", ""};
     std::lock_guard lock(buf->mutex);
+    // Only the job's own lines: the runner's worker thread, learnt from its
+    // `started` event (a 3D load logging meanwhile is not the job's).
+    if (buf->job_thread == std::thread::id{} ||
+        std::this_thread::get_id() != buf->job_thread)
+      return;
     buf->lines << QString("%1  %2")
                       .arg(tags[std::clamp(level, 0, 6)])
                       .arg(QString::fromUtf8(msg.data(),
@@ -334,10 +340,7 @@ PipelineWorkspace::PipelineWorkspace(ProjectSession &session,
   log_timer_->start();
 
   connect(run_, &QPushButton::clicked, this, [this] { run(); });
-  connect(cancel_, &QPushButton::clicked, this, [this] {
-    if (runner_ && !job_id_.empty())
-      runner_->cancel(job_id_);
-  });
+  connect(cancel_, &QPushButton::clicked, this, [this] { cancel_running(); });
   connect(defaults_, &QPushButton::clicked, this, [this] {
     for (auto &f : fields_)
       f->reset();
@@ -356,19 +359,57 @@ PipelineWorkspace::PipelineWorkspace(ProjectSession &session,
 PipelineWorkspace::~PipelineWorkspace() {
   remove_log_listener(log_token_);
   log_->capture = false;
-  runner_.reset(); // cancels and joins a running job
+  // Never join on the GUI thread: a stage that does not poll its cancel
+  // token (a MIP solve) would freeze a window that was told to close. The
+  // runner is cancelled and let go on a detached, counted thread; rux's exit
+  // path waits for counted work (rux_qt/background.hpp).
+  if (runner_) {
+    if (!job_id_.empty())
+      runner_->cancel(job_id_);
+    auto work = std::make_shared<BackgroundWork>();
+    std::thread([r = std::move(runner_), work]() mutable {
+      r.reset(); // joins the worker here, off the GUI thread
+      work.reset();
+    }).detach();
+  }
   busy_.reset();
+}
+
+QString PipelineWorkspace::running_stage() const {
+  return job_id_.empty() ? QString() : stage_name_da(job_stage_);
+}
+
+void PipelineWorkspace::cancel_running() {
+  if (runner_ && !job_id_.empty()) {
+    runner_->cancel(job_id_);
+    state_->setText("Stopper …");
+    state_->setProperty("tone", "wait");
+    repolish(state_);
+    progress_text_->setText(
+        QString("Venter på at %1 stopper ved næste kontrolpunkt …")
+            .arg(stage_name_da(job_stage_)));
+  }
 }
 
 pl::JobRunner &PipelineWorkspace::runner() {
   const std::string path = session_.path().toStdString();
   if (!runner_ || runner_path_ != path) {
-    runner_.reset(); // cancels and joins anything the old project ran
-    runner_ = std::make_unique<pl::JobRunner>(
+    // The old project's runner is idle here (a run blocks a project switch
+    // until it has ended), so letting it go joins nothing.
+    runner_.reset();
+    runner_ = std::make_shared<pl::JobRunner>(
         path, executor_ ? executor_ : pl::default_stage_executor());
     runner_path_ = path;
     QPointer<PipelineWorkspace> guard(this);
-    runner_->add_listener([guard](const pl::JobEvent &e) {
+    std::weak_ptr<LogBuffer> weak_log = log_;
+    runner_->add_listener([guard, weak_log](const pl::JobEvent &e) {
+      // Listeners run on the worker for started/progress/finished: that is
+      // the thread the stage logs from.
+      if (e.type == pl::JobEvent::Type::started)
+        if (auto buf = weak_log.lock()) {
+          std::lock_guard lock(buf->mutex);
+          buf->job_thread = std::this_thread::get_id();
+        }
       QMetaObject::invokeMethod(
           qApp,
           [guard, e] {
@@ -575,7 +616,7 @@ void PipelineWorkspace::rebuild_form() {
       f->pin = pin;
       form_grid_->addWidget(pin, row, 2);
     } else {
-      auto *hint = new QLabel(QString("standard %1").arg(default_text(d)));
+      auto *hint = new QLabel(QString("standard: %1").arg(default_text(d)));
       hint->setObjectName("paramDefault");
       form_grid_->addWidget(hint, row, 2);
     }
@@ -648,7 +689,7 @@ CliCommand PipelineWorkspace::command() const {
 
 void PipelineWorkspace::refresh_command() {
   const CliCommand cmd = command();
-  command_->setText(QString::fromStdString(cmd.text));
+  command_->set_command(QString::fromStdString(cmd.text));
   QStringList notes;
   if (!cmd.unmapped.empty()) {
     QStringList keys;
@@ -681,6 +722,25 @@ bool PipelineWorkspace::run() {
   refresh_readiness();
   if (!run_->isEnabled())
     return false;
+  // optimize reads the stored pose graph: edits not yet saved are not in it.
+  if (stage_ == pl::JobStage::optimize && pending_edits_ &&
+      pending_edits_() > 0) {
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Ændringer i posegrafen er ikke gemt");
+    box.setText(QString("%1 ændring(er) i posegrafen er ikke gemt.")
+                    .arg(pending_edits_()));
+    box.setInformativeText("Optimér poser bruger kun de gemte kanter. Gem "
+                           "dem i Database først, eller kør uden dem.");
+    auto *go = box.addButton(NavItem::escape_mnemonic("Kør uden dem"),
+                             QMessageBox::AcceptRole);
+    auto *stop = box.addButton(NavItem::escape_mnemonic("Annullér"),
+                               QMessageBox::RejectRole);
+    box.setDefaultButton(stop);
+    box.exec();
+    if (box.clickedButton() != go)
+      return false;
+  }
   const QString params = QString::fromUtf8(
       QJsonDocument(parameters()).toJson(QJsonDocument::Compact));
   try {
@@ -691,6 +751,11 @@ bool PipelineWorkspace::run() {
     }
     log_->capture = true;
     job_stage_ = stage_;
+    job_path_ = session_.path();
+    {
+      std::lock_guard lock(log_->mutex);
+      log_->job_thread = {};
+    }
     job_id_ = runner().submit(stage_, params.toStdString());
     busy_ = std::make_unique<BackgroundWork>();
   } catch (const std::exception &e) {
@@ -714,6 +779,7 @@ bool PipelineWorkspace::run() {
   progress_text_->setText(
       QString("%1 · %2").arg(stage_name_da(stage_)).arg(params));
   run_->setEnabled(false);
+  emit job_started(stage_name_da(stage_));
   const bool can_cancel = pl::stage_supports_cancellation(stage_);
   cancel_->setEnabled(true);
   cancel_->setToolTip(
@@ -771,6 +837,9 @@ void PipelineWorkspace::on_event(const pl::JobEvent &e) {
     cancel_->setEnabled(false);
     job_id_.clear();
     busy_.reset();
+    // The run belongs to job_path_. If another project is open by now, its
+    // result must not reload that one, nor its command name it.
+    const bool same_project = job_path_ == session_.path();
 
     Selection s;
     s.kind = "Kørsel";
@@ -779,10 +848,13 @@ void PipelineWorkspace::on_event(const pl::JobEvent &e) {
     s.pill = state_->text();
     s.pill_tone = ok ? "good" : failed ? "crit" : "wait";
     SelectionSection res{"Resultat", {}, {}};
+    if (!same_project)
+      res.rows.push_back({"Projekt", QFileInfo(job_path_).fileName(),
+                          SelectionRow::Style::name});
     if (!j.started_at.empty())
-      res.rows.push_back({"Startet", qs(j.started_at)});
+      res.rows.push_back({"Startet", local_time_da(j.started_at)});
     if (!j.finished_at.empty())
-      res.rows.push_back({"Afsluttet", qs(j.finished_at)});
+      res.rows.push_back({"Afsluttet", local_time_da(j.finished_at)});
     for (const auto &o : j.result_outputs)
       res.rows.push_back({qs(o.name),
                           o.count >= 0
@@ -792,16 +864,18 @@ void PipelineWorkspace::on_event(const pl::JobEvent &e) {
     s.sections.push_back(res);
     s.sections.push_back(
         {"Besked", {}, ok ? qs(j.result_summary) : qs(j.error)});
-    s.sections.push_back(
-        {"Som rux-kommando",
-         {},
-         QString::fromStdString(
-             cli_for_parameters(job_stage_, qs(j.parameters), session_.path())
-                 .text)});
+    SelectionSection cmd{
+        "Som rux-kommando",
+        {},
+        QString::fromStdString(
+            cli_for_parameters(job_stage_, qs(j.parameters), job_path_).text)};
+    cmd.command = true;
+    s.sections.push_back(cmd);
     selection_ = s;
     emit selection_changed(selection_);
-    if (ok)
+    if (ok && same_project)
       emit project_changed();
+    emit job_finished();
     rebuild_stages();
     refresh_readiness();
     break;

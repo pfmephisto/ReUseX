@@ -45,6 +45,13 @@ class SceneView : public QWidget {
   /// Show @p message over the canvas instead of the scene (empty = scene).
   void set_message(const QString &message);
 
+  /// Remove every prop / one actor from the renderer with the widget's GL
+  /// context current, so VTK can actually free their buffers (outside
+  /// paintGL the QOpenGLWidget's context is not current, and the deletes
+  /// would go nowhere — or to another context).
+  void clear_scene();
+  void remove_actor(vtkActor *actor);
+
   /// Coalesced: renders on the next event-loop turn.
   void request_render();
   /// Milliseconds the last render took.

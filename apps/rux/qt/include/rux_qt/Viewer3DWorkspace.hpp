@@ -23,6 +23,7 @@
 #include <QString>
 #include <QWidget>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -38,6 +39,11 @@ namespace rux::qt {
 
 class ProjectSession;
 class SceneView;
+
+/// The swatch token of point label @p label on a scale of @p nslots:
+/// `--label-N` by the web's slot rule, `--label-unlabeled` for 0 and
+/// `--label-invalid` for an out-of-contract (wrapped -1) value.
+QString label_swatch_token(std::uint32_t label, int nslots);
 
 class Viewer3DWorkspace : public QWidget {
   Q_OBJECT

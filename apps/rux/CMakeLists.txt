@@ -71,11 +71,6 @@ target_include_directories(rux_lib PUBLIC include)
 target_link_libraries(rux_lib
     PUBLIC
         rux_core_lib
-        # `rux create clouds` builds the Morton tile index the web GUI streams
-        # from (api/point_lod.hpp). That code is the GUI backend's, which now
-        # lives in apps/ruxd; ruxd_api_lib is light (core + pipeline), so this
-        # costs rux nothing.
-        ruxd_api_lib
         reusex
         CLI11::CLI11
         spdlog::spdlog

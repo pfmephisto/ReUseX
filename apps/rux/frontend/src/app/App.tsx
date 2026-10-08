@@ -4,6 +4,8 @@
 
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
+import { api } from '../api/client';
+import { CaseRoleProvider } from './CaseRoleContext';
 import { JobsProvider } from './JobsContext';
 import { LabelQueueProvider } from './LabelQueueContext';
 import { AppShell } from './AppShell';
@@ -108,12 +110,14 @@ function RoutedContent() {
 
 export function App() {
   return (
-    <JobsProvider>
+    <CaseRoleProvider cid={api.caseId}>
+      <JobsProvider>
       <LabelQueueProvider>
         <AppShell>
           <RoutedContent />
         </AppShell>
       </LabelQueueProvider>
-    </JobsProvider>
+      </JobsProvider>
+    </CaseRoleProvider>
   );
 }

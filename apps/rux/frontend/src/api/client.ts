@@ -27,6 +27,7 @@
  *     requires it — it is what a forged "simple request" cannot set.
  */
 
+import { authAwareFetch } from '../app/unauthorized';
 import type {
   CloudInfo,
   CloudPointsPage,
@@ -264,7 +265,7 @@ export class RuxApiClient {
     // Trailing slashes would produce `//clouds`, which the router does not match.
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.serverBaseUrl = (options.serverBaseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+    this.doFetch = options.fetch ?? ((input, init) => authAwareFetch(input, init as RequestInit));
   }
 
   /**
@@ -938,7 +939,7 @@ export class RuxApiClient {
    */
   async uploadThumbnail(guid: string, file: File): Promise<void> {
     const url = this.url(`/materials/${encodeURIComponent(guid)}/thumbnail`);
-    const response = await fetch(url, {
+    const response = await authAwareFetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': file.type || 'image/jpeg' },
       body: file,

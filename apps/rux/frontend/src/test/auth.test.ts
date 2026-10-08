@@ -20,7 +20,10 @@ import {
   ROLE_LABELS,
   safeNext,
   sortMembers,
+  tokenLine,
 } from '../app/auth';
+import { editVisible } from '../app/CaseRoleContext';
+import { shouldSendToLogin } from '../app/unauthorized';
 
 const me: AuthMe = {
   mode: 'server',
@@ -140,5 +143,80 @@ describe('AuthClient (S3)', () => {
       'DELETE /api/v1/cases/kontor/members/7',
       'PATCH /api/v1/cases/kontor/members/7',
     ]);
+  });
+});
+
+describe('safeNext bypass corpus (S3 review I1)', () => {
+  const offsite = [
+    '/\t/evil.com',
+    '/\n/evil.com',
+    '/\r/evil.com',
+    '/%09/evil.com',
+    '/%0a/evil.com',
+    '/%2F/evil.com',
+    '/%2f%2fevil.com',
+    '/%5Cevil.com',
+    '/\\evil.com',
+    '\\/evil.com',
+    '//evil.com',
+    '///evil.com',
+    'https://evil.com/',
+    'http:evil.com',
+    'javascript:alert(1)',
+    ' /sager',
+    '/sager\u0000x',
+    '/%00',
+    '%2F%2Fevil.com',
+    '/%E0%A4%A',
+    '/login',
+    '/login?next=/x',
+    '/login/',
+  ];
+  for (const next of offsite)
+    it(`refuses ${JSON.stringify(next)}`, () => {
+      expect(safeNext(next)).toBe('/sager');
+    });
+
+  it('keeps ordinary in-app paths with their query and fragment', () => {
+    expect(safeNext('/sager/kontor/kortlaegning?type=3#x')).toBe('/sager/kontor/kortlaegning?type=3#x');
+    expect(safeNext('/sager/b%C3%B8gevej')).toBe('/sager/b%C3%B8gevej');
+    expect(safeNext('/')).toBe('/');
+  });
+});
+
+describe('session ended mid-use (S3 review M9)', () => {
+  it('sends a 401 to the login page in server mode only, except from the gate and the form', () => {
+    expect(shouldSendToLogin(401, '/api/v1/cases/k/project', true)).toBe(true);
+    expect(shouldSendToLogin(401, '/api/v1/cases/k/project', false)).toBe(false);
+    expect(shouldSendToLogin(403, '/api/v1/cases/k/project', true)).toBe(false);
+    expect(shouldSendToLogin(401, '/api/v1/auth/me', true)).toBe(false);
+    expect(shouldSendToLogin(401, '/api/v1/auth/login', true)).toBe(false);
+    expect(shouldSendToLogin(401, '/api/v1/auth/tokens', true)).toBe(true);
+  });
+
+  it('shows edit controls to editors and owners, hides them from viewers', () => {
+    expect(editVisible('owner')).toBe(true);
+    expect(editVisible('editor')).toBe(true);
+    expect(editVisible('viewer')).toBe(false);
+    expect(editVisible(null)).toBe(false);
+    expect(editVisible(undefined)).toBe(true); // not known yet: no flicker
+  });
+});
+
+describe('API tokens (S3 review I5)', () => {
+  it('describes a token without ever showing it', () => {
+    expect(
+      tokenLine({
+        id: 1,
+        name: 'ci',
+        case: 'kontor',
+        created_at: '2026-10-08T10:00:00Z',
+        expires_at: '2027-01-06T10:00:00Z',
+        last_used_at: null,
+      }),
+    ).toBe('kun sagen kontor · udløber 2027-01-06 · aldrig brugt');
+    expect(
+      tokenLine({ id: 2, name: 'x', case: null, created_at: '', expires_at: null, last_used_at: '2026-10-09T00:00:00Z' }),
+    ).toBe('alle dine sager · udløber aldrig · brugt 2026-10-09');
   });
 });

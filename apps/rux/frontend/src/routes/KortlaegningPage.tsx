@@ -90,6 +90,7 @@ import { cellErrorMessage, invalidValueMessage, refreshAfterSave } from '../kort
 import { formatNumber } from '../kortlaegning/vocab';
 import { segmentHrefFromFrames, segmentTargetPart } from '../kortlaegning/segmentLink';
 import styles from './KortlaegningPage.module.css';
+import { useCanEdit } from '../app/CaseRoleContext';
 
 /**
  * The toast after a refused approval: names the samples still awaiting an
@@ -177,6 +178,7 @@ export function typeDeletedMessage(name: string, parts: number): string {
  * mutation asks the shell to re-read the survey summary for the sidebar badge.
  */
 export function KortlaegningPage() {
+  const canEdit = useCanEdit();
   const { data, error, loading, reload } = useAsync(
     (s) =>
       appWriteChain
@@ -783,9 +785,11 @@ export function KortlaegningPage() {
             title="Ingen kortlægning endnu"
             detail="Opret typer og bygningsdele ud fra projektets instanser. Kræver at rux create instances er kørt."
             action={
-              <button type="button" className={styles.btnPrimary} onClick={sync} disabled={syncing}>
-                Opret kortlægning fra instanser
-              </button>
+              canEdit ? (
+                <button type="button" className={styles.btnPrimary} onClick={sync} disabled={syncing}>
+                  Opret kortlægning fra instanser
+                </button>
+              ) : undefined
             }
           />
         </>

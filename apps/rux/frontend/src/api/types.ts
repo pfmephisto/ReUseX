@@ -89,6 +89,23 @@ export interface AuthMe {
   case_scope?: string;
 }
 
+/** `ApiToken` — one of your API tokens (never the token itself). */
+export interface ApiToken {
+  id: number;
+  name: string;
+  /** Limited to this case, or null for every case you may see. */
+  case: string | null;
+  created_at: string;
+  /** null = never expires. */
+  expires_at: string | null;
+  last_used_at: string | null;
+}
+
+/** The answer to creating a token: the token, shown once. */
+export interface NewApiToken extends ApiToken {
+  token: string;
+}
+
 /** `CaseMember` — `GET /api/v1/cases/{cid}/members`. */
 export interface CaseMember {
   user: { id: number; email: string; display_name: string };

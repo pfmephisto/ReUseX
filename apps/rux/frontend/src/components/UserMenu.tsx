@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 import type { AuthUser } from '../api/types';
 import { initials } from '../app/auth';
+import { ApiTokens } from './ApiTokens';
 import styles from './UserMenu.module.css';
 
 export interface UserMenuProps {
@@ -72,6 +73,7 @@ export function UserMenu({ user, onLogout }: UserMenuProps) {
             <span className={styles.whoEmail}>{user.email}</span>
             {user.is_admin && <span className={styles.badge}>Administrator</span>}
           </div>
+          <ApiTokens />
           <button
             type="button"
             className={styles.logout}

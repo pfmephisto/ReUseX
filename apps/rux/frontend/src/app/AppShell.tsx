@@ -16,6 +16,7 @@ import { useJobs } from './JobsContext';
 import { SurveyCountsProvider } from './SurveyCountsContext';
 import { kindOf } from './keyTargets';
 import { useAuth } from './AuthGate';
+import { useCaseRole } from './CaseRoleContext';
 import { caseBootAction, writeLastCase } from './cases';
 import { ALL_CASES_PATH, DRAWER_QUERY, displayProjectName, drawerKeyAction } from './navigation';
 import styles from './AppShell.module.css';
@@ -75,6 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The one useTheme() instance; both toggles render from it (title bar, drawer).
   const theme = useTheme();
   const auth = useAuth();
+  const role = useCaseRole();
 
   const [navOpen, setNavOpen] = useState(false);
   const navOpenRef = useRef(false);
@@ -183,6 +185,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           onThemeChange={theme.setPreference}
         />
         <main ref={mainRef} className={styles.content} inert={navOpen} tabIndex={-1}>
+          {role === 'viewer' && (
+            <p className={styles.readOnly} role="status">
+              Læseadgang: du kan se sagen, men ikke ændre den.
+            </p>
+          )}
           <SurveyCountsProvider value={surveyCounts}>{children}</SurveyCountsProvider>
         </main>
       </div>

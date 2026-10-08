@@ -8,6 +8,7 @@ import { resolveMembers } from '../../skabeloner/members';
 import { countLine, deleteConfirmText, restoreSeedsTitle, seedLabel } from '../../skabeloner/model';
 import { Pill } from '../Pill';
 import styles from './TemplateList.module.css';
+import { useCanEdit } from '../../app/CaseRoleContext';
 
 export interface TemplateListProps {
   templates: Template[];
@@ -31,6 +32,7 @@ export interface TemplateListProps {
  * a press elsewhere, a busy page or another selection disarms it.
  */
 export function TemplateList(p: TemplateListProps) {
+  const canEdit = useCanEdit();
   const sel = p.selectedId;
   const selected = p.templates.find((t) => t.id === sel) ?? null;
   const confirm = useArmedConfirm<number>(p.busy, sel);
@@ -39,9 +41,11 @@ export function TemplateList(p: TemplateListProps) {
   return (
     <aside className={styles.panel} aria-label="Skabeloner">
       <div className={styles.toolbar}>
-        <button type="button" className={styles.btnPrimary} onClick={p.onNew} disabled={p.busy}>
-          Ny skabelon
-        </button>
+        {canEdit && (
+          <button type="button" className={styles.btnPrimary} onClick={p.onNew} disabled={p.busy}>
+            Ny skabelon
+          </button>
+        )}
       </div>
       <ul className={styles.list}>
         {p.templates.map((t) => (

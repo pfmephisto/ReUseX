@@ -14,6 +14,7 @@
  */
 
 import { uploadChunks } from '../app/cases';
+import { authAwareFetch } from '../app/unauthorized';
 import { ApiRequestError, DEFAULT_BASE_URL, describeFailure } from './client';
 import type { CaseList, CaseSummary, UploadSession } from './types';
 
@@ -40,7 +41,7 @@ export class CasesClient {
 
   constructor(options: { baseUrl?: string; fetch?: CasesFetch } = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+    this.doFetch = options.fetch ?? ((input, init) => authAwareFetch(input, init as RequestInit));
   }
 
   private async send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {

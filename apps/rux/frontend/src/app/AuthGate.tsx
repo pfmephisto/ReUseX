@@ -10,6 +10,7 @@ import type { AuthMe } from '../api/types';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Spinner } from '../components/Spinner';
 import { authBootAction, LOGIN_PATH } from './auth';
+import { setLoginRedirect } from './unauthorized';
 import styles from './AuthGate.module.css';
 
 export interface AuthState {
@@ -40,7 +41,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setError(null);
     authApi.me(controller.signal).then(
       (answer) => {
-        if (!controller.signal.aborted) setMe(answer);
+        if (controller.signal.aborted) return;
+        setLoginRedirect(answer.mode === 'server');
+        setMe(answer);
       },
       (cause: unknown) => {
         if (controller.signal.aborted) return;

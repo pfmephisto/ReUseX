@@ -20,6 +20,8 @@ export interface StageCardProps {
   /** Rejected submissions surface here; the card does not own the request. */
   submitError?: string;
   onRun: (stage: string, parameters: Record<string, unknown>) => void;
+  /** The caller may not run stages (a viewer): no run or cancel buttons. */
+  readOnly?: boolean;
   onCancel: (jobId: string) => void;
 }
 
@@ -40,7 +42,7 @@ const STATE_LABEL: Record<StageCardModel['state'], string> = {
  * `buildStageCards()`, which is where the awkward combinations (blocked while
  * running, cancel-requested-but-succeeded) are resolved and tested.
  */
-export function StageCard({ card, submitError, onRun, onCancel }: StageCardProps) {
+export function StageCard({ card, submitError, onRun, onCancel, readOnly = false }: StageCardProps) {
   const [state, setState] = useState<FormState>(() => initialFormState(card.parameters));
   const [open, setOpen] = useState(false);
 
@@ -160,6 +162,7 @@ export function StageCard({ card, submitError, onRun, onCancel }: StageCardProps
       )}
 
       <footer className={styles.actions}>
+        {!readOnly && (
         <button
           type="button"
           className={styles.run}
@@ -173,7 +176,8 @@ export function StageCard({ card, submitError, onRun, onCancel }: StageCardProps
         >
           Run
         </button>
-        {card.canCancel && card.job && (
+        )}
+        {!readOnly && card.canCancel && card.job && (
           <button
             type="button"
             className={styles.cancel}

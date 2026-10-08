@@ -9,7 +9,7 @@
  */
 
 import { ApiRequestError } from '../api/client';
-import type { AuthMe, CaseMember, CaseRole } from '../api/types';
+import type { ApiToken, AuthMe, CaseMember, CaseRole } from '../api/types';
 import { CASES_PATH } from './cases';
 
 /** The login page. Outside every case, like the case list. */
@@ -39,15 +39,42 @@ export function loginHref(here: string): string {
 }
 
 /**
- * Where a successful login goes: `next` when it is a path on this server,
- * else the case list. Never another origin (`//evil`, `https://…`), never
- * the login page itself.
+ * Where a successful login goes: `next` when it is strictly a path on this
+ * server, else the case list. A strict allowlist rather than a blocklist
+ * (S3 review I1 — the URL parser strips tab and newline, so "/\t/evil.com"
+ * resolved off-site):
+ *  - it starts with exactly one `/`, not followed by `/` or `\`;
+ *  - neither it nor its percent-decoding holds a control character or a
+ *    backslash, and its decoding does not start with `//`;
+ *  - resolved against this origin, it stays on this origin;
+ *  - it is not the login page itself.
  */
 export function safeNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return CASES_PATH;
-  if (next === LOGIN_PATH || next.startsWith(`${LOGIN_PATH}?`) || next.startsWith(`${LOGIN_PATH}/`))
+  if (!next || !isStrictLocalPath(next)) return CASES_PATH;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(next);
+  } catch {
     return CASES_PATH;
+  }
+  if (!isStrictLocalPath(decoded)) return CASES_PATH;
+  const base = 'http://rux.invalid';
+  let resolved: URL;
+  try {
+    resolved = new URL(next, base);
+  } catch {
+    return CASES_PATH;
+  }
+  if (resolved.origin !== base) return CASES_PATH;
+  if (resolved.pathname === LOGIN_PATH || resolved.pathname.startsWith(`${LOGIN_PATH}/`)) return CASES_PATH;
   return next;
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_OR_BACKSLASH = /[\u0000-\u001f\u007f\\]/;
+
+function isStrictLocalPath(path: string): boolean {
+  return /^\/(?![/\\])/.test(path) && !CONTROL_OR_BACKSLASH.test(path);
 }
 
 /** The Danish line under a refused login. */
@@ -134,4 +161,32 @@ export function initials(name: string): string {
   if (parts.length === 0) return '?';
   const letters = parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0];
   return letters.toUpperCase();
+}
+
+/** The expiry choices for a new API token (days; 0 = never). */
+export const TOKEN_LIFETIMES: readonly { days: number; label: string }[] = [
+  { days: 30, label: '30 dage' },
+  { days: 90, label: '90 dage' },
+  { days: 365, label: '1 år' },
+  { days: 0, label: 'Udløber aldrig' },
+];
+
+/** A token's line under its name: scope, expiry and last use, in Danish. */
+export function tokenLine(t: ApiToken): string {
+  const day = (iso: string) => iso.slice(0, 10);
+  return [
+    t.case ? `kun sagen ${t.case}` : 'alle dine sager',
+    t.expires_at ? `udløber ${day(t.expires_at)}` : 'udløber aldrig',
+    t.last_used_at ? `brugt ${day(t.last_used_at)}` : 'aldrig brugt',
+  ].join(' · ');
+}
+
+/** The Danish line under a refused token change. */
+export function tokenErrorText(cause: unknown): string {
+  if (cause instanceof ApiRequestError) {
+    if (cause.status === 400) return 'Giv tokenet et navn.';
+    if (cause.status === 403) return 'Tokens styres fra en logget-ind session.';
+    if (cause.status === 404) return 'Tokenet findes ikke længere.';
+  }
+  return 'Ændringen kunne ikke gemmes.';
 }

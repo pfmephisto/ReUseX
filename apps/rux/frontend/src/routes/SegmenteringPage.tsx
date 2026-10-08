@@ -72,6 +72,7 @@ import {
 } from '../data/segmentView';
 import { readLabelPalette } from '../viewport/labelColors';
 import styles from './SegmenteringPage.module.css';
+import { useCanEdit } from '../app/CaseRoleContext';
 
 let nextPromptId = 0;
 const newPromptId = () => `p${++nextPromptId}`;
@@ -91,6 +92,7 @@ async function fetchLabelImage(frameId: number, signal: AbortSignal): Promise<La
 }
 
 export function SegmenteringPage() {
+  const canEdit = useCanEdit();
   const [params, setParams] = useSearchParams();
   const query = useMemo(() => parseSegmentQuery(`?${params.toString()}`), [params]);
 
@@ -467,6 +469,7 @@ export function SegmenteringPage() {
                 onChange={(e) => setConfidence(Number(e.target.value))}
               />
             </label>
+            {canEdit && (
             <button
               type="button"
               className={styles.run}
@@ -485,6 +488,7 @@ export function SegmenteringPage() {
                   ? 'Kør med standardklasser'
                   : `Kør segmentering (${promptCount})`}
             </button>
+            )}
             {error && (
               <div className={styles.error} role="alert">
                 <span>{error}</span>

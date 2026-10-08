@@ -12,8 +12,9 @@
  * the implicit user and there is no login at all.
  */
 
+import { authAwareFetch } from '../app/unauthorized';
 import { ApiRequestError, DEFAULT_BASE_URL, describeFailure } from './client';
-import type { AuthMe, CaseMember, CaseRole, CaseSummary } from './types';
+import type { ApiToken, AuthMe, CaseMember, CaseRole, CaseSummary, NewApiToken } from './types';
 
 export type AuthFetch = (
   input: string,
@@ -39,7 +40,8 @@ export class AuthClient {
 
   constructor(options: { baseUrl?: string; fetch?: AuthFetch } = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.doFetch = options.fetch ?? ((input, init) => fetch(input, { ...init, credentials: 'same-origin' }));
+    this.doFetch =
+      options.fetch ?? ((input, init) => authAwareFetch(input, { ...init, credentials: 'same-origin' }));
   }
 
   private async send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -80,6 +82,23 @@ export class AuthClient {
 
   logout(): Promise<void> {
     return this.send<void>('POST', '/auth/logout', {});
+  }
+
+  async tokens(signal?: AbortSignal): Promise<ApiToken[]> {
+    return (await this.send<{ tokens: ApiToken[] }>('GET', '/auth/tokens', undefined, signal)).tokens;
+  }
+
+  /** Create a token; `expiresDays` 0 = never. The token is in the answer once. */
+  createToken(name: string, expiresDays: number, cid?: string): Promise<NewApiToken> {
+    return this.send<NewApiToken>('POST', '/auth/tokens', {
+      name,
+      expires_days: expiresDays,
+      ...(cid ? { case: cid } : {}),
+    });
+  }
+
+  revokeToken(id: number): Promise<void> {
+    return this.send<void>('DELETE', `/auth/tokens/${id}`);
   }
 
   /** One case, with the caller's role in it. */

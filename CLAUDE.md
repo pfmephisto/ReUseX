@@ -426,6 +426,11 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   `src/core/ProjectDB.cpp` — read it there rather than trusting a doc (it moves
   most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
+- `ProjectDB::OpenOptions::hardened` (DEFENSIVE, `trusted_schema=OFF`, no
+  triggers or views) is for files from untrusted sources; `ruxd` makes it the
+  process default (`set_hardened_by_default`) and refuses uploads and
+  registrations that fail `ProjectDB::check_integrity()` (`quick_check`, no
+  trigger or view). The `rux` CLI opens files plainly
 - Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `ruxd --local`
   holds one idle read-write connection per open case for as long as it is open so the WAL index survives
   between per-request connections and the WAL is checkpointed into the .rux on

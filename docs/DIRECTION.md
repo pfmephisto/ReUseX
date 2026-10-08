@@ -200,8 +200,8 @@ changelog — that history is the point of keeping it in the repo.
     in-memory stores and `.ruxd/cases.json`.
   - **Logins**: argon2id passwords (OpenSSL 3 `EVP_KDF`), cookie sessions
     stored only as SHA-256 (HttpOnly, SameSite=Strict, Secure unless on
-    loopback; 12 h sliding, 14 days absolute), logout revokes, 5 logins per
-    minute per IP and email. Scripts use `rxt_…` API tokens (optionally one
+    loopback; 12 h sliding, 14 days absolute), logout revokes, and failed
+    logins back off (see the fix round below). Scripts use `rxt_…` API tokens (optionally one
     case); `--auth-token` is a superuser token. `ruxd admin` creates the
     first administrator and manages users; passwords never on argv.
   - **Roles per case**: viewer (GET only), editor (all but deleting the case
@@ -224,11 +224,23 @@ changelog — that history is the point of keeping it in the repo.
     minimum superuser token and secret files; audit retention; viewers no
     longer see the main edit controls, and an ended session returns to the
     login page.
-  - Still open: uploads are not yet opened with `SQLITE_DBCONFIG_DEFENSIVE`
-    / `PRAGMA quick_check`; no web UI for user administration beyond the
-    `/users` API; Redis and S3 are unused; the `[postgres]` tests do not run
-    in CI (the nix check sandbox has no PostgreSQL — `ctest -L postgres`
-    locally). Deferred as before: S3 snapshots and multi-instance locks.
+  - Final-review fix round (same day): case files are untrusted input —
+    every ProjectDB connection ruxd opens is hardened
+    (`ProjectDB::OpenOptions::hardened`: `SQLITE_DBCONFIG_DEFENSIVE`,
+    `trusted_schema=OFF`, triggers and views disabled), and uploads and
+    registered files must pass `PRAGMA quick_check` and hold no trigger or
+    view (422 otherwise); the `rux` CLI is unchanged. Also: `RUXD_BIND` and
+    the OCI image's `RUXD_BIND=0.0.0.0` / `RUXD_DATA_DIR=/data`; 400 for a
+    duplicated Host header; control characters refused in asset paths;
+    viewers see no write control anywhere.
+  - Still open: no web UI for user administration beyond the `/users` API;
+    Redis and S3 are reserved — the flags and NixOS options are accepted and
+    marked unused, the client code is kept for S3 snapshots; the
+    `[postgres]` tests do not run in CI (the nix check sandbox has no
+    PostgreSQL — `ctest -L postgres` locally); `quick_check` runs on the
+    upload request's worker thread. Deferred as before: S3 snapshots and
+    multi-instance locks. Issue drafts 37 (multi-case list) and 38 (LAN
+    pairing) are retargeted to what is left after S2/S3.
 
 - **2026-10-08** — **GUI: one ruxd serves many cases** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream S, phase S2). A ruxd process is no longer bound to one project:

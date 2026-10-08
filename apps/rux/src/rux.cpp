@@ -25,6 +25,7 @@
 
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
+#include <rux_qt/background.hpp>
 #include <rux_qt/launch.hpp>
 
 #include <CLI/CLI.hpp>
@@ -268,6 +269,18 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
         request.project = opt->project_db;
       request.quit_after_ms = quit_after_ms;
       const int rc = launch_gui(argc, argv, request);
+      if (rux::qt::background_work_in_flight() > 0) {
+        // run_app's bounded wait ran out while a detached thread (a project
+        // open stuck on a lock or a long migration, an ICP refine) is still
+        // going. It may log at any moment: spdlog::shutdown() or resetting
+        // the ReUseX log handler under it would be a use-after-free. Flush
+        // what was logged and leave both alive; main() then ends the process
+        // with std::quick_exit, so no static destructor runs under the
+        // thread either (rux_qt/background.hpp).
+        if (auto logger = spdlog::default_logger())
+          logger->flush();
+        return rc;
+      }
       teardown();
       return rc;
     }

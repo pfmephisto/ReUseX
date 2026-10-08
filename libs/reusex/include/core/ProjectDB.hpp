@@ -63,7 +63,13 @@ class ProjectDB {
    * - pipeline_log: Pipeline provenance log
    *
    * @param dbPath Path to the database file
-   * @param readOnly If true, opens database in read-only mode
+   * @param readOnly If true, opens database in read-only mode. In a
+   *        directory the user cannot write (a read-only mount), and with no
+   *        live `-wal` beside the file, the open is sqlite-immutable: a
+   *        WAL-mode file is unreadable there otherwise (sqlite must create
+   *        `-shm` even to read), and nobody can be writing it through that
+   *        directory. Elsewhere a read-only open is a plain one and, like any
+   *        WAL reader, may create the `-shm` / `-wal` sidecars.
    * @throws std::runtime_error if database cannot be opened or schema is
    * invalid
    */
@@ -97,11 +103,17 @@ class ProjectDB {
   };
 
   /// Is @p path a ReUseX project, and at which schema? Opens the file
-  /// read-only (SQLITE_OPEN_READONLY, the usual busy timeout), checks the
-  /// tables validate_schema() requires and reads the recorded version. Never
-  /// writes, creates, migrates or logs — so a GUI can vet a foreign or empty
-  /// sqlite file before a read-write open would give it ReUseX tables.
-  /// A locked file reports its lock message in `error` (is_project false).
+  /// read-only, checks the tables validate_schema() requires and reads the
+  /// recorded version. Never writes, creates, migrates or logs — so a GUI can
+  /// vet a foreign or empty sqlite file before a read-write open would give
+  /// it ReUseX tables.
+  ///
+  /// The open is sqlite-immutable (`?mode=ro&immutable=1`) unless a non-empty
+  /// `-wal` sits beside the file: no locks, no `-shm` / `-wal` created, and it
+  /// works in a read-only directory. Trade-off: a writer's in-flight
+  /// transaction is not seen, which a table check can live with. With a live
+  /// WAL it is a plain read-only open (the WAL's pages count), which may wait
+  /// on and report a lock in `error` (is_project false).
   static ProbeResult probe(const std::filesystem::path &path) noexcept;
 
   /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless

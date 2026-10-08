@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <rux_qt/ProjectSession.hpp>
+#include <rux_qt/background.hpp>
 
 #include <reusex/core/logging.hpp>
 
@@ -108,10 +109,6 @@ std::shared_ptr<ProjectSession::Result> do_open(const QString &path,
 
 } // namespace
 
-namespace {
-std::atomic<int> g_in_flight{0};
-} // namespace
-
 /// Where a worker posts its result. The worker posts under the mutex, and the
 /// session's destructor clears `owner` under it, so a post never races the
 /// session's deletion; one already queued is dropped by ~QObject.
@@ -133,17 +130,10 @@ ProjectSession::~ProjectSession() {
   mailbox_->owner = nullptr;
 }
 
-int ProjectSession::opens_in_flight() { return g_in_flight.load(); }
+int ProjectSession::opens_in_flight() { return background_work_in_flight(); }
 
 bool ProjectSession::wait_for_opens(int timeout_ms) {
-  QElapsedTimer t;
-  t.start();
-  while (g_in_flight.load() > 0) {
-    if (t.elapsed() >= timeout_ms)
-      return false;
-    QThread::msleep(20);
-  }
-  return true;
+  return wait_for_background_work(timeout_ms);
 }
 
 QString ProjectSession::display_name() const {
@@ -188,8 +178,9 @@ void ProjectSession::start_worker(const QString &path, bool read_only) {
   const unsigned gen = ++generation_;
   // A detached std::thread, not a QThread: nothing has to join it, so the
   // session (and the window) can go away while a locked open still waits.
-  ++g_in_flight;
-  std::thread([box = mailbox_, path, read_only, gen] {
+  // Counted until the thread is done with the ProjectDB and the logger.
+  auto work = std::make_shared<BackgroundWork>();
+  std::thread([box = mailbox_, path, read_only, gen, work] {
     auto r = do_open(path, read_only);
     r->generation = gen;
     {
@@ -199,7 +190,6 @@ void ProjectSession::start_worker(const QString &path, bool read_only) {
             owner, [owner, r] { owner->finish(r); }, Qt::QueuedConnection);
     }
     r.reset(); // without an owner the ProjectDB closes here, on the worker
-    --g_in_flight;
   }).detach();
 }
 

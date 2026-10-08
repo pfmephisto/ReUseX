@@ -11,13 +11,18 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <rux_app.hpp>
+#include <rux_qt/background.hpp>
+
+#include <spdlog/spdlog.h>
 
 #include "../../support/temp_path.hpp"
 
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -76,4 +81,39 @@ TEST_CASE("GuiLaunch_NoLauncher_PrintsHelpAndSucceeds",
   Call call;
   CHECK(run_with({"rux"}, call, /*with_launcher=*/false) == 0);
   CHECK_FALSE(call.called);
+}
+
+TEST_CASE("GuiLaunch_DetachedWorkStillRunning_LeavesTheLoggerUp",
+          "[rux_app][gui_launch]") {
+  // A launcher that returns while detached work (a locked open, an ICP run)
+  // is still in flight: rux::run must not shut spdlog down under it.
+  ::setenv("QT_QPA_PLATFORM", "offscreen", 1);
+  std::vector<std::string> args = {"rux"};
+  std::vector<char *> argv = {args[0].data(), nullptr};
+  std::promise<void> release;
+  std::thread worker;
+  rux::GuiLauncher fake = [&](int, char **, const rux::GuiLaunch &) {
+    std::promise<void> started;
+    worker = std::thread([&, s = &started] {
+      rux::qt::BackgroundWork work;
+      s->set_value();
+      release.get_future().wait();
+    });
+    started.get_future().wait();
+    return 0;
+  };
+  CHECK(rux::run(1, argv.data(), fake) == 0);
+  CHECK(rux::qt::background_work_in_flight() == 1);
+  CHECK(spdlog::default_logger() != nullptr); // not shut down
+  release.set_value();
+  worker.join();
+  CHECK(rux::qt::background_work_in_flight() == 0);
+}
+
+TEST_CASE("GuiLaunch_NoDetachedWork_ShutsTheLoggerDown",
+          "[rux_app][gui_launch]") {
+  Call call;
+  run_with({"rux"}, call);
+  REQUIRE(call.called);
+  CHECK(spdlog::default_logger() == nullptr); // spdlog::shutdown() ran
 }

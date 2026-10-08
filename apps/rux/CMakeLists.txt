@@ -129,7 +129,9 @@ install(TARGETS rux DESTINATION bin)
 # apps/rux/qt always defines rux_qt_core (standard library only) and the Qt
 # targets only under BUILD_QT_CLIENT.
 add_subdirectory(qt)
-target_link_libraries(rux_lib PRIVATE rux_qt_core)
+# PUBLIC: main.cpp and tests/unit/rux_app consult rux_qt/background.hpp
+# (detached Qt-client work that outlives the window); it is std-only.
+target_link_libraries(rux_lib PUBLIC rux_qt_core)
 # The Qt client goes on the executable only: main.cpp hands rux::run a
 # launcher (rux_app.hpp, GuiLauncher). Linking it into rux_lib would drag Qt
 # Widgets + VTK GUISupportQt into reusex_unit_tests_vision (#268).

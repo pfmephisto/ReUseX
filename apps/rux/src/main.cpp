@@ -15,6 +15,10 @@
 // that link it never pull in Qt Widgets.
 
 #include <rux_app.hpp>
+#include <rux_qt/background.hpp>
+
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef RUX_HAVE_QT_CLIENT
 #include <rux_qt/app.hpp>
@@ -22,7 +26,7 @@
 
 int main(int argc, char **argv) {
 #ifdef RUX_HAVE_QT_CLIENT
-  return rux::run(
+  const int rc = rux::run(
       argc, argv, [](int ac, char **av, const rux::GuiLaunch &request) {
         rux::qt::AppOptions o;
         if (request.project)
@@ -31,6 +35,13 @@ int main(int argc, char **argv) {
         return rux::qt::run_app(ac, av, o);
       });
 #else
-  return rux::run(argc, argv);
+  const int rc = rux::run(argc, argv);
 #endif
+  // A detached Qt-client thread outlived the exit wait (rux::run then left
+  // spdlog up for it): end without running static destructors under it.
+  if (rux::qt::background_work_in_flight() > 0) {
+    std::fflush(nullptr);
+    std::quick_exit(rc);
+  }
+  return rc;
 }

@@ -37,6 +37,8 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 namespace reusex {
 
 // Generate a UUID-v4-like identifier for building components / instances.
@@ -95,6 +97,45 @@ void bind_text(sqlite3_stmt *s, int i, std::string_view v) {
   sqlite3_bind_text(s, i, v.data(), static_cast<int>(v.size()),
                     SQLITE_TRANSIENT);
 }
+/// True when @p db has a non-empty `-wal` beside it: committed pages may live
+/// only there, so the main file alone is not the whole database.
+bool has_live_wal(const std::filesystem::path &db) {
+  std::error_code ec;
+  const auto size = std::filesystem::file_size(db.string() + "-wal", ec);
+  return !ec && size > 0;
+}
+
+/// A read-only sqlite URI for @p db. With @p immutable, sqlite treats the file
+/// as unchangeable: it takes no locks and never opens or creates the `-shm`
+/// / `-wal` sidecars, so the open has no effect on the filesystem and works
+/// in a read-only directory. The price: a concurrent writer is not seen and
+/// could even be read mid-write, so it is only right when nobody can be
+/// writing (an unwritable directory) or for a quick look (probe()), and only
+/// without a live WAL (has_live_wal), whose pages immutable would ignore.
+std::string read_only_uri(const std::filesystem::path &db, bool immutable) {
+  std::string uri = "file:";
+  for (char c : std::filesystem::absolute(db).string()) {
+    // RFC 3986 reserved characters sqlite's URI parser interprets.
+    if (c == '%' || c == '?' || c == '#') {
+      static const char hex[] = "0123456789ABCDEF";
+      uri += '%';
+      uri += hex[(static_cast<unsigned char>(c) >> 4) & 0xF];
+      uri += hex[static_cast<unsigned char>(c) & 0xF];
+    } else {
+      uri += c;
+    }
+  }
+  uri += immutable ? "?mode=ro&immutable=1" : "?mode=ro";
+  return uri;
+}
+
+/// Whether the current user may create files in @p db's directory (sqlite's
+/// WAL needs to, for `-shm`, even to read).
+bool directory_writable(const std::filesystem::path &db) {
+  const auto dir = std::filesystem::absolute(db).parent_path();
+  return ::access(dir.c_str(), W_OK) == 0;
+}
+
 /// prepare_v2 that throws with the caller's name and sqlite's message.
 sqlite3_stmt *prepare_or_throw(sqlite3 *db, const char *sql, const char *who) {
   sqlite3_stmt *stmt = nullptr;
@@ -364,8 +405,16 @@ class ProjectDB::Impl {
     // Open sqlite3 connection for project database
     int flags = readOnly ? SQLITE_OPEN_READONLY
                          : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
-    if (sqlite3_open_v2(dbPath.string().c_str(), &db, flags, nullptr) !=
-        SQLITE_OK) {
+    std::string target = dbPath.string();
+    // A WAL-mode project in a directory we cannot write is unreadable through
+    // a plain read-only open: sqlite must create `-shm` even to SELECT. Nobody
+    // writes there through this user either, so open it immutable (no locks,
+    // no sidecars) unless a live WAL holds pages the main file lacks.
+    if (readOnly && !directory_writable(dbPath) && !has_live_wal(dbPath)) {
+      target = read_only_uri(dbPath, /*immutable=*/true);
+      flags |= SQLITE_OPEN_URI;
+    }
+    if (sqlite3_open_v2(target.c_str(), &db, flags, nullptr) != SQLITE_OK) {
       std::string error = sqlite3_errmsg(db);
       sqlite3_close(db);
       throw std::runtime_error("Cannot open database: " + error);
@@ -8300,7 +8349,15 @@ ProjectDB::probe(const std::filesystem::path &path) noexcept {
   ProbeResult r;
   try {
     sqlite3 *db = nullptr;
-    if (sqlite3_open_v2(path.string().c_str(), &db, SQLITE_OPEN_READONLY,
+    // Immutable unless a live WAL holds pages the main file lacks: then no
+    // locks are taken and no `-shm` / `-wal` is created, so a probe leaves
+    // the directory exactly as it found it and works in a read-only one.
+    // A probe only reads the table list and the schema version, so not
+    // seeing a concurrent writer's last transaction is harmless.
+    const bool immutable = !has_live_wal(path);
+    const std::string uri = read_only_uri(path, immutable);
+    if (sqlite3_open_v2(uri.c_str(), &db,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                         nullptr) != SQLITE_OK) {
       r.error = std::string("Cannot open database: ") +
                 (db ? sqlite3_errmsg(db) : "out of memory");

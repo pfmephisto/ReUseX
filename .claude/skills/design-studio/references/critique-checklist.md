@@ -76,3 +76,27 @@ Use on every screenshot round. Look at the image, not the code. Note the 3–5 w
   `--color-on-chrome` / `--color-on-chrome-muted`, never surface text tokens.
 - **TS/inline colours are tokens too.** Colours in TS constants and inline
   `style={…}` are `var(--…)` too — the token linter only sees CSS.
+
+## Qt client (check on every `qt_shot.sh` round)
+- **Both themes, at `--scale 2`.** Text and 1 px borders crisp; nothing
+  pixel-doubled or blurry (a blurry image means a pixmap without
+  `setDevicePixelRatio`).
+- **No magenta anywhere.** Magenta is a missing token; `qt_shot.sh` should
+  already have failed — if you see it, a token is read in code and the
+  lookup went unnoticed.
+- **The right faces.** Headings and KPI figures in Oswald, body in Archivo,
+  figures in JetBrains Mono. A rounder/wider face means a font fell back —
+  check stderr for `font family … not available`. Microscopic text means a
+  `font-size` resolved to 0 (dump with `RUX_QT_DUMP_QSS`).
+- **No stock-Qt leakage.** Scrollbars, combobox arrows, checkbox ticks,
+  spin buttons, menus and tooltips are themed, not grey Fusion bevels.
+- **Mnemonics.** No stray underscores where an `&` was meant (`&&`).
+- **Caps and tracking** match the web: eyebrows and field labels in
+  `CapsLabel` with `--tracking-*`, not `toUpper()` text with no spacing.
+- **Canvas** is `--color-canvas` in both themes; a 3D pane under offscreen
+  shows the EGL snapshot, not a blank rectangle.
+- **Density matches the web**: table rows, header height, button heights and
+  inputs share one rhythm; numbers right-aligned and mono.
+- **Focus** is visible on buttons and fields (`:focus` border), and the nav
+  rail's active row reads at a glance (accent bar + filled dot).
+- **Empty states** exist: run the page with no `--project` too.

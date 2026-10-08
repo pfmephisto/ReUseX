@@ -254,11 +254,13 @@ for. Always `npm run typecheck` before hand-off.
 
 ## 7. Qt — the second surface
 
-Issue #265 chose the web GUI, with Qt 6 as the native fallback/companion. It's
-not built yet. The design intent: **one design system, two renderers.** The token
-*names and roles* in `tokens.css` are the cross-surface contract; a future Qt
-theme is meant to be **generated from them** (into a `QPalette` + QSS), not
-re-picked by eye.
+Issue #265 chose the web GUI, with Qt 6 as the native fallback/companion. It
+is **in progress** in `apps/rux/qt/` (Stream Q) — the loop, theme loader and
+gallery are documented in `qt-client.md`. The design intent: **one design
+system, two renderers.** The token
+*names and roles* in `tokens.css` are the cross-surface contract; the Qt
+theme is **generated from them** at run time (into a `QPalette` + QSS from
+`apps/rux/qt/styles/app.qss`), not re-picked by eye.
 
 Practical consequence for design work **today**:
 - Any visual decision that lives only as a literal in a `.module.css` is

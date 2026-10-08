@@ -20,10 +20,22 @@ Values that are entirely var(...) / calc(var(...)) / benign keywords are fine.
 tokens.css is exempt (it defines the values). base.css is exempt by default (it
 legitimately holds a couple of chrome primitives like the scrollbar width).
 
+The native Qt client (apps/rux/qt) follows the same rule:
+  .qss      the same property checks as CSS, plus every var(--x) must name a
+            token in tokens.css (or a run-time `--qt-*` token Theme paints)
+  .cpp/.hpp hex colours in strings, QColor(r, g, b) / QColor("…"),
+            Qt::<colour> globals, qRgb(), literal setPixelSize/setPointSize,
+            setStyleSheet("…") with a literal (styles belong in app.qss), and
+            "--token" names that tokens.css does not define
+  A line ending in `// token-lint: allow` is exempt (e.g. the 1px hairline
+  divider, or a documented fallback).
+
 Usage:
   python token_lint.py apps/rux/frontend/src          # lint a tree
   python token_lint.py path/to/Foo.module.css         # lint one file
   python token_lint.py apps/rux/frontend/src --tsx    # also scan JSX style={{…}}
+  python token_lint.py apps/rux/qt --qt               # QSS + Qt C++ under a tree
+  python token_lint.py apps/rux/qt/styles/app.qss     # one stylesheet
 
 Exit status is non-zero if any violation is found, so it works in a pre-commit
 hook or CI step.
@@ -144,6 +156,82 @@ def lint_tsx(path: Path):
             break
 
 
+# --- Qt ---------------------------------------------------------------------
+
+def find_tokens_css(start: Path) -> Path | None:
+    """tokens.css of the repo that contains @p start (or the cwd)."""
+    for base in [start.resolve(), Path.cwd().resolve()]:
+        for d in [base, *base.parents]:
+            cand = d / "apps/rux/frontend/src/tokens.css"
+            if cand.is_file():
+                return cand
+    return None
+
+
+def known_tokens(tokens_css: Path | None) -> set[str] | None:
+    if tokens_css is None:
+        return None
+    text = COMMENT.sub("", tokens_css.read_text(encoding="utf-8"))
+    return set(re.findall(r"(--[\w-]+)\s*:", text))
+
+
+def token_families(known: set[str] | None) -> set[str]:
+    """`--color`, `--space`, … — what a token name starts with. In C++ a
+    string like "--page" is a CLI flag, not a token; only strings in a token
+    family are checked."""
+    return {"--" + t[2:].split("-", 1)[0] for t in known or ()}
+
+
+def unknown_token(name: str, known: set[str] | None, cpp: bool = False) -> bool:
+    if known is None or name in known or name.startswith("--qt-"):
+        return False
+    if cpp and "--" + name[2:].split("-", 1)[0] not in token_families(known):
+        return False
+    return True
+
+
+VAR = re.compile(r"var\(\s*(--[\w-]+)\s*\)")
+
+
+def lint_qss(path: Path, known):
+    yield from lint_css(path)
+    text = COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"),
+                       path.read_text(encoding="utf-8", errors="replace"))
+    for m in VAR.finditer(text):
+        if unknown_token(m.group(1), known):
+            line = text.count("\n", 0, m.start()) + 1
+            yield line, "var", m.group(0), f"unknown token {m.group(1)!r} — not in tokens.css (it would render magenta)"
+
+
+QT_COLOUR_NAMES = ("white|black|red|green|blue|yellow|cyan|magenta|gray|"
+                   "darkGray|lightGray|darkRed|darkGreen|darkBlue|darkCyan|"
+                   "darkMagenta|darkYellow")
+CPP_RULES = [
+    (re.compile(r'"#[0-9a-fA-F]{3,8}\b'), "hex colour in a string — use theme().color(\"--color-…\")"),
+    (re.compile(r"\bQColor\s*\(\s*(?:\d|\")"), "literal QColor — use theme().color(\"--color-…\")"),
+    (re.compile(r"\bQt::(?:" + QT_COLOUR_NAMES + r")\b"), "Qt global colour — use a --color-* token"),
+    (re.compile(r"\bqRgba?\s*\("), "qRgb literal — use a --color-* token"),
+    (re.compile(r"\bset(?:PixelSize|PointSizeF?)\s*\(\s*\d"), "literal font size — use theme().font(…, \"--font-size-…\")"),
+    (re.compile(r'\bsetStyleSheet\s*\(\s*(?:QStringLiteral\s*\(\s*)?"'), "inline stylesheet literal — style by objectName/property in app.qss"),
+]
+CPP_STRING_TOKEN = re.compile(r'"(--[a-z0-9][\w-]*)"')
+CPP_COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
+
+
+def lint_cpp(path: Path, known):
+    for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        if "token-lint: allow" in line or CPP_COMMENT_LINE.match(line):
+            continue
+        code = line.split("//", 1)[0] if '"' not in line else line
+        for rx, reason in CPP_RULES:
+            if rx.search(code):
+                yield n, "c++", line.strip()[:80], reason
+                break
+        for m in CPP_STRING_TOKEN.finditer(code):
+            if unknown_token(m.group(1), known, cpp=True):
+                yield n, "c++", line.strip()[:80], f"unknown token {m.group(1)!r} — not in tokens.css"
+
+
 def should_skip(path: Path) -> bool:
     name = path.name.lower()
     return "tokens.css" in name or name == "base.css"
@@ -154,19 +242,28 @@ def main():
     p.add_argument("paths", nargs="+", help="Files or directories to lint")
     p.add_argument("--tsx", action="store_true", help="Also scan .tsx JSX style={{…}} for hardcoded colours")
     p.add_argument("--include-base", action="store_true", help="Do not exempt base.css / tokens.css")
+    p.add_argument("--qt", action="store_true", help="In directories, also scan Qt .cpp/.hpp (QSS is always scanned)")
     args = p.parse_args()
 
-    css_files, tsx_files = [], []
+    css_files, tsx_files, qss_files, cpp_files = [], [], [], []
     for raw in args.paths:
         root = Path(raw)
         if root.is_dir():
             css_files += sorted(root.rglob("*.css"))
+            qss_files += sorted(root.rglob("*.qss"))
             if args.tsx:
                 tsx_files += sorted(root.rglob("*.tsx"))
+            if args.qt:
+                cpp_files += sorted(f for ext in ("*.cpp", "*.hpp") for f in root.rglob(ext))
         elif root.suffix == ".css":
             css_files.append(root)
+        elif root.suffix == ".qss":
+            qss_files.append(root)
+        elif root.suffix in (".cpp", ".hpp"):
+            cpp_files.append(root)
         elif root.suffix == ".tsx" and args.tsx:
             tsx_files.append(root)
+    known = known_tokens(find_tokens_css(Path(args.paths[0]))) if (qss_files or cpp_files) else None
 
     if not args.include_base:
         css_files = [f for f in css_files if not should_skip(f)]
@@ -180,8 +277,16 @@ def main():
         for line, prop, snippet, reason in lint_tsx(f):
             print(f"{f}:{line}: {reason}\n    {snippet}")
             total += 1
+    for f in qss_files:
+        for line, prop, snippet, reason in lint_qss(f, known):
+            print(f"{f}:{line}: {reason}\n    {snippet}")
+            total += 1
+    for f in cpp_files:
+        for line, prop, snippet, reason in lint_cpp(f, known):
+            print(f"{f}:{line}: {reason}\n    {snippet}")
+            total += 1
 
-    files_n = len(css_files) + len(tsx_files)
+    files_n = len(css_files) + len(tsx_files) + len(qss_files) + len(cpp_files)
     if total:
         print(f"\n{total} token violation(s) in {files_n} file(s). "
               f"Replace each literal with the matching var(--…); never edit tokens.css.")

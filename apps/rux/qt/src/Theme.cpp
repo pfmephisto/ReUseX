@@ -11,6 +11,7 @@
 #include <QStyle>
 #include <QStyleFactory>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QWidget>
 
 #include <cmath>
@@ -21,14 +22,17 @@
 namespace rux::qt {
 namespace {
 
-QString read_file(const QString &path) {
+std::optional<QString> read_file(const QString &path) {
   QFile f(path);
-  if (!f.open(QIODevice::ReadOnly)) {
-    std::fprintf(stderr, "rux-qt: ERROR cannot read %s\n", qPrintable(path));
-    return {};
-  }
+  if (!f.open(QIODevice::ReadOnly))
+    return std::nullopt;
   return QString::fromUtf8(f.readAll());
 }
+
+/// How long a hot reload waits for a deleted style file to come back (some
+/// editors and tools delete and then recreate on save).
+constexpr int kRetryIntervalMs = 100;
+constexpr int kRetryAttempts = 50;
 
 int weight_from(const QString &v) {
   bool ok = false;
@@ -85,14 +89,40 @@ void Theme::apply(ThemeMode mode, const Source &source) {
 }
 
 void Theme::reload() {
+  const std::optional<QString> css = read_file(source_.tokens_css);
+  const std::optional<QString> tmpl = read_file(source_.qss_template);
+  if (!css || !tmpl) {
+    const QString absent = !css ? source_.tokens_css : source_.qss_template;
+    if (applied_) {
+      // Mid-save (deleted, not yet recreated): keep the theme on screen and
+      // try again shortly, re-watching the path once it is back. Never apply
+      // an empty token set — that would paint everything magenta.
+      if (retries_ < kRetryAttempts) {
+        ++retries_;
+        QTimer::singleShot(kRetryIntervalMs, this, [this] { reload(); });
+      } else {
+        std::fprintf(stderr,
+                     "rux-qt: ERROR %s is gone; keeping the previous theme "
+                     "(save it again to reload)\n",
+                     qPrintable(absent));
+        retries_ = 0;
+      }
+      return;
+    }
+    std::fprintf(stderr, "rux-qt: ERROR cannot read %s\n", qPrintable(absent));
+  }
+  retries_ = 0;
   missing_.clear();
   ensure_bundled_fonts();
 
-  tokens_ =
-      parse_tokens_css(read_file(source_.tokens_css).toStdString(), mode_);
+  tokens_ = parse_tokens_css(css.value_or(QString()).toStdString(), mode_);
   add_generated_tokens();
-  const QString tmpl = read_file(source_.qss_template);
-  ResolveResult r = resolve_vars(tmpl.toStdString(), tokens_);
+  ResolveResult r =
+      resolve_vars(tmpl.value_or(QString()).toStdString(), tokens_);
+  if (!css)
+    note_missing(source_.tokens_css + " (unreadable)");
+  if (!tmpl)
+    note_missing(source_.qss_template + " (unreadable)");
   for (const auto &m : r.missing)
     note_missing(QString::fromStdString(m));
   stylesheet_ = QString::fromStdString(r.text);
@@ -150,6 +180,7 @@ void Theme::reload() {
 
   for (const QString &m : missing_)
     std::fprintf(stderr, "rux-qt: ERROR MISSING token %s\n", qPrintable(m));
+  applied_ = true;
   emit changed();
 }
 

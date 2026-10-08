@@ -106,6 +106,8 @@ class Theme : public QObject {
   QString stylesheet_;
   mutable QStringList missing_;
   QFileSystemWatcher *watcher_ = nullptr;
+  bool applied_ = false; ///< a theme is on screen (a reload may keep it)
+  int retries_ = 0;      ///< waits so far for a deleted style file
   std::unique_ptr<QTemporaryDir> icon_dir_;
 };
 

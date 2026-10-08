@@ -122,4 +122,7 @@ target_link_libraries(rux PRIVATE rux_lib)
 install(TARGETS rux DESTINATION bin)
 
 # The native Qt client (Stream Q): rux_qt_core, rux_qt_lib, rux-qt-gallery.
-add_subdirectory(qt)
+# BUILD_QT_CLIENT is defined in the top-level CMakeLists.txt.
+if(BUILD_QT_CLIENT)
+    add_subdirectory(qt)
+endif()

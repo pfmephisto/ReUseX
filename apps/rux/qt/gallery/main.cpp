@@ -5,13 +5,14 @@
 // in a window. The design-studio skill's qt_shot.sh drives it; see
 // .claude/skills/design-studio/references/qt-client.md.
 //
-// Exit codes: 0 ok, 2 bad command line, 3 a token was missing (the PNG is
-// still written, with magenta where the token was), 4 project or page could
-// not be opened, 5 the PNG could not be written.
+// Exit codes: 0 ok, 2 bad command line, 3 a token or a bundled font family
+// was missing (the PNG is still written, with magenta where the token was), 4
+// project or page could not be opened, 5 the PNG could not be written.
 
 #include "demo_pages.hpp"
 
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/fonts.hpp>
 #include <rux_qt/gallery_args.hpp>
 #include <rux_qt/pages.hpp>
 
@@ -82,9 +83,16 @@ int main(int argc, char **argv) {
   QApplication app(argc, argv);
   QApplication::setApplicationName("rux-qt-gallery");
 
+  // Hot reload in --dev mode and in every Debug build (the spec's "debug or
+  // --dev"); a Release build reads the embedded snapshot unless --dev.
+#ifdef NDEBUG
+  const bool dev = args.dev;
+#else
+  const bool dev = true;
+#endif
   Theme::Source source =
-      args.dev ? Theme::dev_source(QString::fromStdString(args.style_dir))
-               : Theme::embedded_source();
+      dev ? Theme::dev_source(QString::fromStdString(args.style_dir))
+          : Theme::embedded_source();
   if (shot)
     source.watch = false;
   theme().apply(args.theme, source);
@@ -138,19 +146,33 @@ int main(int argc, char **argv) {
   const QImage img = host.grab().toImage();
   const bool saved = img.save(QString::fromStdString(args.screenshot));
   const QStringList missing = theme().missing();
-  std::fprintf(stderr, "rux-qt-gallery: %s %dx%d (dpr %.1f) in %lld ms%s\n",
-               args.screenshot.c_str(), img.width(), img.height(),
-               img.devicePixelRatio(), static_cast<long long>(clock.elapsed()),
-               missing.isEmpty() ? "" : " — MISSING TOKENS");
+  const QStringList fonts = ensure_bundled_fonts();
+  // QString::arg(double) is locale-independent (std::printf is not: the
+  // QApplication set the user's locale, and da_DK would print "1,0").
+  std::fprintf(
+      stderr, "%s\n",
+      qPrintable(QString("rux-qt-gallery: %1 %2x%3 (dpr %4) in %5 ms%6")
+                     .arg(QString::fromStdString(args.screenshot))
+                     .arg(img.width())
+                     .arg(img.height())
+                     .arg(img.devicePixelRatio(), 0, 'f', 1)
+                     .arg(clock.elapsed())
+                     .arg(missing.isEmpty() && fonts.isEmpty()
+                              ? QString()
+                              : QString(" — MISSING TOKENS/FONTS"))));
   if (!saved) {
     std::fprintf(stderr, "rux-qt-gallery: ERROR could not write %s\n",
                  args.screenshot.c_str());
     return 5;
   }
-  if (!missing.isEmpty()) {
+  if (!missing.isEmpty() || !fonts.isEmpty()) {
     for (const QString &m : missing)
       std::fprintf(stderr, "rux-qt-gallery: ERROR MISSING token %s\n",
                    qPrintable(m));
+    // A fallback face would make every critique of type meaningless.
+    for (const QString &f : fonts)
+      std::fprintf(stderr, "rux-qt-gallery: ERROR MISSING font family %s\n",
+                   qPrintable(f));
     return 3;
   }
   return 0;

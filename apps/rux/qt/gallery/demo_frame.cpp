@@ -90,9 +90,19 @@ QWidget *demo_frame(const PageContext &ctx, int active, QWidget *content,
   rail->add_item("Pipeline");
   rail->add_item("Log");
   rail->add_item("Komponenter");
-  auto *hint = new QLabel("Ctrl+K  Kommandopalet");
+  // Mono for the key only; the words are prose.
+  auto *hint_row = new QWidget;
+  auto *hl = new QHBoxLayout(hint_row);
+  hl->setContentsMargins(0, 0, 0, 0);
+  hl->setSpacing(theme().px("--space-2"));
+  auto *kbd = new QLabel("Ctrl+K");
+  kbd->setObjectName("railKbd");
+  auto *hint = new QLabel("Kommandopalet");
   hint->setObjectName("railHint");
-  rail->add_footer(hint);
+  hl->addWidget(kbd);
+  hl->addWidget(hint);
+  hl->addStretch(1);
+  rail->add_footer(hint_row);
   rail->set_current(active);
   body->addWidget(rail);
 

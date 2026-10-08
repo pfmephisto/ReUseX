@@ -122,6 +122,11 @@ include(Coverage)
 # Core library
 add_subdirectory(libs/reusex)
 
+# Native Qt client (apps/rux/qt, Stream Q): rux_qt_core, rux_qt_lib and
+# rux-qt-gallery. Needs Qt6 OpenGLWidgets and a VTK built with GUISupportQt;
+# turn it off for a configure whose VTK lacks Qt support.
+option(BUILD_QT_CLIENT "Build the native Qt client (apps/rux/qt)" ON)
+
 # CLI application
 add_subdirectory(apps/rux)
 

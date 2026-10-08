@@ -103,6 +103,13 @@ QWidget *clouds_table(const reusex::ProjectDB *db) {
   const int row_h = theme().px("--space-6") + theme().px("--space-1");
   view->verticalHeader()->setDefaultSectionSize(row_h);
   auto *h = view->horizontalHeader();
+  // QSS has no letter-spacing: the caps tracking goes on the header font,
+  // which the stylesheet's size/weight resolve onto.
+  QFont hf = h->font();
+  hf.setLetterSpacing(QFont::AbsoluteSpacing,
+                      theme().em("--tracking-caps") *
+                          theme().px("--font-size-2xs"));
+  h->setFont(hf);
   h->setSectionResizeMode(0, QHeaderView::Stretch);
   for (int c = 1; c < 3; ++c)
     h->setSectionResizeMode(c, QHeaderView::ResizeToContents);

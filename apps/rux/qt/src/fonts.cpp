@@ -31,7 +31,7 @@ QStringList ensure_bundled_fonts() {
     const QStringList known = QFontDatabase::families();
     for (const QString &family : required_font_families()) {
       if (!known.contains(family)) {
-        std::fprintf(stderr, "rux-qt: ERROR font family '%s' not available\n",
+        std::fprintf(stderr, "rux-qt: ERROR MISSING font family '%s'\n",
                      qPrintable(family));
         absent << family;
       }

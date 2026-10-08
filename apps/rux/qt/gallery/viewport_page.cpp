@@ -65,12 +65,20 @@ QWidget *layer_panel(const PageContext &ctx) {
   };
   for (const Row r : {Row{"cloud", "Punktsky"}, Row{"planes", "Planer"},
                       Row{"rooms", "Rum"}, Row{"instances", "Instanser"}}) {
+    auto *row = new QHBoxLayout;
+    row->setSpacing(theme().px("--space-2"));
     auto *c = new QCheckBox(r.label);
     c->setEnabled(has(r.cloud));
     c->setChecked(QString(r.cloud) == "cloud" && has(r.cloud));
-    if (!has(r.cloud))
-      c->setToolTip("Mangler — kør det trin, der skaber skyen");
-    layers->addWidget(c);
+    row->addWidget(c);
+    if (!has(r.cloud)) {
+      // Say why it is disabled, not just that it is.
+      auto *why = new QLabel("ikke kørt endnu");
+      why->setObjectName("layerHint");
+      row->addWidget(why);
+    }
+    row->addStretch(1);
+    layers->addLayout(row);
   }
   l->addLayout(layers);
 

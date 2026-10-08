@@ -145,8 +145,21 @@ QLabel#navCount[active="true"] {
 }
 QLabel#railHint {
   color: var(--color-on-chrome-muted);
+  font-size: var(--font-size-xs);
+}
+QLabel#railKbd {
+  color: var(--color-on-chrome);
+  background: var(--color-chrome-raised);
+  border: 1px solid var(--color-chrome-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+}
+QLabel#layerHint {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+  background: transparent;
 }
 
 /* ------------------------------------------------------- view head ----- */
@@ -236,8 +249,9 @@ QPushButton#segment[position="last"] {
   border-bottom-right-radius: var(--radius-md);
 }
 QPushButton#segment:checked {
-  background: var(--color-accent-muted);
-  color: var(--color-accent-deep);
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+  color: var(--color-on-accent);
 }
 QPushButton#segment:hover:!checked {
   color: var(--color-text);
@@ -320,7 +334,7 @@ QLabel[role="fieldLabel"], QLabel[role="propKey"], QLabel[role="statLabel"] {
 
 QLabel#pill {
   border-radius: var(--radius-sm);
-  padding: 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
 }
@@ -452,14 +466,16 @@ QTableView#dataTable::item:selected {
 QHeaderView {
   background: transparent;
 }
+/* Same caps treatment as CapsLabel's fieldLabel/panelTitle roles; the
+   letter-spacing (--tracking-caps) is set on the header font in code. */
 QHeaderView::section {
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   border: none;
   border-bottom: 1px solid var(--color-border);
   padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
 }
 
 /* --------------------------------------------------------- scrollbars -- */
@@ -554,7 +570,6 @@ QLabel#jobName {
   background: transparent;
 }
 QLabel#jobMeta {
-  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   background: transparent;

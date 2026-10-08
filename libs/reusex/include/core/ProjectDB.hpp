@@ -998,37 +998,6 @@ class ProjectDB {
   update_resource_template(int64_t id, const ResourceTemplatePatch &patch);
   bool delete_resource_template(int64_t id); // false when absent
 
-  // --- Export templates: legacy view over `templates` (schema v25) ---
-  /// The schema v21 shape. It was kept for the /export-templates routes,
-  /// which are gone (ruxd's legacy routes were deleted on 2026-10-08 in
-  /// favour of /templates); only tests use it now. `config_json` is the
-  /// template's CSV options plus `columns`: legacy-member names and user-column
-  /// labels. A write maps `columns` back with core::legacy_column_member; other
-  /// config fields become the CSV options (only when the body has any), and
-  /// repeated columns keep their first position. An update replaces only the
-  /// members the view shows (`legacy:` ones and `col:` ones whose user column
-  /// exists); category, `sys:`, `lex:` and missing `col:` members are kept in
-  /// place. A config without `columns` leaves the members untouched.
-  struct ExportTemplateRecord {
-    int64_t id = 0;
-    std::string name;
-    std::string config_json; // JSON: {"columns": [...], ...csv options}
-    std::string created_at;  // ISO 8601 UTC
-    std::string updated_at;  // ISO 8601 UTC
-  };
-
-  /// @throws core::NameConflictError
-  ExportTemplateRecord add_export_template(const std::string &name,
-                                           const std::string &config_json);
-  [[nodiscard]] std::vector<ExportTemplateRecord> list_export_templates() const;
-  [[nodiscard]] std::optional<ExportTemplateRecord>
-  export_template(int64_t id) const;
-  /// @throws std::runtime_error when @p id is unknown, core::NameConflictError
-  ExportTemplateRecord update_export_template(int64_t id,
-                                              const std::string &name,
-                                              const std::string &config_json);
-  bool delete_export_template(int64_t id);
-
   // --- Survey (Ressourcekortlægning, schema v22) ---
   struct SurveyTypeRecord {
     int64_t id = 0;

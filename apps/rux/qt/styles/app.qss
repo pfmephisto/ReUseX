@@ -1061,6 +1061,17 @@ QFrame#pendingBanner {
   background: var(--tone-accent-bg);
   border-bottom: 1px solid var(--color-accent);
 }
+QFrame#pendingBanner[tone="warn"] {
+  background: var(--tone-warn-bg);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+QFrame#pendingBanner[tone="warn"] QLabel#bannerText,
+QFrame#pendingBanner[tone="warn"] QLabel#bannerError {
+  color: var(--tone-warn-ink);
+}
+QFrame#pendingBanner[tone="warn"] QLabel#bannerDot {
+  background: var(--tone-warn-ink);
+}
 QFrame#pendingBanner[tone="error"] {
   background: var(--tone-crit-bg);
   border-bottom: 1px solid var(--color-status-failed);
@@ -1103,7 +1114,7 @@ QLabel#selectionSub {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
-QLabel#inspectorBlock {
+QTextEdit#inspectorBlock {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xs);
   color: var(--color-text-muted);

@@ -44,4 +44,13 @@ using GuiLauncher =
 /// launcher was given, and prints the help text otherwise (exit 0).
 int run(int argc, char **argv, GuiLauncher launch_gui = {});
 
+/// True when run() returned with spdlog still up because detached Qt-client
+/// work (rux_qt/background.hpp) outlived the window. main() then either ends
+/// with std::quick_exit (still running) or calls finish_logging() (it has
+/// finished since) — so the logger is torn down exactly once, and never
+/// under a thread that may still log.
+bool logging_left_up();
+/// The spdlog teardown run() skipped.
+void finish_logging();
+
 } // namespace rux

@@ -291,20 +291,22 @@ void PairStrip::rebuild() {
       icp_line_->setText("ICP fejlede: " + o.error);
       icp_line_->setProperty("tone", "crit");
     } else {
-      const auto corr = summarize_pose(o.world_delta);
-      const double shift =
-          std::sqrt(corr.t[0] * corr.t[0] + corr.t[1] * corr.t[1] +
-                    corr.t[2] * corr.t[2]);
+      // B's camera centre moves by the shift; the angle is the rotation.
       icp_line_->setText(
-          QString("ICP %1 · RMS %2 cm · %3 % inden for 5 cm · korrektion "
-                  "%4 cm / %5° · %6 / %7 punkter · ny kant får vægt %8")
-              .arg(o.converged ? QString("konvergerede")
-                               : QString("konvergerede ikke"),
-                   dec(o.fitness * 100.0, 1), dec(o.inliers * 100.0, 0),
-                   dec(shift * 100.0, 1), dec(corr.angle_deg, 2),
-                   format_count(static_cast<qulonglong>(o.source_points)),
-                   format_count(static_cast<qulonglong>(o.target_points)),
-                   weight_text(weight_from_icp_fitness(o.fitness))));
+          o.converged
+              ? QString("ICP konvergerede · RMS %1 cm · %2 % inden for 5 cm "
+                        "· B flyttes %3 cm og drejes %4° · %5 / %6 punkter · "
+                        "ny kant får vægt %7")
+                    .arg(dec(o.fitness * 100.0, 1), dec(o.inliers * 100.0, 0),
+                         dec(o.center_shift_m * 100.0, 1),
+                         dec(o.rotation_deg, 2),
+                         format_count(static_cast<qulonglong>(o.source_points)),
+                         format_count(static_cast<qulonglong>(o.target_points)),
+                         weight_text(weight_from_icp_fitness(o.fitness)))
+              : QString("ICP konvergerede ikke · RMS %1 cm · %2 % inden for "
+                        "5 cm — billederne deler for lidt geometri. En ny kant "
+                        "får vægt 1.")
+                    .arg(dec(o.fitness * 100.0, 1), dec(o.inliers * 100.0, 0)));
       icp_line_->setProperty("tone", o.converged ? "good" : "warn");
     }
   } else {
@@ -335,7 +337,7 @@ void PairStrip::add_edge() {
   e.weight = 1.0;
   // An ICP fit of this pair makes the weight honest: 1/σ² from its RMS.
   if (auto it = icp_results_.find({a_, b_});
-      it != icp_results_.end() && it->second.ok)
+      it != icp_results_.end() && it->second.ok && it->second.converged)
     e.weight = weight_from_icp_fitness(it->second.fitness);
   const auto r = editor_.add(e);
   if (r == PendingEdgeEdits::Result::duplicate) {
@@ -357,7 +359,7 @@ void PairStrip::run_icp() {
   const std::string path = session_.path().toStdString();
   auto work = std::make_shared<BackgroundWork>();
   QPointer<PairStrip> guard(this);
-  std::thread([path, a, b, guard, work] {
+  std::thread([path, a, b, guard, work]() mutable {
     IcpOutcome o;
     try {
       reusex::ProjectDB db(path, /*readOnly=*/true);
@@ -369,7 +371,8 @@ void PairStrip::run_icp() {
       o.converged = r.converged;
       o.source_points = r.source_points;
       o.target_points = r.target_points;
-      o.world_delta = r.world_delta;
+      o.center_shift_m = r.source_center_shift_m;
+      o.rotation_deg = r.rotation_deg;
     } catch (const std::exception &e) {
       o.error = QString::fromUtf8(e.what());
     }
@@ -380,6 +383,7 @@ void PairStrip::run_icp() {
             guard->icp_finished(a, b, o);
         },
         Qt::QueuedConnection);
+    work.reset(); // last: counted until the thread has let go of everything
   }).detach();
 }
 

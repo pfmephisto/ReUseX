@@ -60,6 +60,7 @@ class FrameImageLoader : public QObject {
   void set_label_slots(int slots);
 
   /// A decoded frame from the cache, or nullptr (then request() it).
+  /// A hit counts as a use for the LRU.
   std::shared_ptr<const DecodedFrame> frame(int id) const;
   void request(int id);
 
@@ -85,7 +86,7 @@ class FrameImageLoader : public QObject {
   std::unique_ptr<Worker> frames_;
   std::unique_ptr<Worker> thumbs_;
   QHash<int, std::shared_ptr<const DecodedFrame>> cache_;
-  std::vector<int> lru_; ///< most recent last
+  mutable std::vector<int> lru_; ///< most recently used last
   qint64 cache_bytes_ = 0;
   QHash<int, QImage> thumb_cache_;
   QString path_;

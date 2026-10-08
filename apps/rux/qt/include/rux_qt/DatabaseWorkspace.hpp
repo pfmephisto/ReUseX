@@ -63,8 +63,12 @@ class DatabaseWorkspace : public QWidget {
 
   /// Pending pose-graph edits not yet saved.
   int pending_edits() const;
-  /// Save them; false (and the banner says why) on failure.
+  /// Start saving them (off the GUI thread); false when it cannot start.
+  /// The banner shows the progress and, on failure, why.
   bool save_edits();
+  /// Save and wait for the outcome behind a small modal (quit, close).
+  bool save_edits_and_wait();
+  bool is_saving() const;
   void discard_edits();
 
   /// Open a tree item as if clicked (the gallery, the palette).

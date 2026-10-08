@@ -26,7 +26,10 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
+#include <QTextEdit>
 #include <QVBoxLayout>
+
+#include <cmath>
 
 namespace rux::qt {
 namespace {
@@ -46,6 +49,50 @@ QString human_size(qint64 bytes) {
   return QLocale(QLocale::Danish, QLocale::Denmark)
       .formattedDataSize(bytes, 1, QLocale::DataSizeSIFormat);
 }
+
+/// A read-only mono text block that wraps ANYWHERE and never sets its
+/// parent's width: compact JSON or a long path has no word boundary, and a
+/// word-wrapped QLabel would widen the inspector to the longest unbroken run
+/// (pushing every value off screen). Its height follows the wrapped text.
+class TextBlock : public QTextEdit {
+    public:
+  explicit TextBlock(const QString &text) {
+    setObjectName("inspectorBlock");
+    setReadOnly(true);
+    setPlainText(text);
+    setLineWrapMode(QTextEdit::WidgetWidth);
+    setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setFrameShape(QFrame::NoFrame);
+    setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    setMinimumWidth(0);
+    setTextInteractionFlags(Qt::TextSelectableByMouse |
+                            Qt::TextSelectableByKeyboard);
+  }
+  QSize sizeHint() const override { return {0, height()}; }
+  QSize minimumSizeHint() const override { return {0, height()}; }
+
+    protected:
+  void resizeEvent(QResizeEvent *e) override {
+    QTextEdit::resizeEvent(e);
+    fit();
+  }
+  void showEvent(QShowEvent *e) override {
+    QTextEdit::showEvent(e);
+    fit();
+  }
+
+    private:
+  void fit() {
+    document()->setTextWidth(viewport()->width());
+    const int h = static_cast<int>(std::ceil(document()->size().height())) +
+                  contentsMargins().top() + contentsMargins().bottom() +
+                  2 * frameWidth();
+    if (h != height())
+      setFixedHeight(h);
+  }
+};
 
 QPushButton *chrome_button(const QString &text, const QString &kbd = {}) {
   auto *b = new QPushButton;
@@ -322,7 +369,14 @@ void AppShell::show_page(Workspace w) {
 }
 
 bool AppShell::resolve_pending_edits(const QString &action) {
-  if (!database_ || database_->pending_edits() == 0)
+  if (!database_)
+    return true;
+  // A save already on its way: let it land first (and report a failure).
+  if (database_->is_saving() && !database_->save_edits_and_wait()) {
+    show_page(Workspace::database);
+    return false;
+  }
+  if (database_->pending_edits() == 0)
     return true;
   const int n = database_->pending_edits();
   QMessageBox box(this);
@@ -343,7 +397,7 @@ bool AppShell::resolve_pending_edits(const QString &action) {
   box.setEscapeButton(cancel);
   box.exec();
   if (box.clickedButton() == save) {
-    if (database_->save_edits())
+    if (database_->save_edits_and_wait())
       return true;
     // The banner says why; stay so the user can act on it.
     show_page(Workspace::database);
@@ -616,11 +670,7 @@ void Inspector::show_selection() {
       l->addWidget(p);
     }
     if (!sec.block.isEmpty()) {
-      auto *b = new QLabel(sec.block);
-      b->setObjectName("inspectorBlock");
-      b->setWordWrap(true);
-      b->setTextInteractionFlags(Qt::TextSelectableByMouse);
-      l->addWidget(b);
+      l->addWidget(new TextBlock(sec.block));
     }
   }
   l->addStretch(1);

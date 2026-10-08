@@ -142,6 +142,11 @@ class PendingEdgeEdits {
 
   /// After a successful save: fold the ops into the base, clear pending.
   void commit_succeeded();
+  /// After a successful save of @p saved (a snapshot of ops() taken when the
+  /// save started): fold exactly those into the base and drop them from the
+  /// pending set. Edits staged while the save ran stay pending — including
+  /// one that undid a saved op (it is re-staged against the new base).
+  void commit_saved(const std::vector<Op> &saved);
 
     private:
   bool removed(const EdgeKey &k) const;

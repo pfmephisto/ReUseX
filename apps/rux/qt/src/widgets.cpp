@@ -350,22 +350,23 @@ void PropertyList::add(const QString &key, const QString &value, bool mono) {
   const int row = grid_->rowCount();
   auto *k = new CapsLabel(key, "propKey");
   grid_->addWidget(k, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
-  auto *v = new QLabel(value);
+  // Elided, never widening: a long value (a blob description, a path) must
+  // not push the inspector wider than its panel and hide the other rows.
+  auto *v = new ElidedLabel(value, Qt::ElideRight);
   v->setObjectName(mono ? "propValueMono" : "propValue");
-  v->setTextInteractionFlags(Qt::TextSelectableByMouse);
   v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   grid_->addWidget(v, row, 1);
 }
 
 void PropertyList::add_name(const QString &name, const QString &value) {
   const int row = grid_->rowCount();
-  auto *k = new QLabel(name);
+  auto *k = new ElidedLabel(name, Qt::ElideMiddle);
   k->setObjectName("propName");
-  k->setToolTip(name);
+  k->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+  k->setMaximumWidth(theme().px("--layout-panel-width") / 2);
   grid_->addWidget(k, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
-  auto *v = new QLabel(value);
+  auto *v = new ElidedLabel(value, Qt::ElideRight);
   v->setObjectName("propValueMono");
-  v->setTextInteractionFlags(Qt::TextSelectableByMouse);
   v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   grid_->addWidget(v, row, 1);
 }
@@ -383,7 +384,7 @@ void PropertyList::add_swatch(const QString &colour_token, const QString &name,
   k->setToolTip(name);
   h->addWidget(k, 1);
   grid_->addWidget(key, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
-  auto *v = new QLabel(value);
+  auto *v = new ElidedLabel(value, Qt::ElideRight);
   v->setObjectName("propValueMono");
   v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   grid_->addWidget(v, row, 1);

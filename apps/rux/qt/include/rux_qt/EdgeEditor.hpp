@@ -5,14 +5,24 @@
 
 // The pose-graph edits of the Database workspace: staged in memory
 // (PendingEdgeEdits, rux_qt_core) until "Gem ændringer", then written in ONE
-// ProjectDB transaction on the session's GUI-thread connection — deletions
-// first, then additions. A failed save keeps every edit pending and says why
-// in Danish (read-only, locked by another process, other).
+// ProjectDB transaction — deletions first, then additions.
+//
+// The save runs OFF the GUI thread: a locked project waits out sqlite's 5 s
+// busy timeout, which must not freeze the window. save() snapshots ops() and
+// a detached, counted thread (BackgroundWork) applies the snapshot on its OWN
+// read-write connection (the session's is the GUI thread's alone). Staging
+// stays possible meanwhile; on success exactly the snapshot leaves the
+// pending set (PendingEdgeEdits::commit_saved), on failure every edit stays
+// pending and last_error() says why in Danish (read-only, locked, other).
 
 #include <rux_qt/database_logic.hpp>
 
 #include <QObject>
 #include <QString>
+
+#include <vector>
+
+class QWidget;
 
 namespace rux::qt {
 
@@ -36,9 +46,14 @@ class EdgeEditor : public QObject {
   PendingEdgeEdits::Result remove(const EdgeKey &key);
   void discard();
 
-  /// Write every pending edit in one transaction. False on failure, with
-  /// last_error() (Danish) and last_error_detail() (the raw message).
+  /// Start writing every pending edit (see the header). False when it cannot
+  /// start: nothing open, read-only (last_error() says so), or a save is
+  /// already running. save_finished() reports the outcome.
   bool save();
+  bool is_saving() const { return saving_; }
+  /// Run save() and wait for its outcome with a small modal "Gemmer …"
+  /// (quit, close, reload). True when nothing is pending afterwards.
+  bool save_and_wait(QWidget *parent);
   QString last_error() const { return error_; }
   QString last_error_detail() const { return error_detail_; }
 
@@ -51,9 +66,15 @@ class EdgeEditor : public QObject {
   void changed();
   /// A save wrote @p count edits.
   void saved(int count);
+  /// A save ended (after saved() on success).
+  void save_finished(bool ok);
 
     private:
+  void save_done(unsigned id, bool ok, const QString &what,
+                 const std::vector<PendingEdgeEdits::Op> &snapshot);
   ProjectSession &session_;
+  bool saving_ = false;
+  unsigned save_id_ = 0;
   PendingEdgeEdits edits_;
   QString error_;
   QString error_detail_;

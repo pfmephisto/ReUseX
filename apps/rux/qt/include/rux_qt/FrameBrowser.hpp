@@ -183,7 +183,7 @@ class PairStrip : public QFrame {
     double fitness = 0, inliers = 0;
     bool converged = false;
     int source_points = 0, target_points = 0;
-    std::array<double, 16> world_delta{};
+    double center_shift_m = 0, rotation_deg = 0;
   };
   void rebuild();
   void run_icp();

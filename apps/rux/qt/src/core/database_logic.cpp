@@ -234,6 +234,37 @@ void PendingEdgeEdits::commit_succeeded() {
   discard();
 }
 
+void PendingEdgeEdits::commit_saved(const std::vector<Op> &saved) {
+  // What is pending now, as ops; the saved snapshot is applied to the base.
+  const std::vector<Op> now = ops();
+  for (const Op &op : saved) {
+    if (op.kind == Op::Kind::remove)
+      base_.erase(std::remove_if(base_.begin(), base_.end(),
+                                 [&](const EdgeRecord &e) {
+                                   return e.key == op.edge.key;
+                                 }),
+                  base_.end());
+    else
+      base_.push_back(op.edge);
+  }
+  auto in = [](const std::vector<Op> &v, const Op &op) {
+    return std::any_of(v.begin(), v.end(), [&](const Op &o) {
+      return o.kind == op.kind && o.edge.key == op.edge.key;
+    });
+  };
+  adds_.clear();
+  removes_.clear();
+  // Pending ops that were not part of the save stay pending.
+  for (const Op &op : now)
+    if (!in(saved, op))
+      (void)(op.kind == Op::Kind::add ? add(op.edge) : remove(op.edge.key));
+  // A saved op the user undid during the save (staged add removed, staged
+  // removal restored) must now be undone against the new base.
+  for (const Op &op : saved)
+    if (!in(now, op))
+      (void)(op.kind == Op::Kind::add ? remove(op.edge.key) : add(op.edge));
+}
+
 // --------------------------------------------------------------- paging --
 
 std::int64_t Paging::next_count() const {
@@ -296,8 +327,15 @@ std::string sniff_blob(std::string_view h) {
     return "GZIP";
   if (starts("PK\x03\x04"))
     return "ZIP";
+  // JSON only when the whole head is text: binary data (float chunks)
+  // starts with '{' or '[' bytes often enough.
+  const bool text = std::all_of(h.begin(), h.end(), [](char ch) {
+    const auto u = static_cast<unsigned char>(ch);
+    return u >= 0x20 || u == '\t' || u == '\r' || u == '\n';
+  });
   const auto first = h.find_first_not_of(" \t\r\n");
-  if (first != std::string_view::npos && (h[first] == '{' || h[first] == '['))
+  if (text && first != std::string_view::npos &&
+      (h[first] == '{' || h[first] == '['))
     return "JSON";
   return {};
 }

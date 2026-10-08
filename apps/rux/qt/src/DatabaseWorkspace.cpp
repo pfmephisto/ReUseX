@@ -333,6 +333,8 @@ DatabaseWorkspace::DatabaseWorkspace(ProjectSession &session, QWidget *parent)
   connect(tables_, &TableBrowser::selection_changed, this, from(tables_));
   connect(log_, &PipelineLogView::selection_changed, this, from(log_));
   connect(editor_, &EdgeEditor::changed, this, &DatabaseWorkspace::sync_banner);
+  connect(editor_, &EdgeEditor::saved, this,
+          [this] { tree_->rebuild(session_); }); // the edge count changed
   connect(save_, &QPushButton::clicked, this, [this] { save_edits(); });
   connect(discard_, &QPushButton::clicked, this,
           &DatabaseWorkspace::discard_edits);
@@ -349,12 +351,18 @@ DatabaseWorkspace::~DatabaseWorkspace() = default;
 int DatabaseWorkspace::pending_edits() const { return editor_->pending(); }
 
 bool DatabaseWorkspace::save_edits() {
-  const bool ok = editor_->save();
-  if (ok)
-    tree_->rebuild(session_); // the edge count changed
+  const bool started = editor_->save();
+  sync_banner();
+  return started;
+}
+
+bool DatabaseWorkspace::save_edits_and_wait() {
+  const bool ok = editor_->save_and_wait(this);
   sync_banner();
   return ok;
 }
+
+bool DatabaseWorkspace::is_saving() const { return editor_->is_saving(); }
 
 void DatabaseWorkspace::discard_edits() { editor_->discard(); }
 
@@ -520,7 +528,8 @@ void DatabaseWorkspace::set_selection(const Selection &s) {
 void DatabaseWorkspace::sync_banner() {
   const int n = editor_->pending();
   const QString error = editor_->last_error();
-  banner_->setVisible(n > 0 || !error.isEmpty());
+  const bool saving = editor_->is_saving();
+  banner_->setVisible(n > 0 || !error.isEmpty() || saving);
   int adds = 0, removes = 0;
   for (const auto &op : editor_->edits().ops())
     (op.kind == PendingEdgeEdits::Op::Kind::add ? adds : removes)++;
@@ -532,21 +541,28 @@ void DatabaseWorkspace::sync_banner() {
     parts << (removes == 1 ? QString("1 slettet")
                            : QString("%1 slettede").arg(removes));
   banner_text_->setText(
-      n > 0 ? QString("%1 i posegrafen venter på at blive gemt — %2")
-                  .arg(n == 1 ? QString("1 ændring")
-                              : QString("%1 ændringer").arg(n),
-                       parts.join(", "))
-            : QString("Posegrafen"));
+      saving  ? QString("Gemmer ændringer i posegrafen …")
+      : n > 0 ? QString("%1 i posegrafen venter på at blive gemt — %2")
+                    .arg(n == 1 ? QString("1 ændring")
+                                : QString("%1 ændringer").arg(n),
+                         parts.join(", "))
+              : QString("Posegrafen"));
   banner_error_->setText(error);
   banner_error_->setToolTip(editor_->last_error_detail());
   banner_error_->setVisible(!error.isEmpty());
-  banner_->setProperty("tone", error.isEmpty() ? "pending" : "error");
+  // Read-only is a state, not a failure: the warning tone, like the title
+  // bar's "Skrivebeskyttet" pill. A failed write (locked, other) is critical.
+  const bool read_only_error =
+      !error.isEmpty() && !editor_->read_only_reason().isEmpty();
+  banner_->setProperty("tone", error.isEmpty()   ? "pending"
+                               : read_only_error ? "warn"
+                                                 : "error");
   repolish(banner_);
-  save_->setEnabled(n > 0 && editor_->can_save());
+  save_->setEnabled(n > 0 && editor_->can_save() && !saving);
   save_->setToolTip(editor_->can_save()
                         ? QString("Skriv ændringerne til projektet (Ctrl+S)")
                         : editor_->read_only_reason());
-  discard_->setEnabled(n > 0);
+  discard_->setEnabled(n > 0 && !saving);
 }
 
 } // namespace rux::qt

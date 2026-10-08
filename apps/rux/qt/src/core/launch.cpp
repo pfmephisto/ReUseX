@@ -114,6 +114,8 @@ std::string open_error_title_da(OpenErrorKind kind) {
     return "Filen er ikke et ReUseX-projekt";
   case OpenErrorKind::corrupt:
     return "Projektfilen er beskadiget";
+  case OpenErrorKind::wal_read_only_dir:
+    return "Projektet har en ufærdig skrivning i en skrivebeskyttet mappe";
   case OpenErrorKind::other:
     return "Projektet kunne ikke åbnes";
   }
@@ -138,6 +140,10 @@ std::string open_error_hint_da(OpenErrorKind kind) {
     return "Vælg en .rux-fil oprettet med rux import.";
   case OpenErrorKind::corrupt:
     return "Åbn en sikkerhedskopi, eller kør rux validate for detaljer.";
+  case OpenErrorKind::wal_read_only_dir:
+    return "Ved siden af filen ligger en skrivelog (-wal), som kun kan læses "
+           "med skriveadgang til mappen. Kopiér projektet sammen med "
+           "-wal-filen til en mappe, du kan skrive i, og åbn kopien.";
   case OpenErrorKind::other:
     return "Se detaljerne herunder. Kør rux -vv -p <fil> info for mere.";
   }

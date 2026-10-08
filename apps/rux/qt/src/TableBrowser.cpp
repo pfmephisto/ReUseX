@@ -11,11 +11,14 @@
 #include <QHeaderView>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QLocale>
 #include <QPainter>
 #include <QScrollBar>
 #include <QTableView>
+#include <QTimeZone>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cmath>
 
 namespace rux::qt {
@@ -32,7 +35,7 @@ QString dec(double v, int decimals) {
 /// A real in the shortest form that round-trips the shown digits, with a
 /// Danish comma: 1773125870,8564 / 0,25 / 1e-07.
 QString real_text(double v) {
-  QString s = QString::number(v, 'g', 12);
+  QString s = QString::number(v, 'g', 15);
   return s.replace('.', ',');
 }
 
@@ -73,6 +76,7 @@ void style_table(QTableView *view) {
   view->setSelectionMode(QAbstractItemView::SingleSelection);
   view->setEditTriggers(QAbstractItemView::NoEditTriggers);
   view->setWordWrap(false);
+  view->setTextElideMode(Qt::ElideRight);
   view->setFrameShape(QFrame::NoFrame);
   view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
   view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -96,7 +100,10 @@ void DbTableModel::set_table(const reusex::ProjectDB *db, const QString &table,
   if (db_ && !table_.isEmpty()) {
     try {
       columns_ = db_->table_columns(table_.toStdString());
-      paging_.total = row_count;
+      // Counted now, not taken from the tree's snapshot: rows added since
+      // (a saved edge) must show.
+      paging_.total = db_->table_row_count(table_.toStdString());
+      (void)row_count;
     } catch (const std::exception &e) {
       error_ = QString::fromUtf8(e.what());
     }
@@ -154,8 +161,20 @@ QString DbTableModel::display(const Cell &c, int column) const {
   switch (c.kind) {
   case Cell::Kind::null:
     return "NULL";
-  case Cell::Kind::integer:
-    return QString::number(c.integer);
+  case Cell::Kind::integer: {
+    // Counts are grouped the Danish way (1.212.572, as the tree shows them);
+    // keys and ids stay bare — "node_id 1.177" reads as a decimal.
+    const auto &col = columns_[static_cast<std::size_t>(column)];
+    const std::string &n = col.name;
+    const bool id_like =
+        col.primary_key || n == "id" ||
+        (n.size() > 3 && n.compare(n.size() - 3, 3, "_id") == 0) ||
+        n == "version" || n.find("timestamp") != std::string::npos;
+    if (id_like || (c.integer > -1000 && c.integer < 1000))
+      return QString::number(c.integer);
+    return QLocale(QLocale::Danish, QLocale::Denmark)
+        .toString(static_cast<qlonglong>(c.integer));
+  }
   case Cell::Kind::real:
     return real_text(c.real);
   case Cell::Kind::text:
@@ -227,38 +246,58 @@ Selection DbTableModel::row_selection(int row) const {
   Selection s;
   if (row < 0 || row >= rowCount())
     return s;
+  // The selected row again, with whole text cells (up to 1 MiB each): the
+  // page cache holds previews only, and a cut JSON value cannot be pretty-
+  // printed. Same order as the pages, so the offset names the same row.
+  std::vector<Cell> cells = rows_[static_cast<std::size_t>(row)];
+  if (db_) {
+    try {
+      auto full = db_->table_rows(table_.toStdString(), row, 1, 1u << 20);
+      if (full.size() == 1 && full.front().size() == cells.size())
+        cells = std::move(full.front());
+    } catch (const std::exception &) {
+    }
+  }
+
+  // Lead with the primary key ("node_id 1177"), not the position.
+  QString key;
+  for (std::size_t c = 0; c < columns_.size(); ++c)
+    if (columns_[c].primary_key) {
+      key =
+          QString("%1 %2").arg(qs(columns_[c].name), display(cells[c], int(c)));
+      break;
+    }
   s.kind = "Række";
-  s.title = QString("%1 · række %2").arg(table_).arg(row + 1);
-  s.subtitle = QString("af %1").arg(format_count(
-      static_cast<qulonglong>(std::max<qint64>(0, paging_.total))));
+  s.title =
+      key.isEmpty() ? QString("Række %1").arg(format_count(row + 1)) : key;
+  s.subtitle = QString("%1 · række %2 af %3")
+                   .arg(table_, format_count(static_cast<qulonglong>(row + 1)),
+                        format_count(static_cast<qulonglong>(
+                            std::max<qint64>(0, paging_.total))));
   SelectionSection fields{"Felter", {}, {}};
-  QString long_text;
+  QVector<SelectionSection> blocks;
   for (std::size_t c = 0; c < columns_.size(); ++c) {
-    const Cell &cell = rows_[static_cast<std::size_t>(row)][c];
+    const Cell &cell = cells[c];
     QString value = display(cell, static_cast<int>(c));
     if (cell.kind == Cell::Kind::text &&
-        (cell.truncated || value.size() > 40)) {
-      // Long text (JSON parameters, provenance) goes in a block below.
+        (cell.truncated || cell.text.size() > 32 ||
+         cell.text.find('\n') != std::string::npos)) {
+      // Long text (JSON parameters, provenance) gets a block of its own.
       QString full = QString::fromUtf8(
           cell.text.data(), static_cast<qsizetype>(cell.text.size()));
       const QJsonDocument doc = QJsonDocument::fromJson(full.toUtf8());
       if (!doc.isNull())
         full = QString::fromUtf8(doc.toJson(QJsonDocument::Indented)).trimmed();
-      long_text +=
-          QString("%1\n%2%3\n\n")
-              .arg(qs(columns_[c].name), full,
-                   cell.truncated ? QString("\n… (%1 i alt)")
-                                        .arg(qs(format_bytes_da(cell.size)))
-                                  : QString());
-      value = cell.truncated ? qs(format_bytes_da(cell.size)) + " tekst"
-                             : QString("se nedenfor");
+      if (cell.truncated)
+        full += QString("\n… (%1 i alt)").arg(qs(format_bytes_da(cell.size)));
+      blocks.push_back({qs(columns_[c].name), {}, full});
+      value = qs(format_bytes_da(cell.size)) + " · se nedenfor";
     }
     fields.rows.push_back(
         {qs(columns_[c].name), value, SelectionRow::Style::name});
   }
   s.sections.push_back(fields);
-  if (!long_text.isEmpty())
-    s.sections.push_back({"Lange felter", {}, long_text.trimmed()});
+  s.sections += blocks;
   return s;
 }
 

@@ -181,6 +181,57 @@ TEST_CASE("PendingEdits_Ops_DeleteFirstThenAddInStagingOrder",
   CHECK(e.base()[1].key == EdgeKey{2, 9, "loop_closure"});
 }
 
+TEST_CASE("PendingEdits_CommitSaved_KeepsEditsStagedDuringTheSave",
+          "[rux_qt][database][pending]") {
+  PendingEdgeEdits e;
+  e.set_base({edge(1, 2, "odometry"), edge(4, 5, "panorama")});
+  REQUIRE(e.add(edge(7, 8)) == PendingEdgeEdits::Result::added);
+  REQUIRE(e.remove({1, 2, "odometry"}) == PendingEdgeEdits::Result::removed);
+  const auto snapshot = e.ops(); // the save starts with these two
+
+  // While it runs: a new edge, and a deletion of another stored one.
+  REQUIRE(e.add(edge(2, 9)) == PendingEdgeEdits::Result::added);
+  REQUIRE(e.remove({4, 5, "panorama"}) == PendingEdgeEdits::Result::removed);
+
+  SECTION("success folds only the snapshot") {
+    e.commit_saved(snapshot);
+    REQUIRE(e.base().size() == 2); // (4,5) stored, (7,8) now stored
+    CHECK(e.base()[0].key == EdgeKey{4, 5, "panorama"});
+    CHECK(e.base()[1].key == EdgeKey{7, 8, "loop_closure"});
+    const auto left = e.ops();
+    REQUIRE(left.size() == 2);
+    CHECK(left[0].kind == PendingEdgeEdits::Op::Kind::remove);
+    CHECK(left[0].edge.key == EdgeKey{4, 5, "panorama"});
+    CHECK(left[1].edge.key == EdgeKey{2, 9, "loop_closure"});
+  }
+  SECTION("failure keeps everything pending") {
+    // No commit: the four edits are all still there.
+    CHECK(e.count() == 4);
+    CHECK(e.base().size() == 2);
+  }
+}
+
+TEST_CASE("PendingEdits_CommitSaved_ReappliesAnUndoMadeDuringTheSave",
+          "[rux_qt][database][pending]") {
+  PendingEdgeEdits e;
+  e.set_base({edge(1, 2, "odometry")});
+  REQUIRE(e.add(edge(7, 8)) == PendingEdgeEdits::Result::added);
+  REQUIRE(e.remove({1, 2, "odometry"}) == PendingEdgeEdits::Result::removed);
+  const auto snapshot = e.ops();
+  // The user undoes both while the save is writing them.
+  REQUIRE(e.remove({7, 8, "loop_closure"}) ==
+          PendingEdgeEdits::Result::unstaged);
+  REQUIRE(e.add(edge(1, 2, "odometry")) == PendingEdgeEdits::Result::restored);
+  e.commit_saved(snapshot);
+  // The file now has (7,8) and lacks (1,2): undoing needs two new edits.
+  const auto left = e.ops();
+  REQUIRE(left.size() == 2);
+  CHECK(left[0].kind == PendingEdgeEdits::Op::Kind::remove);
+  CHECK(left[0].edge.key == EdgeKey{7, 8, "loop_closure"});
+  CHECK(left[1].kind == PendingEdgeEdits::Op::Kind::add);
+  CHECK(left[1].edge.key == EdgeKey{1, 2, "odometry"});
+}
+
 TEST_CASE("PendingEdits_Between_ShowsBothDirectionsWithState",
           "[rux_qt][database][pending]") {
   PendingEdgeEdits e;
@@ -277,6 +328,7 @@ TEST_CASE("SniffBlob_RecognisesCommonFormats", "[rux_qt][database][format]") {
   CHECK(sniff_blob(std::string("\x1f\x8b\x08", 3)) == "GZIP");
   CHECK(sniff_blob("PK\x03\x04") == "ZIP");
   CHECK(sniff_blob("  {\"a\":1}") == "JSON");
+  CHECK(sniff_blob(std::string("{\0\x80?\x12\0\0\0", 8)) == ""); // floats
   CHECK(sniff_blob(std::string("\0\1\2", 3)) == "");
   CHECK(sniff_blob("") == "");
 }

@@ -38,10 +38,14 @@ int main(int argc, char **argv) {
   const int rc = rux::run(argc, argv);
 #endif
   // A detached Qt-client thread outlived the exit wait (rux::run then left
-  // spdlog up for it): end without running static destructors under it.
-  if (rux::qt::background_work_in_flight() > 0) {
-    std::fflush(nullptr);
-    std::quick_exit(rc);
+  // spdlog up for it): end without running static destructors under it —
+  // or, if it has finished since, tear the logger down after all.
+  if (rux::logging_left_up()) {
+    if (rux::qt::background_work_in_flight() > 0) {
+      std::fflush(nullptr);
+      std::quick_exit(rc);
+    }
+    rux::finish_logging();
   }
   return rc;
 }

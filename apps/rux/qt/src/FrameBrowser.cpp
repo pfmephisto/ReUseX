@@ -959,7 +959,7 @@ QVector<std::pair<QString, QString>> FrameBrowser::metadata(int id) const {
     const auto k = db->sensor_frame_intrinsics(id);
     if (k.fx > 0)
       rows.push_back(
-          {"Kamera", QString("f %1 · c %2, %3")
+          {"Kamera", QString("f %1 · c %2 / %3")
                          .arg(dec(k.fx, 1), dec(k.cx, 1), dec(k.cy, 1))});
   } catch (const std::exception &e) {
     rows.push_back({"Fejl", QString::fromUtf8(e.what())});

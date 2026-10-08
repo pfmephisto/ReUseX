@@ -6,8 +6,16 @@
 
 #include <reusex/core/ProjectDB.hpp>
 
+#include <rux_qt/background.hpp>
+
 #include <QApplication>
-#include <QCursor>
+#include <QDialog>
+#include <QLabel>
+#include <QPointer>
+#include <QVBoxLayout>
+
+#include <memory>
+#include <thread>
 
 namespace rux::qt {
 
@@ -49,56 +57,107 @@ void EdgeEditor::discard() {
 }
 
 bool EdgeEditor::save() {
-  reusex::ProjectDB *db = session_.db();
-  if (!db || edits_.empty())
-    return edits_.empty();
+  if (!session_.is_open() || edits_.empty() || saving_)
+    return false;
   error_.clear();
   error_detail_.clear();
   if (session_.is_read_only()) {
     error_ = QString::fromStdString(write_error_da(WriteErrorKind::read_only));
     error_detail_ = session_.read_only_reason();
     emit changed();
+    emit save_finished(false);
     return false;
   }
 
-  const auto ops = edits_.ops();
-  // BEGIN IMMEDIATE waits out the 5 s busy timeout on a locked project; the
-  // window shows a wait cursor meanwhile (writes stay on the GUI thread's
-  // connection, the one the session owns).
-  QApplication::setOverrideCursor(Qt::WaitCursor);
-  try {
-    reusex::ProjectDB::Transaction tx(*db);
-    for (const auto &op : ops) {
-      const auto &e = op.edge;
-      if (op.kind == PendingEdgeEdits::Op::Kind::remove) {
-        db->delete_pose_graph_edges(e.key.from, e.key.to, e.key.type);
-      } else {
-        reusex::ProjectDB::PoseGraphEdge row;
-        row.from_node_id = e.key.from;
-        row.to_node_id = e.key.to;
-        row.edge_type = e.key.type;
-        row.residual = e.residual;
-        row.weight = e.weight;
-        db->add_pose_graph_edge(row);
+  const auto snapshot = edits_.ops();
+  const unsigned id = ++save_id_;
+  saving_ = true;
+  emit changed();
+
+  const std::string path = session_.path().toStdString();
+  auto work = std::make_shared<BackgroundWork>();
+  QPointer<EdgeEditor> guard(this);
+  std::thread([path, snapshot, id, guard, work]() mutable {
+    bool ok = false;
+    QString what;
+    try {
+      reusex::ProjectDB db(path, /*readOnly=*/false);
+      reusex::ProjectDB::Transaction tx(db);
+      for (const auto &op : snapshot) {
+        const auto &e = op.edge;
+        if (op.kind == PendingEdgeEdits::Op::Kind::remove) {
+          db.delete_pose_graph_edges(e.key.from, e.key.to, e.key.type);
+        } else {
+          reusex::ProjectDB::PoseGraphEdge row;
+          row.from_node_id = e.key.from;
+          row.to_node_id = e.key.to;
+          row.edge_type = e.key.type;
+          row.residual = e.residual;
+          row.weight = e.weight;
+          db.add_pose_graph_edge(row);
+        }
       }
+      tx.commit();
+      ok = true;
+    } catch (const std::exception &ex) {
+      what = QString::fromUtf8(ex.what());
     }
-    tx.commit();
-  } catch (const std::exception &ex) {
-    QApplication::restoreOverrideCursor();
-    error_ =
-        QString::fromStdString(write_error_da(classify_write_error(ex.what())));
-    error_detail_ = QString::fromUtf8(ex.what());
-    emit changed();
-    return false;
-  }
-  QApplication::restoreOverrideCursor();
-  const int n = static_cast<int>(ops.size());
-  reload(); // the stored rows, exactly as the file now has them
-  emit saved(n);
+    QMetaObject::invokeMethod(
+        qApp,
+        [guard, id, ok, what, snapshot] {
+          if (guard)
+            guard->save_done(id, ok, what, snapshot);
+        },
+        Qt::QueuedConnection);
+    work.reset(); // last: counted until the thread has let go of everything
+  }).detach();
   return true;
 }
 
+void EdgeEditor::save_done(unsigned id, bool ok, const QString &what,
+                           const std::vector<PendingEdgeEdits::Op> &snapshot) {
+  if (id != save_id_ || !saving_)
+    return; // a reload or a new project dropped this save's state
+  saving_ = false;
+  if (!ok) {
+    error_ = QString::fromStdString(
+        write_error_da(classify_write_error(what.toStdString())));
+    error_detail_ = what;
+    emit changed();
+    emit save_finished(false);
+    return;
+  }
+  edits_.commit_saved(snapshot);
+  emit changed();
+  emit saved(static_cast<int>(snapshot.size()));
+  emit save_finished(true);
+}
+
+bool EdgeEditor::save_and_wait(QWidget *parent) {
+  if (!saving_ && !save())
+    return edits_.empty();
+  QDialog wait(parent);
+  wait.setObjectName("savingDialog");
+  wait.setWindowTitle("Gemmer");
+  wait.setModal(true);
+  auto *l = new QVBoxLayout(&wait);
+  auto *text = new QLabel("Gemmer ændringer i posegrafen …");
+  text->setObjectName("emptyText");
+  l->addWidget(text);
+  bool ok = false;
+  connect(this, &EdgeEditor::save_finished, &wait, [&](bool result) {
+    ok = result;
+    wait.accept();
+  });
+  // A save can finish before exec() starts its loop: the queued delivery
+  // only runs inside it, so this cannot miss the signal.
+  wait.exec();
+  return ok && edits_.empty();
+}
+
 void EdgeEditor::reload() {
+  saving_ = false; // a running save's result is for the old base: dropped
+  ++save_id_;
   error_.clear();
   error_detail_.clear();
   std::vector<EdgeRecord> base;

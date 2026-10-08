@@ -57,6 +57,10 @@ enum class OpenErrorKind {
   locked,        ///< another process holds the write lock past the timeout
   not_a_project, ///< not sqlite, or sqlite without the ReUseX tables
   corrupt,       ///< sqlite says the image is malformed
+  /// A read-only directory holding a non-empty -wal (an unfinished write):
+  /// sqlite cannot read the WAL without creating -shm, and the main file
+  /// alone is not the whole project.
+  wal_read_only_dir,
   other,
 };
 

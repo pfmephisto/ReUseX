@@ -437,3 +437,10 @@ TEST_CASE("OpenError_EveryKind_HasDanishTitleAndHint", "[rux_qt][open]") {
         std::string::npos);
   CHECK(open_error_title_da(OpenErrorKind::none).empty());
 }
+
+TEST_CASE("OpenError_WalInReadOnlyDirectory_HasItsOwnDanishText",
+          "[rux_qt][open_error]") {
+  const auto k = OpenErrorKind::wal_read_only_dir;
+  CHECK(open_error_title_da(k).find("skrivebeskyttet") != std::string::npos);
+  CHECK(open_error_hint_da(k).find("-wal") != std::string::npos);
+}

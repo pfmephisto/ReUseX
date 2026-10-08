@@ -99,7 +99,15 @@ std::shared_ptr<ProjectSession::Result> do_open(const QString &path,
     r->summary = r->db->project_summary();
   } catch (const std::exception &e) {
     r->db.reset();
-    r->error = make_error(classify_open_error(e.what()), e.what());
+    OpenErrorKind kind = classify_open_error(e.what());
+    // A crash-leftover WAL in a read-only directory: neither a plain nor an
+    // immutable read-only open can read it (ProjectDB.hpp), and "no access"
+    // would send the user looking at permissions instead.
+    std::error_code ec;
+    if (!QFileInfo(fi.absolutePath()).isWritable() &&
+        std::filesystem::file_size(fs_path.string() + "-wal", ec) > 0 && !ec)
+      kind = OpenErrorKind::wal_read_only_dir;
+    r->error = make_error(kind, e.what());
   }
   if (!r->db)
     r->read_only_reason.clear();
@@ -180,7 +188,7 @@ void ProjectSession::start_worker(const QString &path, bool read_only) {
   // session (and the window) can go away while a locked open still waits.
   // Counted until the thread is done with the ProjectDB and the logger.
   auto work = std::make_shared<BackgroundWork>();
-  std::thread([box = mailbox_, path, read_only, gen, work] {
+  std::thread([box = mailbox_, path, read_only, gen, work]() mutable {
     auto r = do_open(path, read_only);
     r->generation = gen;
     {
@@ -190,6 +198,8 @@ void ProjectSession::start_worker(const QString &path, bool read_only) {
             owner, [owner, r] { owner->finish(r); }, Qt::QueuedConnection);
     }
     r.reset(); // without an owner the ProjectDB closes here, on the worker
+    box.reset();
+    work.reset(); // last: counted until the thread has let go of everything
   }).detach();
 }
 

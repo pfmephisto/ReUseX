@@ -15,6 +15,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -347,11 +348,21 @@ void FrameImageLoader::set_thumbnail_size(int px) {
 }
 
 std::shared_ptr<const DecodedFrame> FrameImageLoader::frame(int id) const {
-  return cache_.value(id);
+  auto f = cache_.value(id);
+  if (f) {
+    // Least recently USED: a frame shown for a while must outlive frames
+    // scrubbed past since.
+    const auto it = std::find(lru_.begin(), lru_.end(), id);
+    if (it != lru_.end() && std::next(it) != lru_.end()) {
+      lru_.erase(it);
+      lru_.push_back(id);
+    }
+  }
+  return f;
 }
 
 void FrameImageLoader::request(int id) {
-  if (cache_.contains(id)) {
+  if (frame(id)) { // touches the LRU
     emit frame_ready(id);
     return;
   }
@@ -377,7 +388,7 @@ void FrameImageLoader::deliver_frame(std::shared_ptr<DecodedFrame> f,
     lru_.push_back(id);
   }
   cache_.insert(id, f);
-  // Evict least recently delivered beyond the budget (never the newest).
+  // Evict the least recently used beyond the budget (never the newest).
   while (cache_bytes_ > kFrameCacheBytes && lru_.size() > 2) {
     const int old = lru_.front();
     lru_.erase(lru_.begin());

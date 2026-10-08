@@ -105,9 +105,14 @@ TEST_CASE("GuiLaunch_DetachedWorkStillRunning_LeavesTheLoggerUp",
   CHECK(rux::run(1, argv.data(), fake) == 0);
   CHECK(rux::qt::background_work_in_flight() == 1);
   CHECK(spdlog::default_logger() != nullptr); // not shut down
+  CHECK(rux::logging_left_up());
   release.set_value();
   worker.join();
   CHECK(rux::qt::background_work_in_flight() == 0);
+  // The work finished after run() returned: main() tears the logger down.
+  rux::finish_logging();
+  CHECK_FALSE(rux::logging_left_up());
+  CHECK(spdlog::default_logger() == nullptr);
 }
 
 TEST_CASE("GuiLaunch_NoDetachedWork_ShutsTheLoggerDown",
@@ -116,4 +121,5 @@ TEST_CASE("GuiLaunch_NoDetachedWork_ShutsTheLoggerDown",
   run_with({"rux"}, call);
   REQUIRE(call.called);
   CHECK(spdlog::default_logger() == nullptr); // spdlog::shutdown() ran
+  CHECK_FALSE(rux::logging_left_up());
 }

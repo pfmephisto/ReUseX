@@ -75,6 +75,17 @@ void install_fatal_signal_handlers() {
 
 namespace rux {
 
+namespace {
+bool g_logging_left_up = false;
+} // namespace
+
+bool logging_left_up() { return g_logging_left_up; }
+
+void finish_logging() {
+  g_logging_left_up = false;
+  spdlog::shutdown();
+}
+
 int run(int argc, char **argv, GuiLauncher launch_gui) {
   install_fatal_signal_handlers();
 
@@ -279,6 +290,7 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
         // thread either (rux_qt/background.hpp).
         if (auto logger = spdlog::default_logger())
           logger->flush();
+        g_logging_left_up = true;
         return rc;
       }
       teardown();

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import { api } from '../api/client';
+import { ApiRequestError, api } from '../api/client';
 import type { Health, ProjectSummary, SurveySummary } from '../api/types';
 import { TitleBar } from '../components/TitleBar';
 import { Sidebar } from '../components/Sidebar';
@@ -15,7 +15,8 @@ import { useTheme } from './useTheme';
 import { useJobs } from './JobsContext';
 import { SurveyCountsProvider } from './SurveyCountsContext';
 import { kindOf } from './keyTargets';
-import { DRAWER_QUERY, displayProjectName, drawerKeyAction } from './navigation';
+import { caseBootAction, writeLastCase } from './cases';
+import { ALL_CASES_PATH, DRAWER_QUERY, displayProjectName, drawerKeyAction } from './navigation';
 import styles from './AppShell.module.css';
 
 const NAV_ID = 'app-nav';
@@ -49,6 +50,16 @@ const NAV_ID = 'app-nav';
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health, error } = useAsync<Health>((signal) => api.health(signal), []);
+  useEffect(() => {
+    if (!health && !error) return;
+    const action = caseBootAction(
+      health ? { ok: true } : { ok: false, status: error instanceof ApiRequestError ? error.status : undefined },
+    );
+    if (action === 'remember' && api.caseId) writeLastCase(api.caseId);
+    // The case is gone (deleted, or a stale link): back to the list rather
+    // than a screen of 404s and an events socket retrying forever.
+    if (action === 'leave') window.location.replace(ALL_CASES_PATH);
+  }, [health, error]);
   const project = useAsync<ProjectSummary>((signal) => api.projectSummary(signal), []);
   const summary = project.data;
   const survey = useAsync<SurveySummary>((signal) => api.surveySummary(signal), []);

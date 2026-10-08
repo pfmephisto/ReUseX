@@ -274,7 +274,15 @@ export class RuxApiClient {
    */
   selectCase(cid: string): void {
     this.baseUrl = caseBaseUrl(cid, this.serverBaseUrl);
+    this.currentCase = cid;
   }
+
+  /** The case selected with {@link selectCase}, if any. */
+  get caseId(): string | undefined {
+    return this.currentCase;
+  }
+
+  private currentCase: string | undefined;
 
   /** Absolute (or root-relative) URL for a contract path. Public for <img src>. */
   url(path: string, query?: Query): string {

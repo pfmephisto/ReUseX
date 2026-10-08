@@ -8,6 +8,7 @@ import { CasesClient, type CasesFetch } from '../api/cases';
 import { RuxApiClient, caseBaseUrl } from '../api/client';
 import {
   CASES_PATH,
+  caseBootAction,
   caseBasename,
   caseHref,
   formatBytes,
@@ -202,5 +203,21 @@ describe('case-scoped API client (S2)', () => {
       '/api/v1/models/sam3/status',
       '/api/v1/endpoints',
     ]);
+  });
+});
+
+describe('case boot (S2 fix round)', () => {
+  it('remembers a confirmed case, leaves a missing one, waits out the rest', () => {
+    expect(caseBootAction({ ok: true })).toBe('remember');
+    expect(caseBootAction({ ok: false, status: 404 })).toBe('leave');
+    expect(caseBootAction({ ok: false, status: 503 })).toBe('stay');
+    expect(caseBootAction({ ok: false })).toBe('stay');
+  });
+
+  it('knows which case the client points at', () => {
+    const client = new RuxApiClient();
+    expect(client.caseId).toBeUndefined();
+    client.selectCase('kontor');
+    expect(client.caseId).toBe('kontor');
   });
 });

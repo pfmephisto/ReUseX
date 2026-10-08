@@ -8,7 +8,7 @@
  * only words it.
  */
 
-import { ApiRequestError } from '../api/client';
+import { ApiRequestError, caseBaseUrl } from '../api/client';
 import type { CaseSummary, ProjectInfo, SurveyFractions, SurveySummary } from '../api/types';
 import { formatBytes } from '../app/cases';
 import type { Tone } from '../kortlaegning/vocab';
@@ -131,9 +131,15 @@ export function caseWriteErrorText(cause: unknown, action: 'create' | 'upload'):
       case 429:
         return 'Der er for mange uploads i gang. Prøv igen om lidt.';
       case 409:
+        // Only refusing to START is about the server having no data dir; a
+        // 409 on a chunk or on completing means the upload fell out of step.
+        if (action === 'upload' && !/\/uploads$/.test(cause.url))
+          return 'Uploaden kom ud af trit med serveren. Start den forfra.';
         return action === 'upload'
           ? 'Serveren kan ikke modtage sager (den viser én fil). Start den med en mappe.'
           : 'Serveren kan ikke oprette sager (den viser én fil). Start den med en mappe.';
+      case 507:
+        return 'Der er ikke plads nok på serveren til filen.';
       case 400:
         return 'Navnet kan ikke bruges. Skriv et navn uden kontroltegn.';
       default:
@@ -144,4 +150,36 @@ export function caseWriteErrorText(cause: unknown, action: 'create' | 'upload'):
   return action === 'upload'
     ? 'Upload mislykkedes. Tjek forbindelsen og prøv igen.'
     : 'Sagen kunne ikke oprettes. Prøv igen.';
+}
+
+/** What a card shows, from the list's `summary` alone (no per-case request). */
+export interface CardFigures {
+  record: ProjectInfo | undefined;
+  survey: SurveySummary | undefined;
+  status: CaseStatus;
+  /** The server could not read the project at all. */
+  unreadable: boolean;
+}
+
+export function cardFigures(c: CaseSummary): CardFigures {
+  const s = c.summary;
+  if (!s) {
+    return {
+      record: undefined,
+      survey: undefined,
+      status: s === null ? { label: 'Kan ikke læses', tone: 'crit' } : { label: 'Ukendt', tone: 'wait' },
+      unreadable: s === null,
+    };
+  }
+  const record = s.project ?? undefined;
+  if (!s.survey) {
+    // An older project the server has not migrated yet: the record only.
+    return { record, survey: undefined, status: { label: 'Åbn for status', tone: 'wait' }, unreadable: false };
+  }
+  return { record, survey: s.survey, status: caseStatus(s.survey, s.fractions), unreadable: false };
+}
+
+/** The card's plan thumbnail (lazy; cached by the server). */
+export function caseThumbUrl(cid: string): string {
+  return `${caseBaseUrl(cid)}/renders?view=plan&width=640&height=248`;
 }

@@ -15,7 +15,7 @@ import './base.css';
 import { api } from './api/client';
 import { App } from './app/App';
 import { CasesApp, LegacyRedirect } from './app/CasesApp';
-import { caseBasename, parseCaseLocation, writeLastCase } from './app/cases';
+import { caseBasename, parseCaseLocation } from './app/cases';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('#root is missing from index.html');
@@ -26,8 +26,10 @@ if (!container) throw new Error('#root is missing from index.html');
 const where = parseCaseLocation(window.location.pathname);
 let app;
 if (where.kind === 'case') {
+  // Remembered as the last case only once its health check succeeds
+  // (AppShell, caseBootAction): an unknown id must not become the redirect
+  // target of every old link.
   api.selectCase(where.cid);
-  writeLastCase(where.cid);
   app = (
     <BrowserRouter basename={caseBasename(where.cid)}>
       <App />

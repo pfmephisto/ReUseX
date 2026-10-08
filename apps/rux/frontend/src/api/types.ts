@@ -49,6 +49,20 @@ export interface CaseSummary {
   deletable: boolean;
   /** Open on the server right now. */
   open: boolean;
+  /**
+   * The card's figures, read by the server without opening the case: the
+   * building record and the survey summary/fractions (same shapes as
+   * `/projects`, `/survey/summary`, `/survey/fractions`). `null` when the
+   * project cannot be read; `survey` is `null` on an older schema until the
+   * case is opened once.
+   */
+  summary?: CaseCardFigures | null;
+}
+
+export interface CaseCardFigures {
+  project: ProjectInfo | null;
+  survey: SurveySummary | null;
+  fractions: SurveyFractions | null;
 }
 
 /** `CaseList` — `GET /api/v1/cases`. Not paged: a server's list is short. */

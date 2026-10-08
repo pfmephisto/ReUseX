@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { ApiRequestError } from '../api/client';
 import type { CaseSummary } from '../api/types';
 import {
+  cardFigures,
+  caseThumbUrl,
   cardDate,
   cardFileLine,
   cardSubline,
@@ -155,7 +157,40 @@ describe('case list cards (S2)', () => {
     expect(caseWriteErrorText(err(429), 'upload')).toMatch(/for mange uploads/);
     expect(caseWriteErrorText(err(409), 'create')).toMatch(/kan ikke oprette/);
     expect(caseWriteErrorText(err(409), 'upload')).toMatch(/kan ikke modtage/);
+    // A 409 on a chunk or on completing is the upload falling out of step,
+    // not the server lacking a data dir.
+    expect(
+      caseWriteErrorText(new ApiRequestError(409, 'x', '/api/v1/uploads/ab12?offset=0'), 'upload'),
+    ).toMatch(/ud af trit/);
+    expect(caseWriteErrorText(new ApiRequestError(409, 'x', '/api/v1/uploads/ab12/complete'), 'upload')).toMatch(
+      /ud af trit/,
+    );
+    expect(caseWriteErrorText(err(507), 'upload')).toMatch(/plads/);
     expect(caseWriteErrorText(new Error('net'), 'upload')).toMatch(/Upload mislykkedes/);
     expect(caseWriteErrorText(new DOMException('a', 'AbortError'), 'upload')).toBe('Upload afbrudt.');
+  });
+});
+
+describe('cards from the list alone (S2 fix round)', () => {
+  it('reads a card from the summary the list carries', () => {
+    const survey = surveySummary({ counts: { queue: 2, approved: 1, rejected: 0, all: 3 } });
+    const f = cardFigures(
+      summary({ summary: { project: { id: 'p', name: 'Rådhuset' }, survey, fractions: surveyFractions() } }),
+    );
+    expect(f.record?.name).toBe('Rådhuset');
+    expect(f.survey).toBe(survey);
+    expect(f.status.label).toBe('Gennemgang');
+    expect(f.unreadable).toBe(false);
+  });
+
+  it('says so when the project is unreadable, or older and not yet opened', () => {
+    expect(cardFigures(summary({ summary: null }))).toMatchObject({ unreadable: true, status: { tone: 'crit' } });
+    expect(
+      cardFigures(summary({ summary: { project: null, survey: null, fractions: null } })).status.label,
+    ).toBe('Åbn for status');
+  });
+
+  it('asks the server for a cached plan thumbnail', () => {
+    expect(caseThumbUrl('kontor')).toBe('/api/v1/cases/kontor/renders?view=plan&width=640&height=248');
   });
 });

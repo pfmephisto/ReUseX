@@ -147,3 +147,16 @@ export function formatBytes(bytes: number): string {
   const digits = unit === 0 || value >= 100 ? 0 : 1;
   return `${value.toLocaleString('da-DK', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`;
 }
+
+/**
+ * What the case app does once the case's `GET /health` answers: remember the
+ * case as last used only once the server has confirmed it (`remember`), and
+ * leave for the list when the server does not have it (`leave`, a 404 — a
+ * deleted case, or an old bookmark). Anything else (the server unreachable,
+ * a 5xx) keeps the user where they are, so a restarting server does not throw
+ * them out of their case.
+ */
+export function caseBootAction(outcome: { ok: true } | { ok: false; status?: number }): 'remember' | 'leave' | 'stay' {
+  if (outcome.ok) return 'remember';
+  return outcome.status === 404 ? 'leave' : 'stay';
+}

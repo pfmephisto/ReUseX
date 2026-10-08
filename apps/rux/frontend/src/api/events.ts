@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * The `/api/v1/events` WebSocket client (`docs/gui/websocket-events.md`).
+ * The per-case `/api/v1/cases/{cid}/events` WebSocket client
+ * (`docs/gui/websocket-events.md`).
  *
  * The interesting part is not the socket — it is `applyEvent`, a pure reducer
  * that enforces the contract's ordering rule:

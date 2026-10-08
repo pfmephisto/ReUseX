@@ -2,10 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useId, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 
 import { casesApi } from '../api/cases';
-import { RuxApiClient, caseBaseUrl } from '../api/client';
 import type { CaseList, CaseSummary } from '../api/types';
 import { caseHref, formatBytes, nameFromFile } from '../app/cases';
 import { useAsync } from '../app/useAsync';
@@ -16,11 +15,12 @@ import { CaseCard } from '../components/sager/CaseCard';
 import controls from '../components/controls.module.css';
 import { danishDate } from '../overblik/model';
 import {
+  cardFigures,
   cardFileLine,
   cardSubline,
   cardTitle,
   caseStats,
-  caseStatus,
+  caseThumbUrl,
   caseWriteErrorText,
   SERVE_DIRECTORY_COMMAND,
   sortCases,
@@ -76,30 +76,24 @@ export function SagerPage() {
   );
 }
 
-/** One card, with the figures read from that case's own routes. */
+/**
+ * One card. Its figures come with the list (`Case.summary`, read by the
+ * server without opening the case), so the page makes no request per case;
+ * only the plan thumbnail is fetched, lazily, and the server caches it.
+ */
 function CaseTile({ summary }: { summary: CaseSummary }) {
-  const client = useMemo(() => new RuxApiClient({ baseUrl: caseBaseUrl(summary.id) }), [summary.id]);
-  const data = useAsync((s) => Promise.all([client.projectSummary(s), client.surveySummary(s)]), [client]);
-  // Only the status needs the fractions; a failure reads as "not done" (R3).
-  const fractions = useAsync((s) => client.surveyFractions(s), [client]);
-
-  const [project, survey] = data.data ?? [];
-  const record = project?.projects[0];
+  const card = cardFigures(summary);
   return (
     <CaseCard
       href={caseHref(summary.id)}
-      name={cardTitle(summary, record)}
-      subline={data.error ? 'Projektet kunne ikke åbnes' : cardSubline(record)}
-      stats={survey ? caseStats(survey) : null}
-      status={
-        survey
-          ? caseStatus(survey, fractions.error ? null : fractions.data)
-          : { label: data.error ? 'Fejl' : 'Indlæser', tone: data.error ? 'crit' : 'wait' }
-      }
+      name={cardTitle(summary, card.record)}
+      subline={card.unreadable ? 'Projektet kunne ikke læses' : cardSubline(card.record)}
+      stats={card.survey ? caseStats(card.survey) : null}
+      status={card.status}
       date={summary.created_at ? `Oprettet ${danishDate(summary.created_at.slice(0, 10))}` : '—'}
       fileLine={cardFileLine(summary)}
       archived={summary.archived}
-      thumbUrl={client.renderUrl({ view: 'plan', width: 640, height: 248 })}
+      thumbUrl={caseThumbUrl(summary.id)}
     />
   );
 }

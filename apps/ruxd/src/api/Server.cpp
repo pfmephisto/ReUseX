@@ -162,6 +162,36 @@ void launch_browser(const std::string &url) {
 
 } // namespace
 
+/// Crow's own logger, routed through spdlog with every query string redacted.
+///
+/// Crow logs each request and response line at INFO, URL included, straight
+/// to stderr — and `/?token=<secret>` is a URL. Its INFO becomes spdlog debug
+/// (`-vv`), so request logging stays available without the noise, and the
+/// redaction keeps a token (or any other query value) out of every log.
+class RedactingCrowLog final : public crow::ILogHandler {
+    public:
+  void log(const std::string &message, crow::LogLevel level) override {
+    const std::string text = redact_query_strings(message);
+    switch (level) {
+    case crow::LogLevel::Debug:
+      spdlog::trace("crow: {}", text);
+      break;
+    case crow::LogLevel::Info:
+      spdlog::debug("crow: {}", text);
+      break;
+    case crow::LogLevel::Warning:
+      spdlog::warn("crow: {}", text);
+      break;
+    case crow::LogLevel::Error:
+      spdlog::error("crow: {}", text);
+      break;
+    case crow::LogLevel::Critical:
+      spdlog::critical("crow: {}", text);
+      break;
+    }
+  }
+};
+
 // ===========================================================================
 // SecurityMiddleware
 // ===========================================================================
@@ -178,11 +208,15 @@ void launch_browser(const std::string &url) {
 ///
 /// The policy is therefore two-layered:
 ///
+///  0. **Host allowlist** (DNS-rebinding guard): the Host header must name this
+///     server — see host_allowed(). Then, with --auth-token, the token
+///     (Bearer, the per-port cookie, or `?token=`, which redirects).
 ///  1. **Origin allowlist.** Loopback, plus anything named with
-///     --allow-origin. A request carrying any other Origin is refused with
-///     403 *before routing*, so no handler runs and nothing is disclosed.
-///     This is server-side enforcement, not a hint to the browser — it holds
-///     for simple requests, which are dispatched before CORS is consulted.
+///     --allow-origin, plus — with a token — the request's own origin. A
+///     request carrying any other Origin is refused with 403 *before routing*,
+///     so no handler runs and nothing is disclosed. This is server-side
+///     enforcement, not a hint to the browser — it holds for simple requests,
+///     which are dispatched before CORS is consulted.
 ///  2. **application/json required on the JSON-body verbs (POST, PATCH).** A
 ///     form or simple POST cannot set that header without triggering a
 ///     preflight, so this closes the CSRF-shaped hole that a `text/plain` POST
@@ -215,42 +249,67 @@ class SecurityMiddleware {
     bool set_token_cookie = false;
   };
 
-  void configure(std::vector<std::string> extra_origins,
-                 std::string auth_token) {
+  void configure(std::vector<std::string> extra_origins, std::string auth_token,
+                 std::string bind_address, uint16_t port) {
     extra_origins_ = std::move(extra_origins);
     auth_token_ = std::move(auth_token);
+    bind_address_ = std::move(bind_address);
+    cookie_name_ = token_cookie_name(port);
   }
 
-  /// True when no token is configured, or @p req presents the right one.
+  /// The token check for @p req. Always ok when no token is configured.
   /// Shared with the WebSocket onaccept, which middleware cannot guard.
-  bool is_authorized(const crow::request &req,
-                     bool *from_query = nullptr) const {
+  TokenCheck check(const crow::request &req) const {
     if (auth_token_.empty())
-      return true;
-    const std::string authorization = req.get_header_value("Authorization");
-    const std::string cookie = req.get_header_value("Cookie");
+      return {true, false};
     const char *query = req.url_params.get("token");
-    const std::string presented =
-        presented_token(authorization, cookie, query ? query : "");
-    const bool ok = token_matches(presented, auth_token_);
-    if (ok && from_query)
-      *from_query = query && presented == query &&
-                    presented_token(authorization, cookie, "").empty();
-    return ok;
+    return check_token(req.get_header_value("Authorization"),
+                       req.get_header_value("Cookie"), query ? query : "",
+                       cookie_name_, auth_token_);
+  }
+
+  /// DNS-rebinding guard: the Host header must name this server (see
+  /// host_allowed() for the rules).
+  bool host_ok(const crow::request &req) const {
+    return host_allowed(req.get_header_value("Host"), bind_address_,
+                        extra_origins_);
+  }
+
+  /// Loopback, an --allow-origin entry, or — when a token is configured —
+  /// the request's own origin (`Origin` equal to `<scheme>://<Host>`), which
+  /// is what a browser on another machine sends for the page this server
+  /// served it.
+  bool origin_ok(const crow::request &req, const std::string &origin) const {
+    if (is_allowed(origin))
+      return true;
+    return !auth_token_.empty() &&
+           origin_matches_host(origin, req.get_header_value("Host"));
+  }
+
+  std::string token_cookie() const {
+    return cookie_name_ + "=" + auth_token_ +
+           "; Path=/; HttpOnly; SameSite=Strict";
   }
 
   void before_handle(crow::request &req, crow::response &res, context &ctx) {
     // WebSocket upgrades bypass this: Crow calls handle_upgrade regardless of
     // whether middleware completed the response, so a rejection here would be
-    // ignored. The origin check for /events lives in its onaccept handler.
+    // ignored. The checks for /events live in its onaccept handler.
     if (req.upgrade)
       return;
 
+    if (!host_ok(req)) {
+      spdlog::warn("Refused a request for host '{}'",
+                   req.get_header_value("Host"));
+      res = error_response(403, "host '" + req.get_header_value("Host") +
+                                    "' is not served here");
+      res.end();
+      return;
+    }
+
     // OPTIONS never reaches here — see the note in after_handle.
     const std::string origin = req.get_header_value("Origin");
-    const bool cross_origin = !origin.empty() && !is_allowed(origin);
-
-    if (cross_origin) {
+    if (!origin.empty() && !origin_ok(req, origin)) {
       spdlog::warn("Refused a cross-origin request from '{}' to {}", origin,
                    req.url);
       res = error_response(403, "origin '" + origin +
@@ -262,9 +321,23 @@ class SecurityMiddleware {
 
     // Access token (`ruxd --local --auth-token`, required beyond loopback).
     // After the origin check so a foreign page learns nothing either way.
-    if (!is_authorized(req, &ctx.set_token_cookie)) {
+    const TokenCheck token = check(req);
+    if (!token.ok) {
       res = error_response(401, "missing or wrong access token");
       res.set_header("WWW-Authenticate", "Bearer");
+      res.end();
+      return;
+    }
+    ctx.set_token_cookie = token.via_query;
+
+    // A browser that arrived with `?token=`: set the cookie and send it on to
+    // the same URL without the token, so the secret leaves the address bar,
+    // the history and any Referer.
+    if (token.via_query && req.method == crow::HTTPMethod::Get) {
+      res = crow::response(303);
+      res.set_header("Location", strip_query_param(req.raw_url, "token"));
+      res.set_header("Set-Cookie", token_cookie());
+      res.set_header("Referrer-Policy", "no-referrer");
       res.end();
       return;
     }
@@ -302,9 +375,9 @@ class SecurityMiddleware {
       return;
 
     if (ctx.set_token_cookie)
-      res.set_header("Set-Cookie", std::string(kTokenCookie) + "=" +
-                                       auth_token_ +
-                                       "; Path=/; HttpOnly; SameSite=Strict");
+      res.set_header("Set-Cookie", token_cookie());
+    // No page this server sends may leak its URL to another site.
+    res.set_header("Referrer-Policy", "no-referrer");
     apply_cors(req.get_header_value("Origin"), res);
   }
 
@@ -327,6 +400,8 @@ class SecurityMiddleware {
 
   std::vector<std::string> extra_origins_;
   std::string auth_token_;
+  std::string bind_address_;
+  std::string cookie_name_;
 };
 
 /// The concrete Crow application type for `ruxd --local`, with the security
@@ -340,6 +415,10 @@ using App = crow::App<SecurityMiddleware>;
 class Server::Impl {
     public:
   explicit Impl(ServerOptions options) : options_(std::move(options)) {
+    // Crow logs every URL, query included; route it through the redactor.
+    static RedactingCrowLog crow_log;
+    crow::logger::setHandler(&crow_log);
+
     if (options_.port == 0)
       throw std::runtime_error(
           "--port 0 is not supported: Crow cannot report back which ephemeral "
@@ -383,11 +462,12 @@ class Server::Impl {
                                "' is not a valid host or IP literal");
 
     app_.get_middleware<SecurityMiddleware>().configure(
-        options_.allowed_origins, options_.auth_token);
+        options_.allowed_origins, options_.auth_token, options_.bind_address,
+        options_.port);
     if (!options_.auth_token.empty())
       spdlog::info("Access token required (Bearer header, '{}' cookie or "
                    "?token=)",
-                   kTokenCookie);
+                   token_cookie_name(options_.port));
     for (const auto &origin : options_.allowed_origins)
       spdlog::info("Additional allowed origin: {}", origin);
 
@@ -1576,7 +1656,12 @@ class Server::Impl {
           // Crow ignores a middleware response on the upgrade path, so the
           // check lives here rather than in SecurityMiddleware.
           const auto &security = app_.get_middleware<SecurityMiddleware>();
-          if (!security.is_authorized(req)) {
+          if (!security.host_ok(req)) {
+            spdlog::warn("Refused a WebSocket upgrade for host '{}'",
+                         req.get_header_value("Host"));
+            return false;
+          }
+          if (!security.check(req).ok) {
             spdlog::warn("Refused a WebSocket upgrade without the access "
                          "token");
             return false;
@@ -1584,7 +1669,7 @@ class Server::Impl {
           const std::string origin = req.get_header_value("Origin");
           if (origin.empty())
             return true; // Non-browser client (curl, the CLI, a test).
-          if (security.is_allowed(origin))
+          if (security.origin_ok(req, origin))
             return true;
           spdlog::warn("Refused a WebSocket upgrade from origin '{}'", origin);
           return false;

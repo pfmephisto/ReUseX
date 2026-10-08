@@ -104,6 +104,8 @@ struct Response {
   std::string content_type;
   std::string content_disposition;
   std::string set_cookie;
+  std::string location;
+  std::string referrer_policy;
   std::string body;
 };
 
@@ -145,17 +147,21 @@ class KeepAliveConnection {
 
   /// One request with a JSON body (PATCH/POST/PUT) on this connection.
   Response send_json(std::string_view method, std::string_view path,
-                     std::string_view body) {
-    return send_request(method, path, body);
+                     std::string_view body,
+                     std::string_view extra_headers = {}) {
+    return send_request(method, path, body, extra_headers);
   }
 
     private:
   Response send_request(std::string_view method, std::string_view path,
                         std::string_view body,
                         std::string_view extra_headers = {}) {
-    std::string request = std::string(method) + " " + std::string(path) +
-                          " HTTP/1.1\r\nHost: 127.0.0.1\r\n"
-                          "Connection: keep-alive\r\n";
+    std::string request =
+        std::string(method) + " " + std::string(path) + " HTTP/1.1\r\n";
+    // A test may name its own Host (the DNS-rebinding and same-origin cases).
+    if (extra_headers.find("Host:") == std::string_view::npos)
+      request += "Host: 127.0.0.1\r\n";
+    request += "Connection: keep-alive\r\n";
     request += extra_headers; // each line already "\r\n"-terminated
     if (!body.empty() || method != "GET")
       request += "Content-Type: application/json\r\nContent-Length: " +
@@ -214,6 +220,10 @@ class KeepAliveConnection {
         response.content_disposition = value;
       else if (name == "set-cookie")
         response.set_cookie = value;
+      else if (name == "location")
+        response.location = value;
+      else if (name == "referrer-policy")
+        response.referrer_policy = value;
     }
 
     const std::size_t body_start = header_end + 4;
@@ -761,10 +771,12 @@ std::string websocket_upgrade_status(std::uint16_t port,
   timeval timeout{};
   timeout.tv_sec = 10;
   ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  std::string upgrade = "GET /api/v1/events HTTP/1.1\r\nHost: 127.0.0.1\r\n"
-                        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
-                        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                        "Sec-WebSocket-Version: 13\r\n";
+  std::string upgrade = "GET /api/v1/events HTTP/1.1\r\n";
+  if (extra_headers.find("Host:") == std::string_view::npos)
+    upgrade += "Host: 127.0.0.1\r\n";
+  upgrade += "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+             "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+             "Sec-WebSocket-Version: 13\r\n";
   upgrade += extra_headers;
   upgrade += "\r\n";
   ::send(fd, upgrade.data(), upgrade.size(), MSG_NOSIGNAL);
@@ -804,6 +816,7 @@ TEST_CASE("RunningServer_AuthToken_RequiredOnEveryRouteAndUpgrade",
 
   ServerOptions options = options_for(project.path, assets.path, free_port());
   options.auth_token = "s3cret";
+  const std::string cookie = "ruxd_token_" + std::to_string(options.port);
   RunningServer server(std::move(options));
   KeepAliveConnection connection(server.port());
 
@@ -812,29 +825,101 @@ TEST_CASE("RunningServer_AuthToken_RequiredOnEveryRouteAndUpgrade",
     CHECK(connection.get("/").status == 401);
     CHECK(connection.get("/api/v1/health", "Authorization: Bearer nope\r\n")
               .status == 401);
+    // A cookie named for another port is another server's.
+    CHECK(connection.get("/api/v1/health", "Cookie: ruxd_token_1=s3cret\r\n")
+              .status == 401);
     CHECK(websocket_upgrade_status(server.port(), "").find("101") ==
           std::string::npos);
   }
 
-  SECTION("Bearer header and cookie are accepted, without setting a cookie") {
+  SECTION("Bearer header and the per-port cookie are accepted") {
     const Response bearer =
         connection.get("/api/v1/health", "Authorization: Bearer s3cret\r\n");
     CHECK(bearer.status == 200);
     CHECK(bearer.set_cookie.empty());
-    const Response cookie =
-        connection.get("/api/v1/health", "Cookie: a=1; ruxd_token=s3cret\r\n");
-    CHECK(cookie.status == 200);
-    CHECK(
-        websocket_upgrade_status(server.port(), "Cookie: ruxd_token=s3cret\r\n")
-            .find("101") != std::string::npos);
+    CHECK(bearer.referrer_policy == "no-referrer");
+    const Response with_cookie = connection.get(
+        "/api/v1/health", "Cookie: a=1; " + cookie + "=s3cret\r\n");
+    CHECK(with_cookie.status == 200);
+    CHECK(websocket_upgrade_status(server.port(),
+                                   "Cookie: " + cookie + "=s3cret\r\n")
+              .find("101") != std::string::npos);
   }
 
-  SECTION("?token= is accepted and answered with an HttpOnly cookie") {
+  SECTION("?token= redirects to the URL without it and sets the cookie") {
     const Response index = connection.get("/?token=s3cret");
-    CHECK(index.status == 200);
-    CHECK(index.body == kIndexBody);
-    CHECK(index.set_cookie.rfind("ruxd_token=s3cret;", 0) == 0);
+    CHECK(index.status == 303);
+    CHECK(index.location == "/");
+    CHECK(index.referrer_policy == "no-referrer");
+    CHECK(index.set_cookie.rfind(cookie + "=s3cret;", 0) == 0);
     CHECK(index.set_cookie.find("HttpOnly") != std::string::npos);
     CHECK(index.set_cookie.find("SameSite=Strict") != std::string::npos);
+
+    const Response deep =
+        connection.get("/kortlaegning?part=RX-001&token=s3cret");
+    CHECK(deep.status == 303);
+    CHECK(deep.location == "/kortlaegning?part=RX-001");
+
+    // A stale cookie does not shadow a correct ?token=; the answer replaces it.
+    const Response stale =
+        connection.get("/?token=s3cret", "Cookie: " + cookie + "=old\r\n");
+    CHECK(stale.status == 303);
+    CHECK(stale.set_cookie.rfind(cookie + "=s3cret;", 0) == 0);
   }
+}
+
+TEST_CASE("RunningServer_TokenAndWildcardBind_SameOriginBrowserMayMutate",
+          "[ruxd_api][server][socket][auth]") {
+  // The documented LAN recipe: --bind 0.0.0.0 --auth-token. A browser on
+  // another machine sends Origin http://<host>:<port> with every POST and
+  // with the WebSocket upgrade; that is its own origin, not a foreign one.
+  TempPath project("test_api_server_auth", ".rux");
+  ServerOptions options = options_for(project.path, {}, free_port());
+  options.bind_address = "0.0.0.0";
+  options.auth_token = "s3cret";
+  const std::string host = "192.168.1.20:" + std::to_string(options.port);
+  RunningServer server(std::move(options));
+  KeepAliveConnection connection(server.port());
+
+  const std::string auth = "Authorization: Bearer s3cret\r\n";
+  const Response same = connection.send_json(
+      "POST", "/api/v1/jobs", R"({"stage":"nope"})",
+      "Host: " + host + "\r\nOrigin: http://" + host + "\r\n" + auth);
+  INFO(same.body);
+  CHECK(same.status != 403);
+  CHECK(same.status != 401);
+
+  const Response foreign = connection.send_json(
+      "POST", "/api/v1/jobs", R"({"stage":"nope"})",
+      "Host: " + host + "\r\nOrigin: http://evil.example\r\n" + auth);
+  CHECK(foreign.status == 403);
+
+  CHECK(websocket_upgrade_status(
+            server.port(),
+            "Origin: http://127.0.0.1:" + std::to_string(server.port()) +
+                "\r\nCookie: ruxd_token_" + std::to_string(server.port()) +
+                "=s3cret\r\n")
+            .find("101") != std::string::npos);
+}
+
+TEST_CASE("RunningServer_LoopbackBind_RefusesForeignHostHeader",
+          "[ruxd_api][server][socket][auth]") {
+  // DNS rebinding: evil.example resolved to 127.0.0.1 sends same-origin GETs
+  // with no Origin header and Host: evil.example. Only the Host check sees it.
+  TempPath project("test_api_server_host", ".rux");
+  RunningServer server(options_for(project.path, {}, free_port()));
+  KeepAliveConnection connection(server.port());
+
+  const auto port = std::to_string(server.port());
+  CHECK(connection.get("/api/v1/health", "Host: evil.example:" + port + "\r\n")
+            .status == 403);
+  CHECK(connection.get("/api/v1/health", "Host: localhost:" + port + "\r\n")
+            .status == 200);
+  CHECK(
+      connection.get("/api/v1/health", "Host: [::1]:" + port + "\r\n").status ==
+      200);
+  CHECK(connection.get("/api/v1/health").status == 200); // Host: 127.0.0.1
+  CHECK(websocket_upgrade_status(server.port(),
+                                 "Host: evil.example:" + port + "\r\n")
+            .find("101") == std::string::npos);
 }

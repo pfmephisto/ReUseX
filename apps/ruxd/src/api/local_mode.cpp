@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -105,35 +106,152 @@ fs::path resolve_local_project(const fs::path &target) {
   return target;
 }
 
-std::string presented_token(std::string_view authorization_header,
-                            std::string_view cookie_header,
-                            std::string_view query_token) {
+std::string token_cookie_name(std::uint16_t port) {
+  return "ruxd_token_" + std::to_string(port);
+}
+
+TokenCheck check_token(std::string_view authorization_header,
+                       std::string_view cookie_header,
+                       std::string_view query_token,
+                       std::string_view cookie_name,
+                       std::string_view expected) {
+  TokenCheck result;
+  if (expected.empty())
+    return result;
+
   const auto auth = trim(authorization_header);
   constexpr std::string_view kBearer = "Bearer ";
   if (auth.size() > kBearer.size() &&
-      iequals(auth.substr(0, kBearer.size()), kBearer)) {
-    const auto token = trim(auth.substr(kBearer.size()));
-    if (!token.empty())
-      return std::string(token);
-  }
+      iequals(auth.substr(0, kBearer.size()), kBearer) &&
+      token_matches(trim(auth.substr(kBearer.size())), expected))
+    result.ok = true;
 
-  // Cookie: a=b; ruxd_token=...; c=d
+  // Cookie: a=b; ruxd_token_8420=...; c=d — every same-named entry counts.
   std::size_t pos = 0;
-  while (pos < cookie_header.size()) {
+  while (!result.ok && pos < cookie_header.size()) {
     const auto end =
         std::min(cookie_header.find(';', pos), cookie_header.size());
     const auto pair = trim(cookie_header.substr(pos, end - pos));
     const auto eq = pair.find('=');
     if (eq != std::string_view::npos &&
-        trim(pair.substr(0, eq)) == kTokenCookie) {
-      const auto value = trim(pair.substr(eq + 1));
-      if (!value.empty())
-        return std::string(value);
-    }
+        trim(pair.substr(0, eq)) == cookie_name &&
+        token_matches(trim(pair.substr(eq + 1)), expected))
+      result.ok = true;
     pos = end + 1;
   }
 
-  return std::string(query_token);
+  if (!query_token.empty() && token_matches(query_token, expected)) {
+    result.ok = true;
+    result.via_query = true;
+  }
+  return result;
+}
+
+std::string strip_query_param(std::string_view raw_url, std::string_view key) {
+  const auto q = raw_url.find('?');
+  if (q == std::string_view::npos)
+    return std::string(raw_url);
+  std::string out(raw_url.substr(0, q));
+  std::string kept;
+  std::string_view query = raw_url.substr(q + 1);
+  std::size_t pos = 0;
+  while (pos <= query.size()) {
+    const auto end = std::min(query.find('&', pos), query.size());
+    const auto part = query.substr(pos, end - pos);
+    const auto name = part.substr(0, part.find('='));
+    if (!part.empty() && name != key) {
+      if (!kept.empty())
+        kept += '&';
+      kept += part;
+    }
+    if (end == query.size())
+      break;
+    pos = end + 1;
+  }
+  if (!kept.empty())
+    out += "?" + kept;
+  return out;
+}
+
+std::string redact_query_strings(std::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    if (text[i] != '?') {
+      out += text[i];
+      continue;
+    }
+    out += "?<redacted>";
+    while (i + 1 < text.size() &&
+           !std::isspace(static_cast<unsigned char>(text[i + 1])))
+      ++i;
+  }
+  return out;
+}
+
+bool origin_matches_host(std::string_view origin, std::string_view host) {
+  if (host.empty())
+    return false;
+  for (std::string_view scheme : {"http://", "https://"}) {
+    if (origin.size() == scheme.size() + host.size() &&
+        iequals(origin.substr(0, scheme.size()), scheme) &&
+        iequals(origin.substr(scheme.size()), host))
+      return true;
+  }
+  return false;
+}
+
+namespace {
+
+/// The hostname part of a Host header or URL authority, brackets kept for
+/// IPv6: "a:8420" -> "a", "[::1]:8420" -> "[::1]", "::1" -> "::1".
+std::string_view host_name_of(std::string_view authority) {
+  if (!authority.empty() && authority.front() == '[') {
+    const auto close = authority.find(']');
+    return close == std::string_view::npos ? authority
+                                           : authority.substr(0, close + 1);
+  }
+  const auto colon = authority.find(':');
+  if (colon != std::string_view::npos &&
+      authority.find(':', colon + 1) == std::string_view::npos)
+    return authority.substr(0, colon);
+  return authority;
+}
+
+/// "::1" and "[::1]" compare equal; so do "0.0.0.0" and itself.
+std::string_view unbracket(std::string_view host) {
+  if (host.size() >= 2 && host.front() == '[' && host.back() == ']')
+    return host.substr(1, host.size() - 2);
+  return host;
+}
+
+} // namespace
+
+bool host_allowed(std::string_view host_header, std::string_view bind_address,
+                  const std::vector<std::string> &allowed_origins) {
+  const auto host = unbracket(host_name_of(trim(host_header)));
+  if (host.empty())
+    return false;
+
+  if (is_loopback_bind(bind_address))
+    return iequals(host, "localhost") || host == "127.0.0.1" || host == "::1";
+
+  const auto bind = unbracket(bind_address);
+  if (bind == "0.0.0.0" || bind == "::")
+    return true;
+
+  if (iequals(host, bind))
+    return true;
+  for (const auto &origin : allowed_origins) {
+    const auto scheme_end = origin.find("://");
+    const std::string_view authority =
+        scheme_end == std::string::npos
+            ? std::string_view(origin)
+            : std::string_view(origin).substr(scheme_end + 3);
+    if (iequals(host, unbracket(host_name_of(authority))))
+      return true;
+  }
+  return false;
 }
 
 bool token_matches(std::string_view presented, std::string_view expected) {

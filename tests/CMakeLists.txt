@@ -154,6 +154,8 @@ target_link_libraries(reusex_unit_tests
         reusex_gsplat_common
         rux_core_lib
         ruxd_api_lib
+        # ruxd's option parsing (tests/unit/ruxd_cli): CLI11 + ruxd_api_lib.
+        ruxd_cli_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto

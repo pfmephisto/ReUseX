@@ -10,6 +10,7 @@ find_package(CLI11 CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(Threads REQUIRED)
+find_package(SQLite3 REQUIRED)
 # The web API encodes images with cv::imencode, which lives in imgcodecs — the
 # reusex umbrella only carries core/imgproc/highgui, so name it explicitly.
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
@@ -39,12 +40,25 @@ find_package(AWSSDK REQUIRED COMPONENTS s3)
 #                                           -> the HEAVY test binary
 #                                              (tests/unit/ruxd/)
 #
-# Both are globbed, so a new file needs no CMake edit — but put it under
-# src/api/ only if it links no further than core + pipeline.
+#   ruxd_cli_lib  src/cli/: the option set and post-parse defaults
+#                 (configure_cli, finish_invocation). Links ruxd_api_lib +
+#                 CLI11 only        -> the LIGHT test binary
+#                                      (tests/unit/ruxd_cli/)
+#
+# All are globbed, so a new file needs no CMake edit — but put it under
+# src/api/ or src/cli/ only if it links no further than core + pipeline.
 file(GLOB_RECURSE ruxd_api_SOURCES CONFIGURE_DEPENDS "src/api/*.cpp")
+file(GLOB_RECURSE ruxd_cli_SOURCES CONFIGURE_DEPENDS "src/cli/*.cpp")
 file(GLOB_RECURSE ruxd_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 list(REMOVE_ITEM ruxd_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
-list(REMOVE_ITEM ruxd_SOURCES ${ruxd_api_SOURCES})
+list(REMOVE_ITEM ruxd_SOURCES ${ruxd_api_SOURCES} ${ruxd_cli_SOURCES})
+
+# Crow buffers request bodies with no limit of its own; overlays/crow.nix
+# patches in CROW_MAX_REQUEST_BODY. It must have ONE value in every TU that
+# includes Crow (the parser is inline code), so it is a PUBLIC definition of
+# the API library, which everything that includes Crow links. 72 MiB: the
+# largest upload chunk (64 MiB, UploadLimits::max_chunk_bytes) plus headroom.
+set(RUXD_MAX_REQUEST_BODY 75497472)
 
 # ---------------------------------------------------------------------------
 # ruxd_api_lib -- the web API, light
@@ -59,6 +73,8 @@ target_include_directories(ruxd_api_lib PUBLIC include)
 # reusex_vision -- libtorch, TensorRT -- into every consumer, including the
 # light unit-test binary (#268). Anything heavier is injected by ruxd's main
 # (see include/injected.hpp).
+target_compile_definitions(ruxd_api_lib PUBLIC
+    CROW_MAX_REQUEST_BODY=${RUXD_MAX_REQUEST_BODY})
 target_link_libraries(ruxd_api_lib
     PUBLIC
         reusex_core
@@ -71,6 +87,22 @@ target_link_libraries(ruxd_api_lib
         opencv_core
         opencv_imgproc
         opencv_imgcodecs
+        # cases.cpp checks an upload is a ReUseX project before adopting it.
+        SQLite3::SQLite3
+)
+
+# ---------------------------------------------------------------------------
+# ruxd_cli_lib -- the command line's parsing rules, light
+# ---------------------------------------------------------------------------
+add_library(ruxd_cli_lib STATIC ${ruxd_cli_SOURCES})
+target_include_directories(ruxd_cli_lib PUBLIC include)
+# PUBLIC: cli.hpp takes a CLI::App and names api::ServerOptions.
+target_link_libraries(ruxd_cli_lib
+    PUBLIC
+        ruxd_api_lib
+        CLI11::CLI11
+    PRIVATE
+        spdlog::spdlog
 )
 
 add_library(ruxd_lib STATIC ${ruxd_SOURCES})
@@ -86,9 +118,7 @@ target_link_libraries(ruxd_lib
         # logs through spdlog.
         spdlog::spdlog
         ruxd_api_lib
-        # PUBLIC: cli.hpp (ruxd::configure_cli, tested by tests/unit/ruxd)
-        # takes a CLI::App.
-        CLI11::CLI11
+        ruxd_cli_lib
     PRIVATE
         reusex
         opencv_imgcodecs

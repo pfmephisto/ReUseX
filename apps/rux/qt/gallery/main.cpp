@@ -11,7 +11,9 @@
 
 #include "demo_pages.hpp"
 
+#include <rux_qt/FrameImageLoader.hpp>
 #include <rux_qt/Theme.hpp>
+#include <rux_qt/background.hpp>
 #include <rux_qt/fonts.hpp>
 #include <rux_qt/gallery_args.hpp>
 #include <rux_qt/pages.hpp>
@@ -142,6 +144,23 @@ int main(int argc, char **argv) {
   // Coalesced renders (the 3D pane) run on zero-length timers; a GL widget
   // under Xvfb needs real time to get its first frame.
   pump(args.gl ? 30 : 6, args.gl ? 50 : 0);
+  // Off-thread work a page started (frame decodes, thumbnails, an ICP run)
+  // must land before the shot, or it shows "Henter …". Bounded: a hung
+  // decode still produces a PNG.
+  {
+    QElapsedTimer settle;
+    settle.start();
+    // Idle twice in a row: a delivered frame can queue more work (the
+    // thumbnails a repaint asks for).
+    int idle = 0;
+    while (idle < 2 && settle.elapsed() < 30000) {
+      pump(2, 10);
+      idle = FrameImageLoader::busy() == 0 && background_work_in_flight() == 0
+                 ? idle + 1
+                 : 0;
+    }
+    pump(6, 0);
+  }
 
   const QImage img = host.grab().toImage();
   const bool saved = img.save(QString::fromStdString(args.screenshot));

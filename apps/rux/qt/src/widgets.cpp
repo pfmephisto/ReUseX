@@ -370,6 +370,25 @@ void PropertyList::add_name(const QString &name, const QString &value) {
   grid_->addWidget(v, row, 1);
 }
 
+void PropertyList::add_swatch(const QString &colour_token, const QString &name,
+                              const QString &value) {
+  const int row = grid_->rowCount();
+  auto *key = new QWidget;
+  auto *h = new QHBoxLayout(key);
+  h->setContentsMargins(0, 0, 0, 0);
+  h->setSpacing(theme().px("--space-2"));
+  h->addWidget(new Swatch(colour_token));
+  auto *k = new QLabel(name);
+  k->setObjectName("legendName");
+  k->setToolTip(name);
+  h->addWidget(k, 1);
+  grid_->addWidget(key, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
+  auto *v = new QLabel(value);
+  v->setObjectName("propValueMono");
+  v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  grid_->addWidget(v, row, 1);
+}
+
 QString format_count(qulonglong n) {
   return QLocale(QLocale::Danish, QLocale::Denmark).toString(n);
 }

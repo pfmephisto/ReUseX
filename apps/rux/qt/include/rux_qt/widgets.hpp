@@ -178,6 +178,9 @@ class PropertyList : public QWidget {
   /// A row whose key is a name (a cloud, a table): shown as written, in
   /// mono, not in caps.
   void add_name(const QString &name, const QString &value);
+  /// A legend row: a token swatch, the name (as written) and a value.
+  void add_swatch(const QString &colour_token, const QString &name,
+                  const QString &value);
 
     private:
   QGridLayout *grid_ = nullptr;

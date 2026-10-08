@@ -872,3 +872,243 @@ QLabel#paletteHint, QLabel#paletteCount {
   color: var(--color-text-faint);
   font-size: var(--font-size-xs);
 }
+
+/* ================================================= Database workspace (Q2) */
+
+#databaseWorkspace, #dbStack, #dbEmpty, #frameBrowser, #dbBody, #tableBrowser,
+#pipelineLog {
+  background: var(--color-surface);
+}
+
+/* Toolbars over each centre view: a raised strip with a hairline. */
+QFrame#dbToolbar {
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+}
+QFrame#dbToolbar QLabel {
+  background: transparent;
+}
+QLabel#toolbarMeta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+QLabel#tableName {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+}
+QLabel#codeChip {
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* ---- project tree */
+QFrame#treePane {
+  background: var(--color-surface-raised);
+  border-right: 1px solid var(--color-border);
+}
+QTreeWidget#projectTree {
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-sm);
+  outline: 0;
+}
+QTreeWidget#projectTree::item {
+  padding: var(--space-1) var(--space-1);
+  border-radius: var(--radius-sm);
+}
+QTreeWidget#projectTree::item:hover {
+  background: var(--color-surface-sunken);
+}
+QTreeWidget#projectTree::item:selected {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
+}
+QTreeWidget#projectTree::branch {
+  background: transparent;
+}
+
+/* ---- frame sides */
+QFrame#frameSide {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+QFrame#frameSide QLabel {
+  background: transparent;
+}
+QLabel#sideBadge {
+  min-width: 22px;
+  max-width: 22px;
+  min-height: 22px;
+  max-height: 22px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+}
+QLabel#sideBadge[side="A"] {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+QLabel#sideBadge[side="B"] {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+QSpinBox#frameId {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-2);
+}
+QLabel#sidePosition {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+QPushButton#stepButton {
+  font-size: var(--font-size-lg);
+  padding: 0 var(--space-3);
+}
+QLabel#legendLine {
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+}
+
+QSlider::groove:horizontal {
+  height: 6px;
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+QSlider::sub-page:horizontal {
+  background: var(--color-accent-muted);
+  border-radius: var(--radius-sm);
+}
+/* A pill on the track: QSS cannot draw a handle taller than its groove
+   without a negative literal margin. */
+QSlider::handle:horizontal {
+  background: var(--color-accent);
+  width: 18px;
+  border-radius: var(--radius-sm);
+}
+QSlider#frameSlider[side="B"]::handle:horizontal {
+  background: var(--color-text);
+}
+QSlider::handle:horizontal:disabled {
+  background: var(--color-border-strong);
+}
+
+QListView#filmstrip {
+  background: transparent;
+  border: none;
+}
+
+/* ---- pair strip */
+QFrame#pairStrip {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+QFrame#pairStrip QLabel {
+  background: transparent;
+}
+QLabel#pairIds, QLabel#edgeMono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+QLabel#pairDelta, QLabel#edgeMeta {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+QLabel#pairNone, QLabel#pairNote {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+QFrame#edgeRow {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+QFrame#edgeRow:hover {
+  border-color: var(--color-border-strong);
+}
+QFrame#edgeRow[state="add"] {
+  border-color: var(--color-accent);
+}
+QFrame#edgeRow[state="delete"] QLabel#edgeMono {
+  color: var(--color-text-faint);
+}
+QFrame#edgeRow QLabel {
+  background: transparent;
+}
+QLabel#icpLine {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+QLabel#icpLine[tone="good"] { color: var(--color-status-succeeded); }
+QLabel#icpLine[tone="warn"] { color: var(--tone-warn-ink); }
+QLabel#icpLine[tone="crit"] { color: var(--color-status-failed); }
+QLabel#icpLine[tone="wait"] { color: var(--color-status-running); }
+
+/* ---- pending-edits banner (the web's WriteBanner) */
+QFrame#pendingBanner {
+  background: var(--tone-accent-bg);
+  border-bottom: 1px solid var(--color-accent);
+}
+QFrame#pendingBanner[tone="error"] {
+  background: var(--tone-crit-bg);
+  border-bottom: 1px solid var(--color-status-failed);
+}
+QFrame#pendingBanner QLabel {
+  background: transparent;
+}
+QLabel#bannerDot {
+  min-width: 8px;
+  max-width: 8px;
+  min-height: 8px;
+  max-height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+QFrame#pendingBanner[tone="error"] QLabel#bannerDot {
+  background: var(--color-status-failed);
+}
+QLabel#bannerText {
+  color: var(--tone-accent-ink);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+QFrame#pendingBanner[tone="error"] QLabel#bannerText {
+  color: var(--tone-crit-ink);
+}
+QLabel#bannerError {
+  color: var(--tone-crit-ink);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- inspector selection */
+QLabel#selectionTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+}
+QLabel#selectionSub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+QLabel#inspectorBlock {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}

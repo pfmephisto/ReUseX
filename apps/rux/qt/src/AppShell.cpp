@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <rux_qt/AppShell.hpp>
+#include <rux_qt/DatabaseWorkspace.hpp>
 #include <rux_qt/ProjectSession.hpp>
 #include <rux_qt/RecentProjects.hpp>
 #include <rux_qt/StartPage.hpp>
@@ -20,6 +21,7 @@
 #include <QHash>
 #include <QLabel>
 #include <QLocale>
+#include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
 #include <QScrollArea>
@@ -127,6 +129,13 @@ AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
   start_ = new StartPage(session_, recent_);
   stack_->addWidget(start_);
   for (int i = 1; i < kWorkspaceCount; ++i) {
+    if (static_cast<Workspace>(i) == Workspace::database) {
+      database_ = new DatabaseWorkspace(session_);
+      connect(database_, &DatabaseWorkspace::browse_requested, this,
+              &AppShell::browse);
+      stack_->addWidget(database_);
+      continue;
+    }
     auto *p = new WorkspacePlaceholder(infos[i]);
     connect(p, &WorkspacePlaceholder::browse_requested, this,
             &AppShell::browse);
@@ -144,7 +153,13 @@ AppShell::AppShell(ProjectSession &session, RecentProjects &recent,
   palette_->set_provider([this] { return commands(); });
 
   connect(rail_, &NavRail::current_changed, this,
-          [this](int i) { stack_->setCurrentIndex(i); });
+          [this](int i) { show_page(static_cast<Workspace>(i)); });
+  // The inspector follows the selection of the workspace on screen.
+  connect(database_, &DatabaseWorkspace::selection_changed, this,
+          [this](const Selection &sel) {
+            if (current_page() == Workspace::database)
+              inspector_->set_selection(sel);
+          });
   connect(start_, &StartPage::browse_requested, this, &AppShell::browse);
   connect(start_, &StartPage::open_requested, this, &AppShell::open_project);
   connect(start_, &StartPage::navigate_requested, this,
@@ -227,10 +242,14 @@ void AppShell::build_actions() {
     return QKeySequence(QString::fromStdString(action_shortcut(id)));
   };
   open_action_ = make("Åbn projekt…", key("open"), [this] { browse(); });
-  close_action_ =
-      make("Luk projekt", key("close"), [this] { session_.close(); });
-  reload_action_ =
-      make("Genindlæs projekt", key("reload"), [this] { session_.reload(); });
+  close_action_ = make("Luk projekt", key("close"), [this] {
+    if (resolve_pending_edits("lukke projektet"))
+      session_.close();
+  });
+  reload_action_ = make("Genindlæs projekt", key("reload"), [this] {
+    if (resolve_pending_edits("genindlæse projektet"))
+      session_.reload();
+  });
   inspector_action_ =
       make("Vis eller skjul inspektør", key("inspector"),
            [this] { set_inspector_visible(!inspector_visible()); });
@@ -298,6 +317,43 @@ void AppShell::show_page(Workspace w) {
   const int i = static_cast<int>(w);
   rail_->set_current(i);
   stack_->setCurrentIndex(i);
+  inspector_->set_selection(w == Workspace::database ? database_->selection()
+                                                     : Selection{});
+}
+
+bool AppShell::resolve_pending_edits(const QString &action) {
+  if (!database_ || database_->pending_edits() == 0)
+    return true;
+  const int n = database_->pending_edits();
+  QMessageBox box(this);
+  box.setIcon(QMessageBox::Question);
+  box.setWindowTitle("Ændringer er ikke gemt");
+  box.setText(
+      QString("%1 i posegrafen er ikke gemt.")
+          .arg(n == 1 ? QString("1 ændring") : QString("%1 ændringer").arg(n)));
+  box.setInformativeText(
+      QString("Vil du gemme, før du vælger at %1?").arg(action));
+  auto *save = box.addButton(NavItem::escape_mnemonic("Gem ændringer"),
+                             QMessageBox::AcceptRole);
+  auto *discard = box.addButton(NavItem::escape_mnemonic("Kassér"),
+                                QMessageBox::DestructiveRole);
+  auto *cancel = box.addButton(NavItem::escape_mnemonic("Annullér"),
+                               QMessageBox::RejectRole);
+  box.setDefaultButton(save);
+  box.setEscapeButton(cancel);
+  box.exec();
+  if (box.clickedButton() == save) {
+    if (database_->save_edits())
+      return true;
+    // The banner says why; stay so the user can act on it.
+    show_page(Workspace::database);
+    return false;
+  }
+  if (box.clickedButton() == discard) {
+    database_->discard_edits();
+    return true;
+  }
+  return false;
 }
 
 Workspace AppShell::current_page() const {
@@ -317,7 +373,7 @@ void AppShell::set_inspector_visible(bool on) {
 bool AppShell::inspector_visible() const { return !inspector_->isHidden(); }
 
 void AppShell::open_project(const QString &path, bool read_only) {
-  if (path.isEmpty())
+  if (path.isEmpty() || !resolve_pending_edits("åbne et andet projekt"))
     return;
   // Only an existing file goes into the recent list; one that fails to open
   // stays (it may be locked) — the start page shows why.
@@ -490,7 +546,89 @@ void Inspector::refresh() {
   l->setContentsMargins(t.px("--space-4"), t.px("--space-1"), t.px("--space-4"),
                         t.px("--space-4"));
   l->setSpacing(t.px("--space-3"));
+  if (session_.is_open() && !selection_.empty())
+    show_selection();
+  else
+    show_project();
+}
 
+void Inspector::set_selection(const Selection &selection) {
+  selection_ = selection;
+  refresh();
+}
+
+void Inspector::show_selection() {
+  const Theme &t = theme();
+  auto *l = static_cast<QVBoxLayout *>(body_->layout());
+  const Selection &sel = selection_;
+
+  auto *head = new QWidget;
+  head->setObjectName("selectionHead");
+  auto *hv = new QVBoxLayout(head);
+  hv->setContentsMargins(0, t.px("--space-2"), 0, 0);
+  hv->setSpacing(t.px("--space-1"));
+  auto *top = new QHBoxLayout;
+  top->setSpacing(t.px("--space-2"));
+  if (!sel.kind.isEmpty())
+    top->addWidget(new CapsLabel(sel.kind, "sectionLabel"));
+  top->addStretch(1);
+  if (!sel.pill.isEmpty())
+    top->addWidget(new Pill(sel.pill, sel.pill_tone));
+  hv->addLayout(top);
+  auto *title = new QLabel(sel.title);
+  title->setObjectName("selectionTitle");
+  title->setWordWrap(true);
+  title->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  hv->addWidget(title);
+  if (!sel.subtitle.isEmpty()) {
+    auto *sub = new QLabel(sel.subtitle);
+    sub->setObjectName("selectionSub");
+    sub->setWordWrap(true);
+    hv->addWidget(sub);
+  }
+  l->addWidget(head);
+  if (!sel.preview.isNull()) {
+    auto *img = new QLabel;
+    img->setObjectName("selectionPreview");
+    const int w = t.px("--layout-panel-width") - 2 * t.px("--space-4");
+    QPixmap pm = QPixmap::fromImage(sel.preview.scaledToWidth(
+        static_cast<int>(w * devicePixelRatioF()), Qt::SmoothTransformation));
+    pm.setDevicePixelRatio(devicePixelRatioF());
+    img->setPixmap(pm);
+    l->addWidget(img);
+  }
+  for (const SelectionSection &sec : sel.sections) {
+    if (!sec.title.isEmpty()) {
+      auto *c = new CapsLabel(sec.title, "sectionLabel");
+      c->setContentsMargins(0, t.px("--space-2"), 0, 0);
+      l->addWidget(c);
+    }
+    if (!sec.rows.isEmpty()) {
+      auto *p = new PropertyList;
+      for (const SelectionRow &r : sec.rows) {
+        if (!r.swatch_token.isEmpty())
+          p->add_swatch(r.swatch_token, r.key, r.value);
+        else if (r.style == SelectionRow::Style::name)
+          p->add_name(r.key, r.value);
+        else
+          p->add(r.key, r.value, r.style == SelectionRow::Style::mono);
+      }
+      l->addWidget(p);
+    }
+    if (!sec.block.isEmpty()) {
+      auto *b = new QLabel(sec.block);
+      b->setObjectName("inspectorBlock");
+      b->setWordWrap(true);
+      b->setTextInteractionFlags(Qt::TextSelectableByMouse);
+      l->addWidget(b);
+    }
+  }
+  l->addStretch(1);
+}
+
+void Inspector::show_project() {
+  const Theme &t = theme();
+  auto *l = static_cast<QVBoxLayout *>(body_->layout());
   auto section = [&](const QString &title) {
     auto *c = new CapsLabel(title, "sectionLabel");
     c->setContentsMargins(0, t.px("--space-2"), 0, 0);

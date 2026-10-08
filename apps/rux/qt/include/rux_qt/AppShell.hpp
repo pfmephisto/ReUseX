@@ -13,6 +13,7 @@
 // list, and reacts to the session's signals.
 
 #include <rux_qt/CommandPalette.hpp>
+#include <rux_qt/selection.hpp>
 #include <rux_qt/workspaces.hpp>
 
 #include <QFrame>
@@ -25,6 +26,7 @@ class QStackedWidget;
 
 namespace rux::qt {
 
+class DatabaseWorkspace;
 class Inspector;
 class NavRail;
 class ProjectSession;
@@ -51,6 +53,12 @@ class AppShell : public QWidget {
 
   /// Open @p path through the session and remember it in the recent list.
   void open_project(const QString &path, bool read_only = false);
+
+  DatabaseWorkspace *database() const { return database_; }
+  /// Unsaved pose-graph edits: ask whether to save, discard or cancel
+  /// before @p action (Danish infinitive: "lukke projektet"). True when it is
+  /// fine to go on — nothing pending, saved, or discarded.
+  bool resolve_pending_edits(const QString &action);
   /// The QFileDialog for .rux files.
   void browse();
 
@@ -85,6 +93,7 @@ class AppShell : public QWidget {
   QStackedWidget *stack_ = nullptr;
   StartPage *start_ = nullptr;
   QVector<WorkspacePlaceholder *> placeholders_;
+  DatabaseWorkspace *database_ = nullptr;
   Inspector *inspector_ = nullptr;
   CommandPalette *palette_ = nullptr;
 
@@ -97,20 +106,26 @@ class AppShell : public QWidget {
   QAction *theme_action_ = nullptr;
 };
 
-/// The right-hand context panel. Q1 shows the open project's properties;
-/// Q2 puts the current selection here.
+/// The right-hand context panel: the current selection of the workspace on
+/// screen (a frame, an edge, a table row, a log entry), or the open
+/// project's properties when nothing is selected.
 class Inspector : public QFrame {
   Q_OBJECT
     public:
   explicit Inspector(ProjectSession &session, QWidget *parent = nullptr);
   void refresh();
+  /// Show @p selection; an empty one shows the project again.
+  void set_selection(const Selection &selection);
 
     signals:
   void hide_requested();
 
     private:
+  void show_project();
+  void show_selection();
   ProjectSession &session_;
   QWidget *body_ = nullptr;
+  Selection selection_;
 };
 
 } // namespace rux::qt

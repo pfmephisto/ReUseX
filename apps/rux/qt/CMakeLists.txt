@@ -72,7 +72,10 @@ target_link_libraries(rux_qt_lib
         reusex_core
     PRIVATE
         reusex_visualize
+        # slam: frame-pair ICP for the pair strip (slam/frame_pair_icp.hpp)
+        reusex_slam
         opencv_core
+        opencv_imgproc
         ${VTK_LIBRARIES})
 vtk_module_autoinit(TARGETS rux_qt_lib MODULES ${VTK_LIBRARIES})
 

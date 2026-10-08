@@ -56,6 +56,12 @@ class MainWindow : public QMainWindow {
 
     protected:
   void closeEvent(QCloseEvent *e) override {
+    // Unsaved pose-graph edits: save, discard or stay (RTABMap writes its
+    // pending link edits on close too, but asks nothing).
+    if (!shell_->resolve_pending_edits("afslutte")) {
+      e->ignore();
+      return;
+    }
     QSettings().setValue(kGeometryKey, saveGeometry());
     QMainWindow::closeEvent(e);
   }
@@ -142,6 +148,12 @@ int run_app(int argc, char **argv, const AppOptions &options) {
   window.show();
   if (!options.project.isEmpty())
     window.shell()->open_project(options.project);
+  // Smoke tests: RUX_QT_PAGE=database lands on the Database workspace once
+  // the project is open, so `--quit-after-ms` exercises it for real.
+  if (qEnvironmentVariable("RUX_QT_PAGE") == "database")
+    QObject::connect(&session, &ProjectSession::opened, &window, [&window] {
+      window.shell()->show_page(Workspace::database);
+    });
 
   if (report) {
     std::fprintf(stderr, "rux: main window shown (%dx%d, platform %s)\n",
@@ -165,7 +177,7 @@ int run_app(int argc, char **argv, const AppOptions &options) {
   // logger; the user sees why the process is still alive.
   if (ProjectSession::opens_in_flight() > 0) {
     std::fprintf(stderr, "rux: venter på at et projekt bliver færdigt med at "
-                         "åbne (højst 8 s) …\n");
+                         "åbne eller en ICP-kørsel (højst 8 s) …\n");
     if (!ProjectSession::wait_for_opens(8000))
       std::fprintf(stderr, "rux: afslutter uden at vente længere\n");
   }

@@ -294,6 +294,11 @@ The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
 **Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker).
 Both use CLI11 for argument parsing and spdlog as the log sink.
+Plain `rux` (no subcommand, optionally `-p x.rux`) opens the **native Qt
+client** when there is a display (`DISPLAY`, `WAYLAND_DISPLAY`, or
+`QT_QPA_PLATFORM=offscreen`) and prints help otherwise; the shell lives in
+`rux_qt_lib` (`AppShell`, `ProjectSession`, `CommandPalette`), entry
+`rux::qt::run_app()`. Hidden dev flag: `rux -p x.rux --quit-after-ms N`.
 `rux-qt-gallery` (`apps/rux/qt`) renders pages of the native Qt client
 headless to PNG for design review; its theme is generated at run time from
 `apps/rux/frontend/src/tokens.css` (the web GUI's tokens). The loop and its
@@ -482,6 +487,7 @@ Top-level commands, as registered in `apps/rux/src/rux.cpp`:
 | `assemble` | — (multi-scan assembly) | `src/assemble.cpp` |
 | `gui` | — (serves the web frontend over the REST + WebSocket contract in `docs/gui/openapi.yaml`; `--bind`/`--allow-origin` to serve it beyond localhost, with no authentication) | `src/gui.cpp` |
 
+With **no** subcommand, `rux` launches the Qt client (help without a display).
 `create`, `import`, `export`, `edit`, `analyze`, `align` all
 `require_subcommand(1)`.
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,

@@ -190,6 +190,20 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **Native Qt client, phase Q1: plain `rux` is an app**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). `rux` with no subcommand (or `rux -p x.rux`) now opens the Qt
+  client when there is a display, and prints help (exit 0) when there is
+  none; every subcommand is unchanged. The shell has a title bar with schema
+  and access status, a nav rail (Start, Database, 3D, Posegraf, Pipeline,
+  Log), a collapsible inspector and a Ctrl+K command palette (fuzzy,
+  Danish-folding, keyboard-first). The start page opens projects by dialog,
+  recent list or drag-and-drop and shows a summary card; a locked,
+  read-only, missing or foreign file gets a Danish explanation instead of a
+  crash. Projects open off the GUI thread in a `ProjectSession` that owns
+  the ProjectDB — the hook Q2's Database workspace builds on. Workspaces are
+  designed placeholders until Q2/Q3. The installed `rux` is wrapped for Qt's
+  platform plugins.
 - **2026-10-08** — **Native Qt client, phase Q0: the design loop**
   ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream Q). Before any Qt workspace is designed, the design-studio skill can

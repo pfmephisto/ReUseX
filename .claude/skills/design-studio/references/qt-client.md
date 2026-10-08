@@ -2,9 +2,9 @@
 
 The second surface of the one design system. Status: **in progress** (Stream
 Q of `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
-Q0 — this loop, the theme loader, the gallery and two demo pages — is done;
-the app shell (Q1), the Database workspace (Q2) and 3D / pose graph /
-Pipeline (Q3) build on it.
+Q0 — this loop, the theme loader, the gallery and two demo pages — and Q1 —
+the app shell plain `rux` opens — are done; the Database workspace (Q2) and
+3D / pose graph / Pipeline (Q3) build on them.
 
 ## 1. Where things live
 
@@ -19,13 +19,32 @@ apps/rux/qt/
 │   ├── widgets.hpp           CapsLabel, Pill, Panel, StatCard, NavRail,
 │   │                         NavItem, LabelLegend, Swatch, PropertyList
 │   ├── ViewportView.hpp      3D pane: EGL snapshot or QVTKOpenGLNativeWidget
-│   └── pages.hpp             page registry (name -> factory(PageContext))
+│   ├── pages.hpp             page registry (name -> factory(PageContext))
+│   ├── fuzzy.hpp recent.hpp  Qt-free: palette ranking, recent list,
+│   │   launch.hpp            what plain `rux` does, open-error text (Danish)
+│   ├── ProjectSession.hpp    owns the ProjectDB; opens off the GUI thread
+│   ├── RecentProjects.hpp    QSettings (or in-memory for the gallery)
+│   ├── AppShell.hpp          title bar, nav rail, stack, Inspector
+│   ├── StartPage.hpp         open / drop / recent / summary / error cards
+│   ├── CommandPalette.hpp    Ctrl+K overlay
+│   ├── workspaces.hpp        page order + Q2/Q3 placeholders
+│   └── app.hpp               run_app(): QApplication + MainWindow
 ├── src/  src/core/           implementations (core/ = the Qt-free half)
 ├── styles/app.qss            THE stylesheet template — var(--token) only
 ├── resources/rux_qt.qrc      release snapshot: tokens.css, app.qss, fonts
 ├── resources/fonts/*.ttf     OFL-1.1 (LICENSES/OFL-1.1.txt, REUSE.toml)
-└── gallery/                  rux-qt-gallery: main.cpp + demo pages
+└── gallery/                  rux-qt-gallery: main.cpp, demo pages and
+                              shell_pages.cpp (the real AppShell)
 ```
+
+The app shell's gallery pages: `start`, `start-readonly`, `start-empty`,
+`start-error`, `shell-empty`, `shell-project`, `palette-open` (query "pro"),
+`palette-all`. They build the same `AppShell` the binary shows, open the
+project synchronously (`ProjectSession::open_blocking`) and use an in-memory
+recent list with two missing entries — a shot never touches QSettings.
+The real binary: `rux -p <copy> --quit-after-ms 3000` under `xvfb-run -a env
+QT_QPA_PLATFORM=xcb` (set `XDG_CONFIG_HOME` to a scratch dir so the recent
+list and window geometry stay out of your settings).
 
 | Target | Links | Why separate |
 |---|---|---|
@@ -160,8 +179,18 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   `--tracking-wide`; every other caps label — panel titles, field labels,
   table headers — `--tracking-caps`, 2xs/xs bold. A table header gets its
   tracking on the `QHeaderView` font in code.
-- Installed binaries need Qt's platform plugins: `default.nix` uses
-  `dontWrapQtApps = true`; the launched app (Q1) must be wrapped.
+- Installed binaries need Qt's platform plugins: `default.nix` keeps
+  `dontWrapQtApps = true` and calls `wrapQtApp $out/bin/rux` in postFixup.
+- **A widget taken out of a layout still paints** until its `deleteLater()`
+  runs: `hide()` it first when rebuilding a panel, or the old content shows
+  through the new (seen as overlapping text in the inspector).
+- **QSS specificity**: `QFrame#card QLabel { background: transparent }` beats
+  `QLabel#chip { background: … }` (one id each, more type selectors win).
+  Scope the specific rule the same way: `QFrame#card QLabel#chip`.
+- A `QPushButton` given a layout of labels (a clickable row) does not size
+  from it: `setMinimumHeight(layout->sizeHint().height())`.
+- A path in a narrow column: `ElidedLabel` (Qt::ElideMiddle keeps the file
+  name); plain QLabel text never elides and widens its parent.
 
 ## 6. Building a page
 

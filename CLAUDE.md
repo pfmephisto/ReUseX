@@ -246,7 +246,9 @@ ReUseX/
 │   ├── cmake/                      # reusexLibrary.cmake, Dependencies.cmake, ...
 │   └── extern/                     # Vendored headers
 ├── apps/rux/                       # CLI application
-│   └── include/ + src/             # Subcommands, grouped in subdirs
+│   ├── include/ + src/             # Subcommands, grouped in subdirs
+│   └── qt/                         # Native Qt client (in progress): rux_qt_core,
+│                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss
 ├── apps/ruxd/                      # HTTP service worker (ruxd)
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
@@ -291,6 +293,10 @@ The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
 **Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker).
 Both use CLI11 for argument parsing and spdlog as the log sink.
+`rux-qt-gallery` (`apps/rux/qt`) renders pages of the native Qt client
+headless to PNG for design review; its theme is generated at run time from
+`apps/rux/frontend/src/tokens.css` (the web GUI's tokens). The loop and its
+gotchas: `.claude/skills/design-studio/references/qt-client.md`.
 
 ### Type System (types.hpp)
 
@@ -672,7 +678,9 @@ Anything not found there is not a dependency.
 - fmt - string formatting (the library's logging API is built on it)
 - range-v3 - modern C++ ranges
 - nlohmann_json - JSON
-- Qt6 (`Core Widgets Gui OpenGL`) - GUI components
+- Qt6 (`Core Widgets Gui OpenGL`, + `OpenGLWidgets` and VTK `GUISupportQt`
+  for `apps/rux/qt`) - GUI components; the Qt client bundles Archivo, Oswald
+  and JetBrains Mono TTFs (OFL-1.1, `LICENSES/OFL-1.1.txt`)
 - Catch2 v3 - tests
 
 ## Pre-trained Models

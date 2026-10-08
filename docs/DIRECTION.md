@@ -190,6 +190,17 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **Native Qt client, phase Q0: the design loop**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). Before any Qt workspace is designed, the design-studio skill can
+  see Qt: `apps/rux/qt/` adds `rux_qt_core` (Qt-free token parsing, light
+  tests), `rux_qt_lib` (theme loader: `tokens.css` -> QSS template + QPalette
+  at run time, hot reload with `--dev`, bundled OFL fonts) and
+  `rux-qt-gallery`, which renders a page headless to PNG (3D through VTK's
+  EGL offscreen window). `qt_shot.sh` fails on any missing token; a QSS edit
+  re-shoots in ~1.3 s, a C++ edit in ~10 s. One design system, two renderers:
+  the web GUI's tokens are now also the Qt client's. Plain-`rux` launch and the
+  workspaces follow in Q1–Q3.
 - **2026-10-06** — **GUI: Segmentering view and mask → resource**
   ([spec](superpowers/specs/2026-10-06-kortlaegning-segmentering-fixes-design.md),
   Stream B). Interactive SAM3 segmentation gets its own screen and can now

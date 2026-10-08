@@ -8558,6 +8558,12 @@ ProjectDB::probe(const std::filesystem::path &path) noexcept {
       sqlite3 *db;
       ~Close() { sqlite3_close(db); }
     } close{db};
+    // A probe vets files it has not opened before, so in a process that
+    // hardens its opens (a server) it is hardened too: the schema_version
+    // read below must not evaluate anything the file's schema declares. A
+    // failure to harden throws, and the catch below reports it as an error.
+    if (hardened_by_default())
+      harden_connection(db);
 
     // The same tables validateSchema() requires of every project.
     const char *required[] = {"projects", "property_definitions",

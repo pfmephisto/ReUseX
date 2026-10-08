@@ -213,3 +213,38 @@ TEST_CASE("ProjectDB_WalProjectInReadOnlyDirectory_OpensReadOnly",
   }
   CHECK(names_in(dir.path) == before);
 }
+
+TEST_CASE("ProjectDB_HardenedReadOnlyDirectory_ProbesAndOpensImmutable",
+          "[core][probe][wal][hardened]") {
+  // A server hardens every open; the immutable read-only open (and probe) of
+  // a project in an unwritable directory must still work under it.
+  reusex::test_support::TempDir dir("test_projectdb_probe_rodir_hardened");
+  const fs::path p = dir.path / "project.rux";
+  {
+    ProjectDB db(p);
+  }
+  fs::remove(p.string() + "-shm");
+  fs::remove(p.string() + "-wal");
+  const auto before = names_in(dir.path);
+
+  ReadOnlyDir guard(dir.path);
+  if (!guard.effective())
+    SKIP("running as a user who can write a 0500 directory (root?)");
+
+  ProjectDB::set_hardened_by_default(true);
+  struct Reset {
+    ~Reset() { ProjectDB::set_hardened_by_default(false); }
+  } reset;
+
+  const auto r = ProjectDB::probe(p);
+  CHECK(r.is_project);
+  CHECK(r.error.empty());
+  CHECK(r.schema_version == ProjectDB::latest_schema_version());
+  {
+    ProjectDB db(p, /*readOnly=*/true);
+    CHECK(db.is_read_only());
+    CHECK(db.schema_version() == ProjectDB::latest_schema_version());
+    CHECK_FALSE(db.list_tables().empty());
+  }
+  CHECK(names_in(dir.path) == before);
+}

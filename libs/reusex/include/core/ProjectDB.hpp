@@ -157,7 +157,9 @@ class ProjectDB {
   /// works in a read-only directory. Trade-off: a writer's in-flight
   /// transaction is not seen, which a table check can live with. With a live
   /// WAL it is a plain read-only open (the WAL's pages count), which may wait
-  /// on and report a lock in `error` (is_project false).
+  /// on and report a lock in `error` (is_project false). Under
+  /// hardened_by_default() the connection is hardened like any other open;
+  /// `rux` leaves that off, so its probe is the plain open described here.
   static ProbeResult probe(const std::filesystem::path &path) noexcept;
 
   /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless

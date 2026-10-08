@@ -255,3 +255,83 @@ TEST_CASE("ProjectDbIntegrity_NotADatabase_IsReported",
   const auto report = ProjectDB::check_integrity(tmp.path);
   REQUIRE_FALSE(report.ok());
 }
+
+namespace {
+
+// A deterministic stand-in that a generated column may call: the one way a
+// read of a real table (what probe() does) evaluates schema-declared code.
+void det_side_effect(sqlite3_context *ctx, int, sqlite3_value **) {
+  ++g_side_effects;
+  sqlite3_result_int(ctx, 7);
+}
+
+int register_det_side_effect(sqlite3 *db, const char **, const void *) {
+  return sqlite3_create_function(db, "rux_det_side_effect", 0,
+                                 SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr,
+                                 det_side_effect, nullptr, nullptr);
+}
+
+struct DetSideEffectFunction {
+  DetSideEffectFunction() {
+    g_side_effects = 0;
+    sqlite3_auto_extension(
+        reinterpret_cast<void (*)()>(register_det_side_effect));
+  }
+  ~DetSideEffectFunction() {
+    sqlite3_cancel_auto_extension(
+        reinterpret_cast<void (*)()>(register_det_side_effect));
+  }
+};
+
+} // namespace
+
+TEST_CASE("ProjectDbHardened_ProcessDefault_AppliesToProbe",
+          "[projectdb][hardened][probe]") {
+  DetSideEffectFunction fn;
+  TempDB tmp;
+  build_old_schema(tmp.path);
+  // schema_version's version is computed by the file's own schema.
+  exec_on(tmp.path, "DROP TABLE schema_version;"
+                    "CREATE TABLE schema_version (v INTEGER, version INTEGER "
+                    "GENERATED ALWAYS AS (rux_det_side_effect() + v) VIRTUAL);"
+                    "INSERT INTO schema_version (v) VALUES (2);");
+  g_side_effects = 0;
+
+  SECTION("control: the plain probe `rux` uses evaluates it") {
+    REQUIRE_FALSE(ProjectDB::hardened_by_default());
+    const auto r = ProjectDB::probe(tmp.path);
+    CHECK(r.is_project);
+    CHECK(r.schema_version == 9);
+    CHECK(g_side_effects > 0);
+  }
+
+  SECTION("a hardened process's probe does not") {
+    ProjectDB::set_hardened_by_default(true);
+    struct Reset {
+      ~Reset() { ProjectDB::set_hardened_by_default(false); }
+    } reset;
+    const auto r = ProjectDB::probe(tmp.path);
+    // sqlite refuses the untrusted schema outright, so the file is not
+    // vetted as a project, and the reason is reported.
+    INFO(r.error);
+    CHECK_FALSE(r.is_project);
+    CHECK_THAT(r.error, Catch::Matchers::ContainsSubstring("unsafe use"));
+    CHECK(g_side_effects == 0);
+  }
+}
+
+TEST_CASE("ProjectDbHardened_ProcessDefault_RealProjectStillProbes",
+          "[projectdb][hardened][probe]") {
+  TempDB tmp;
+  {
+    ProjectDB db(tmp.path);
+  }
+  ProjectDB::set_hardened_by_default(true);
+  struct Reset {
+    ~Reset() { ProjectDB::set_hardened_by_default(false); }
+  } reset;
+  const auto r = ProjectDB::probe(tmp.path);
+  CHECK(r.is_project);
+  CHECK(r.error.empty());
+  CHECK(r.schema_version == ProjectDB::latest_schema_version());
+}

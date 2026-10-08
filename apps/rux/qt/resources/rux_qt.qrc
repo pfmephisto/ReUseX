@@ -1,0 +1,23 @@
+<!DOCTYPE RCC>
+<!--
+SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<RCC version="1.0">
+  <!-- The release snapshot of the theme: tokens.css (the single source of
+       design values, shared with the web GUI) and the QSS template. The gallery and app
+       in dev mode read both from the source tree instead and hot-reload. -->
+  <qresource prefix="/rux_qt">
+    <file alias="tokens.css">../../frontend/src/tokens.css</file>
+    <file alias="styles/app.qss">../styles/app.qss</file>
+    <file>fonts/Archivo-Regular.ttf</file>
+    <file>fonts/Archivo-Italic.ttf</file>
+    <file>fonts/Archivo-Medium.ttf</file>
+    <file>fonts/Archivo-SemiBold.ttf</file>
+    <file>fonts/Oswald-Medium.ttf</file>
+    <file>fonts/Oswald-SemiBold.ttf</file>
+    <file>fonts/JetBrainsMono-Regular.ttf</file>
+    <file>fonts/JetBrainsMono-Medium.ttf</file>
+  </qresource>
+</RCC>

@@ -120,3 +120,6 @@ add_executable(rux src/main.cpp)
 target_link_libraries(rux PRIVATE rux_lib)
 
 install(TARGETS rux DESTINATION bin)
+
+# The native Qt client (Stream Q): rux_qt_core, rux_qt_lib, rux-qt-gallery.
+add_subdirectory(qt)

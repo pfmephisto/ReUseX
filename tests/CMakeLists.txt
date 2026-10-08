@@ -151,6 +151,10 @@ target_link_libraries(reusex_unit_tests
         reusex_gsplat_common
         rux_core_lib
         rux_gui_lib
+        # The Qt client's Qt-free half (tokens.css parsing, the gallery's
+        # command line). Standard library only, so tests/unit/rux_qt costs
+        # this binary no Qt start-up.
+        rux_qt_core
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto

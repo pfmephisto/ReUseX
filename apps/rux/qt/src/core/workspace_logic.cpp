@@ -43,6 +43,10 @@ bool log_row_matches(const LogRow &row, const LogFilter &filter) {
     if (row.status != "failed")
       return false;
     break;
+  case LogStatusFilter::cancelled:
+    if (row.status != "cancelled")
+      return false;
+    break;
   case LogStatusFilter::unfinished:
     if (!(row.status == "running" && !row.finished))
       return false;
@@ -62,6 +66,33 @@ std::vector<std::string> log_stages(const std::vector<LogRow> &rows) {
   for (const auto &r : rows)
     s.insert(r.stage);
   return {s.begin(), s.end()};
+}
+
+std::string log_status_label(const std::string &status, bool finished) {
+  if (status == "success")
+    return "Gennemført";
+  if (status == "failed")
+    return "Fejlet";
+  if (status == "cancelled")
+    return "Annulleret";
+  if (status == "running")
+    // A "running" row with no finished_at is a process that died mid-run; one
+    // WITH finished_at set is not supposed to happen (log_pipeline_end always
+    // writes status and finished_at together) but is handled defensively.
+    return finished ? "Kørte" : "Afbrudt";
+  return status;
+}
+
+std::string log_status_tone_key(const std::string &status, bool finished) {
+  if (status == "success")
+    return "good";
+  if (status == "failed")
+    return "crit";
+  if (status == "cancelled")
+    return "wait";
+  if (status == "running" && !finished)
+    return "wait";
+  return "outline";
 }
 
 double segment_distance(double px, double py, double ax, double ay, double bx,

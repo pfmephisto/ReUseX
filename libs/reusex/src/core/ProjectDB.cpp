@@ -5611,7 +5611,8 @@ class ProjectDB::Impl {
     return static_cast<int>(sqlite3_last_insert_rowid(db));
   }
 
-  void logPipelineEnd(int logId, bool success, std::string_view errorMsg) {
+  void logPipelineEnd(int logId, ProjectDB::PipelineOutcome outcome,
+                      std::string_view errorMsg) {
     const char *sql = R"(
       UPDATE pipeline_log
       SET finished_at = datetime('now'), status = ?, error_msg = ?
@@ -5621,8 +5622,18 @@ class ProjectDB::Impl {
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
       throw std::runtime_error("Failed to prepare pipeline log update");
     StmtGuard guard(stmt);
-    sqlite3_bind_text(stmt, 1, success ? "success" : "failed", -1,
-                      SQLITE_STATIC);
+    const char *status = [outcome] {
+      switch (outcome) {
+      case ProjectDB::PipelineOutcome::success:
+        return "success";
+      case ProjectDB::PipelineOutcome::cancelled:
+        return "cancelled";
+      case ProjectDB::PipelineOutcome::failed:
+      default:
+        return "failed";
+      }
+    }();
+    sqlite3_bind_text(stmt, 1, status, -1, SQLITE_STATIC);
     if (!errorMsg.empty())
       sqlite3_bind_text(stmt, 2, errorMsg.data(),
                         static_cast<int>(errorMsg.size()), SQLITE_TRANSIENT);
@@ -7393,10 +7404,17 @@ int ProjectDB::log_pipeline_start(std::string_view stage,
   return impl_->logPipelineStart(stage, paramsJson);
 }
 
-void ProjectDB::log_pipeline_end(int logId, bool success,
+void ProjectDB::log_pipeline_end(int logId, PipelineOutcome outcome,
                                  std::string_view errorMsg) {
   impl_->checkWritable();
-  impl_->logPipelineEnd(logId, success, errorMsg);
+  impl_->logPipelineEnd(logId, outcome, errorMsg);
+}
+
+void ProjectDB::log_pipeline_end(int logId, bool success,
+                                 std::string_view errorMsg) {
+  log_pipeline_end(logId,
+                   success ? PipelineOutcome::success : PipelineOutcome::failed,
+                   errorMsg);
 }
 
 // --- Material Passport Operations ---

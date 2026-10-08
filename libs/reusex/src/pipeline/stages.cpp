@@ -715,7 +715,8 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
     if (result.cancelled) {
       warn("stage '{}' cancelled after {:.2f}s: {}", desc.name, elapsed,
            result.message);
-      db.log_pipeline_end(log_id, false, result.message);
+      db.log_pipeline_end(log_id, ProjectDB::PipelineOutcome::cancelled,
+                          result.message);
     } else if (result.ok) {
       info("stage '{}' finished in {:.2f}s: {}", desc.name, elapsed,
            result.message);
@@ -744,7 +745,10 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
 
     if (log_id >= 0) {
       try {
-        db.log_pipeline_end(log_id, false, message);
+        db.log_pipeline_end(log_id,
+                            cancelled ? ProjectDB::PipelineOutcome::cancelled
+                                      : ProjectDB::PipelineOutcome::failed,
+                            message);
       } catch (const std::exception &nested) {
         error("could not close pipeline_log row {}: {}", log_id, nested.what());
       }

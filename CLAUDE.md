@@ -108,7 +108,7 @@ cmake --build build
 |---|---|---|---|
 | `WITH_CUDA` | `ON` | `CMakeLists.txt:38` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
 | `USE_CCACHE` | `ON` | `CMakeLists.txt:79` | Use ccache when available |
-| `ENABLE_COVERAGE` | `OFF` | `CMakeLists.txt:103` | Code coverage instrumentation |
+| `ENABLE_COVERAGE` | `OFF` | `cmake/Coverage.cmake:30` | Code coverage instrumentation |
 | `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:137` | Adds `bindings/python` |
 | `BUILD_TESTS` | `ON` | `CMakeLists.txt:145` | Adds `tests/` and `enable_testing()` |
 | `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:154`, `cmake/Documentation.cmake:9` | Defines the `docs` target |

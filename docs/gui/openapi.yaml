@@ -5766,7 +5766,7 @@ components:
       properties:
         id: { type: integer }
         stage: { type: string }
-        status: { type: string, enum: [running, success, failed] }
+        status: { type: string, enum: [running, success, failed, cancelled] }
         started_at: { type: string }
         finished_at:
           type: string
@@ -5781,7 +5781,9 @@ components:
             server restart, when `/jobs` no longer knows the job.
         error_msg:
           type: string
-          description: Empty when there was no error.
+          description: >-
+            Empty when there was no error. Set to a "cancelled (...)" message
+            when status is cancelled, same as a failure's reason.
 
     JobRequest:
       type: object

@@ -31,6 +31,9 @@
 .failed {
   border-left-color: var(--color-status-failed);
 }
+.cancelled {
+  border-left-color: var(--color-status-cancelled);
+}
 
 .head {
   display: flex;
@@ -57,6 +60,9 @@
 }
 .failed .status {
   color: var(--color-status-failed);
+}
+.cancelled .status {
+  color: var(--color-status-cancelled);
 }
 
 .viaGui {

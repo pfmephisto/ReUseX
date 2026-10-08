@@ -138,6 +138,10 @@ struct PanoramaLoopOptions {
   float min_sigma_rot = 0.025f;   ///< floor on the rotational std (rad)
 
   unsigned seed = 42; ///< RANSAC determinism (docs/STANDARDS.md §6)
+
+  /// Memberwise, covering every field above — see SurfelExtractionParams's
+  /// operator== for why (integration review finding 4).
+  bool operator==(const PanoramaLoopOptions &) const = default;
 };
 
 /// Statistics from panorama loop-edge detection. Every drop reason is counted

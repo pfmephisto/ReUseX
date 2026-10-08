@@ -105,7 +105,13 @@ vis::LabelPalette theme_palette() {
   for (int i = 0; i < n; ++i)
     p.colors.push_back(rgb(t.color(QString("--label-%1").arg(i))));
   p.unlabeled = rgb(t.color("--label-unlabeled"));
-  p.invalid = rgb(t.color("--label-invalid"));
+  // NOT t.color("--label-invalid"): that token legitimately differs between
+  // the Qt client's light and dark theme (picked for a light legend panel),
+  // but the 3D canvas this palette paints onto is near-black in both
+  // (tokens.css). Reuse the headless renderer's always-dark constant instead,
+  // so an invalid point recedes here exactly as it does in `rux render`
+  // (integration review finding 3, same fix as the web viewport).
+  p.invalid = vis::default_label_palette().invalid;
   return p;
 }
 

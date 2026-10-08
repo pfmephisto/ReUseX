@@ -24,6 +24,14 @@ struct SurfelExtractionParams {
   float normal_radius = 0.1f;   ///< radius for normal estimation (m)
   float voxel_size = 0.03f; ///< per-frame voxel downsample (m); <=0 disables
   bool apply_depth_filters = true;
+
+  /// Memberwise, covering every field above — relied on by
+  /// CliCommandRoundTrip_OptimizeFlagDefaults_MatchTheStageBase
+  /// (tests/unit/rux_app/test_cli_command_roundtrip.cpp) to compare the whole
+  /// of PlaneGraphOptions::surfel in one step, so a field added here without a
+  /// matching CLI default is caught instead of silently skipped by a
+  /// hand-maintained field list (integration review finding 4).
+  bool operator==(const SurfelExtractionParams &) const = default;
 };
 
 /// Back-project one sensor frame into an optical-frame surfel set and seed its

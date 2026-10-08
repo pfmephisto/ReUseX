@@ -23,10 +23,11 @@ const STATUS_LABEL = {
   running: 'Running',
   success: 'Success',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 } as const;
 
 /** Status filter chips, in the order they read as a run's life-cycle. */
-const STATUSES: PipelineLogEntry['status'][] = ['running', 'success', 'failed'];
+const STATUSES: PipelineLogEntry['status'][] = ['running', 'success', 'failed', 'cancelled'];
 
 /**
  * The pipeline log (#449).

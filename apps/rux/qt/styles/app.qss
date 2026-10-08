@@ -570,6 +570,9 @@ QProgressBar[state="succeeded"]::chunk {
 QProgressBar[state="failed"]::chunk {
   background: var(--color-status-failed);
 }
+QProgressBar[state="cancelled"]::chunk {
+  background: var(--color-status-cancelled);
+}
 QLabel#jobName {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);

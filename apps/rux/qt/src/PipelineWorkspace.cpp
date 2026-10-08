@@ -492,9 +492,14 @@ void PipelineWorkspace::rebuild_stages() {
     if (last) {
       const bool ok = last->status == "success";
       const bool failed = last->status == "failed";
-      auto *pill = new Pill(ok       ? "Kørt"
-                            : failed ? "Fejlet"
-                                     : "Afbrudt",
+      const bool cancelled = last->status == "cancelled";
+      // "Afbrudt" is left for the remaining case (status still "running" in
+      // the log), meaning the process died — same term the Log workspace
+      // uses for that row (#2 of the integration review).
+      auto *pill = new Pill(ok          ? "Kørt"
+                            : failed    ? "Fejlet"
+                            : cancelled ? "Annulleret"
+                                        : "Afbrudt",
                             ok       ? "good"
                             : failed ? "crit"
                                      : "wait");
@@ -836,7 +841,9 @@ void PipelineWorkspace::on_event(const pl::JobEvent &e) {
     repolish(state_);
     progress_->setRange(0, 1);
     progress_->setValue(1);
-    progress_->setProperty("state", ok ? "succeeded" : "failed");
+    progress_->setProperty("state", ok       ? "succeeded"
+                                    : failed ? "failed"
+                                             : "cancelled");
     repolish(progress_);
     progress_text_->setText(ok ? qs(j.result_summary) : qs(j.error));
     cancel_->setEnabled(false);

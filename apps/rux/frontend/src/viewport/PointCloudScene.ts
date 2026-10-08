@@ -257,7 +257,13 @@ export class PointCloudScene {
     const count = attribute.count;
 
     if (this.colorMode === 'label' && page.labels) {
-      const palette = paletteToFloats(readLabelPalette());
+      // From the canvas's own cascade (pinned to the dark token scope,
+      // Viewport.tsx), not the document's active theme: `--label-invalid` is
+      // the one label token that legitimately differs per theme (chosen for a
+      // light panel, not for this always-dark surface), and it must recede
+      // here regardless of which app theme is active (integration review
+      // finding 3).
+      const palette = paletteToFloats(readLabelPalette(this.canvas));
       for (let i = 0; i < count; i += 1) {
         const slot = labelColorIndex(page.labels[i], palette.colors.length);
         const [r, g, b] = slotColor(palette, slot);
@@ -270,7 +276,7 @@ export class PointCloudScene {
     } else {
       // A PointXYZ cloud has no colour of its own. Flat neutral rather than
       // white: white points on a near-black canvas bloom and hide structure.
-      const [r, g, b] = paletteToFloats(readLabelPalette()).unlabeled;
+      const [r, g, b] = paletteToFloats(readLabelPalette(this.canvas)).unlabeled;
       for (let i = 0; i < count; i += 1) {
         target[i * 3] = r;
         target[i * 3 + 1] = g;

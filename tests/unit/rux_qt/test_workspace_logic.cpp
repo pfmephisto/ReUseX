@@ -146,6 +146,7 @@ TEST_CASE("LogFilter_StageStatusAndText", "[rux_qt][log]") {
       {"segment_rooms", "failed", true, "Leiden diverged", ""},
       {"segment_planes", "running", false, "", ""},
       {"cloud_reconstruction", "running", true, "", ""},
+      {"segment_planes", "cancelled", true, "cancelled (user request)", ""},
   };
   auto count = [&](const LogFilter &f) {
     int n = 0;
@@ -153,10 +154,12 @@ TEST_CASE("LogFilter_StageStatusAndText", "[rux_qt][log]") {
       n += log_row_matches(r, f);
     return n;
   };
-  CHECK(count({}) == 4);
-  CHECK(count({"segment_planes", LogStatusFilter::all, ""}) == 2);
+  CHECK(count({}) == 5);
+  CHECK(count({"segment_planes", LogStatusFilter::all, ""}) == 3);
   CHECK(count({"", LogStatusFilter::failed, ""}) == 1);
   CHECK(count({"", LogStatusFilter::success, ""}) == 1);
+  // A cancel is its own outcome, never counted as a failure.
+  CHECK(count({"", LogStatusFilter::cancelled, ""}) == 1);
   // "running" with a finish time is not unfinished (a crashed writer).
   CHECK(count({"", LogStatusFilter::unfinished, ""}) == 1);
   CHECK(count({"", LogStatusFilter::all, "LEIDEN"}) == 1);
@@ -165,6 +168,27 @@ TEST_CASE("LogFilter_StageStatusAndText", "[rux_qt][log]") {
   CHECK(log_stages(rows) == std::vector<std::string>{"cloud_reconstruction",
                                                      "segment_planes",
                                                      "segment_rooms"});
+}
+
+TEST_CASE("LogStatus_LabelAndTone_CancelledDistinctFromFailedAndRunning",
+          "[rux_qt][log]") {
+  CHECK(log_status_label("success", true) == "Gennemført");
+  CHECK(log_status_label("failed", true) == "Fejlet");
+  CHECK(log_status_label("cancelled", true) == "Annulleret");
+  // A "running" row with no finished_at means the process died, not that it
+  // is still active in a reopened project (#2 of the integration review).
+  // Same term the Pipeline workspace's stage pill uses for the equivalent
+  // case, so the two surfaces no longer name the same state differently
+  // (#9: "Afbrudt" vs "Ikke afsluttet").
+  CHECK(log_status_label("running", false) == "Afbrudt");
+
+  CHECK(log_status_tone_key("success", true) == "good");
+  CHECK(log_status_tone_key("failed", true) == "crit");
+  CHECK(log_status_tone_key("cancelled", true) == "wait");
+  CHECK(log_status_tone_key("running", false) == "wait");
+  // A cancel is never coloured as a failure.
+  CHECK(log_status_tone_key("cancelled", true) !=
+        log_status_tone_key("failed", true));
 }
 
 TEST_CASE("Posegraf_NearestNodeAndEdge", "[rux_qt][posegraph]") {

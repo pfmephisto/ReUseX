@@ -421,24 +421,15 @@ void TableBrowser::select_where(const QString &column, const QString &value) {
 
 // ------------------------------------------------------- StatusPillDelegate --
 
+// Pure logic (Danish label / tone keyword) lives in workspace_logic.cpp,
+// Qt-free and unit-tested (LogStatus_* in test_workspace_logic.cpp), so it is
+// covered without pulling QtWidgets into the test binary.
 QString log_status_da(const std::string &status, bool finished) {
-  if (status == "success")
-    return "Gennemført";
-  if (status == "failed")
-    return "Fejlet";
-  if (status == "running")
-    return finished ? "Kørte" : "Ikke afsluttet";
-  return qs(status);
+  return qs(log_status_label(status, finished));
 }
 
 QString log_status_tone(const std::string &status, bool finished) {
-  if (status == "success")
-    return "good";
-  if (status == "failed")
-    return "crit";
-  if (status == "running" && !finished)
-    return "wait";
-  return "outline";
+  return qs(log_status_tone_key(status, finished));
 }
 
 void StatusPillDelegate::paint(QPainter *p, const QStyleOptionViewItem &option,
@@ -654,15 +645,20 @@ PipelineLogView::PipelineLogView(ProjectSession &session, bool filters,
     auto *sl = new QHBoxLayout(status_);
     sl->setContentsMargins(0, 0, 0, 0);
     sl->setSpacing(0);
-    const char *names[] = {"Alle", "Gennemført", "Fejlet", "Ikke afsluttet"};
-    for (int i = 0; i < 4; ++i) {
+    // Order matches LogStatusFilter: all, success, failed, cancelled,
+    // unfinished. "Afbrudt" is the same term the Pipeline workspace's stage
+    // pill uses for a row still "running" in the log, meaning the process
+    // died (#2 of the integration review).
+    const char *names[] = {"Alle", "Gennemført", "Fejlet", "Annulleret",
+                           "Afbrudt"};
+    for (int i = 0; i < 5; ++i) {
       auto *b = new QPushButton(NavItem::escape_mnemonic(names[i]));
       b->setObjectName("segment");
       b->setCheckable(true);
       b->setAutoExclusive(true);
       b->setChecked(i == 0);
       b->setCursor(Qt::PointingHandCursor);
-      b->setProperty("position", i == 0 ? "first" : i == 3 ? "last" : "middle");
+      b->setProperty("position", i == 0 ? "first" : i == 4 ? "last" : "middle");
       sl->addWidget(b);
       connect(b, &QPushButton::clicked, this, [this, i] {
         LogFilter f = proxy_->filter();
@@ -760,18 +756,20 @@ void PipelineLogView::reload() {
 }
 
 void PipelineLogView::update_meta() {
-  int ok = 0, failed = 0, open = 0;
+  int ok = 0, failed = 0, cancelled = 0, open = 0;
   for (int r = 0; r < model_->rowCount(); ++r) {
     const auto &e = model_->entry(r);
     ok += e.status == "success";
     failed += e.status == "failed";
+    cancelled += e.status == "cancelled";
     open += e.status == "running" && e.finished_at.empty();
   }
-  QString m = QString("%1 kørsler · %2 gennemført · %3 fejlet · %4 ikke "
-                      "afsluttet")
+  QString m = QString("%1 kørsler · %2 gennemført · %3 fejlet · %4 "
+                      "annulleret · %5 afbrudt")
                   .arg(model_->rowCount())
                   .arg(ok)
                   .arg(failed)
+                  .arg(cancelled)
                   .arg(open);
   if (proxy_->rowCount() != model_->rowCount())
     m = QString("%1 af %2 vist · ")

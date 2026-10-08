@@ -49,7 +49,13 @@ const FALLBACK: LabelPalette = {
     '#999999',
   ],
   unlabeled: '#4a505c',
-  invalid: '#e9e9e7',
+  // Dim, recedes against the near-black 3D canvas (mirrors tokens.css's dark
+  // `--label-invalid`, the value actually picked for this surface — see
+  // PointCloudScene's canvas-scoped read). #e9e9e7 (the light panel surface
+  // colour) was wrong here: only ever reached headless, but it shouted at
+  // the same brightness the light-theme token used to (integration review
+  // finding 3, residue 2).
+  invalid: '#2c3a48',
 };
 
 /**

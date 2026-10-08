@@ -690,6 +690,16 @@ class ProjectDB {
   int log_pipeline_start(std::string_view stage,
                          std::string_view paramsJson = "");
 
+  /// How a pipeline stage run ended. `cancelled` is distinct from `failed`
+  /// so a user-requested cancel is never shown as an error.
+  enum class PipelineOutcome { success, failed, cancelled };
+
+  void log_pipeline_end(int logId, PipelineOutcome outcome,
+                        std::string_view errorMsg = "");
+
+  /// Shim for the two-outcome form: `success` maps to `PipelineOutcome::
+  /// success`, `!success` to `PipelineOutcome::failed`. Prefer the
+  /// `PipelineOutcome` overload when a cancel is possible.
   void log_pipeline_end(int logId, bool success,
                         std::string_view errorMsg = "");
 
@@ -699,7 +709,7 @@ class ProjectDB {
     std::string started_at;
     std::string finished_at; // Empty if still running
     std::string parameters;  // JSON string
-    std::string status;      // "running", "success", "failed"
+    std::string status;      // "running", "success", "failed", "cancelled"
     std::string error_msg;   // Empty if no error
   };
 

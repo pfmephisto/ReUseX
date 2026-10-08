@@ -23,13 +23,13 @@ namespace rux::qt {
 /// The fields of one pipeline_log row a filter looks at.
 struct LogRow {
   std::string stage;
-  std::string status; ///< "running" | "success" | "failed"
+  std::string status; ///< "running" | "success" | "failed" | "cancelled"
   bool finished = false;
   std::string error;
   std::string parameters;
 };
 
-enum class LogStatusFilter { all, success, failed, unfinished };
+enum class LogStatusFilter { all, success, failed, cancelled, unfinished };
 
 struct LogFilter {
   std::string stage; ///< exact stage name; empty = every stage
@@ -42,6 +42,18 @@ bool log_row_matches(const LogRow &row, const LogFilter &filter);
 
 /// The distinct stage names of @p rows, sorted.
 std::vector<std::string> log_stages(const std::vector<LogRow> &rows);
+
+/// Danish label for a pipeline_log row's status, @p finished being
+/// `!finished_at.empty()`. Shared by the Log workspace's status column and
+/// selection panel. "Afbrudt" is deliberately the same word the Pipeline
+/// workspace's stage pill uses for a row still "running" here — before the
+/// integration review (finding 2/9) the two surfaces called the same state
+/// "Ikke afsluttet" and "Afbrudt" respectively.
+std::string log_status_label(const std::string &status, bool finished);
+
+/// Tone keyword ("good"|"crit"|"wait"|"outline") for the same row, driving
+/// the status pill's colour.
+std::string log_status_tone_key(const std::string &status, bool finished);
 
 // ------------------------------------------------------------ Posegraf --
 

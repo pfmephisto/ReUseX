@@ -829,3 +829,37 @@ TEST_CASE("PlaneGraph --no-plane-factors ignores the plane sigmas entirely",
     REQUIRE((a[i].world_pose.matrix() - b[i].world_pose.matrix()).norm() ==
             0.0f);
 }
+
+// Integration review finding 4: the CLI/library default parity test
+// (CliCommandRoundTrip_OptimizeFlagDefaults_MatchTheStageBase,
+// tests/unit/rux_app/test_cli_command_roundtrip.cpp) now relies on
+// PlaneGraphOptions::operator== (and its nested option structs') to compare
+// every field at once, rather than a hand-maintained list that had already
+// fallen behind several LoopClosureOptions fields. This pins that the
+// defaulted comparison really is memberwise and really does recurse into
+// the nested structs, on a field each of those three structs' blind spot.
+TEST_CASE("PlaneGraphOptions operator== is memberwise through nested structs",
+          "[plane_graph][parity]") {
+  const PlaneGraphOptions a;
+  PlaneGraphOptions b = a;
+  CHECK(a == b);
+
+  SECTION("a top-level field") {
+    b.max_planes_per_frame = a.max_planes_per_frame + 1;
+    CHECK_FALSE(a == b);
+  }
+  SECTION("a surfel field the old hand list did cover") {
+    b.surfel.sampling_factor = a.surfel.sampling_factor + 1;
+    CHECK_FALSE(a == b);
+  }
+  SECTION("a loop_closure field the old hand list never covered") {
+    // vocab_size had no CHECK in the pre-fix parity test.
+    b.loop_closure.vocab_size = a.loop_closure.vocab_size + 1;
+    CHECK_FALSE(a == b);
+  }
+  SECTION("a panorama_loops field the old hand list never covered") {
+    // refine_iterations had no CHECK in the pre-fix parity test.
+    b.panorama_loops.refine_iterations = a.panorama_loops.refine_iterations + 1;
+    CHECK_FALSE(a == b);
+  }
+}

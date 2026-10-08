@@ -89,6 +89,21 @@ class ProjectDB {
   int schema_version() const;
   static int latest_schema_version() noexcept;
 
+  /// What probe() found, without opening a full ProjectDB.
+  struct ProbeResult {
+    bool is_project = false; ///< sqlite with the ReUseX core tables
+    int schema_version = -1; ///< MAX(schema_version.version); -1 if absent
+    std::string error;       ///< sqlite / validation message when not a project
+  };
+
+  /// Is @p path a ReUseX project, and at which schema? Opens the file
+  /// read-only (SQLITE_OPEN_READONLY, the usual busy timeout), checks the
+  /// tables validate_schema() requires and reads the recorded version. Never
+  /// writes, creates, migrates or logs — so a GUI can vet a foreign or empty
+  /// sqlite file before a read-write open would give it ReUseX tables.
+  /// A locked file reports its lock message in `error` (is_project false).
+  static ProbeResult probe(const std::filesystem::path &path) noexcept;
+
   /// One write transaction (BEGIN IMMEDIATE ... COMMIT), rolled back unless
   /// commit() is called. ProjectDB methods that open their own transaction
   /// (add_material_passport, set_survey_part_quantities, add_sample, …)

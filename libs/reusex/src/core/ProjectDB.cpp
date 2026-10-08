@@ -8135,6 +8135,71 @@ int ProjectDB::latest_schema_version() noexcept {
   return Impl::LATEST_SCHEMA_VERSION;
 }
 
+ProjectDB::ProbeResult
+ProjectDB::probe(const std::filesystem::path &path) noexcept {
+  ProbeResult r;
+  try {
+    sqlite3 *db = nullptr;
+    if (sqlite3_open_v2(path.string().c_str(), &db, SQLITE_OPEN_READONLY,
+                        nullptr) != SQLITE_OK) {
+      r.error = std::string("Cannot open database: ") +
+                (db ? sqlite3_errmsg(db) : "out of memory");
+      sqlite3_close(db);
+      return r;
+    }
+    sqlite3_busy_timeout(db, Impl::BUSY_TIMEOUT_MS);
+    struct Close {
+      sqlite3 *db;
+      ~Close() { sqlite3_close(db); }
+    } close{db};
+
+    // The same tables validateSchema() requires of every project.
+    const char *required[] = {"projects", "property_definitions",
+                              "material_passports", "passport_property_values",
+                              "passport_log"};
+    auto has_table = [&](const char *name) -> int { // 1 yes, 0 no, -1 error
+      sqlite3_stmt *st = nullptr;
+      if (sqlite3_prepare_v2(
+              db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;",
+              -1, &st, nullptr) != SQLITE_OK)
+        return -1;
+      sqlite3_bind_text(st, 1, name, -1, SQLITE_STATIC);
+      const int rc = sqlite3_step(st);
+      sqlite3_finalize(st);
+      return rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
+    };
+    for (const char *t : required) {
+      const int h = has_table(t);
+      if (h < 0) {
+        r.error = std::string("Cannot check for table '") + t +
+                  "': " + sqlite3_errmsg(db);
+        return r;
+      }
+      if (h == 0) {
+        r.error =
+            std::string("Required table '") + t + "' not found in database";
+        return r;
+      }
+    }
+    if (has_table("schema_version") == 1) {
+      sqlite3_stmt *st = nullptr;
+      if (sqlite3_prepare_v2(db, "SELECT MAX(version) FROM schema_version;", -1,
+                             &st, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(st) == SQLITE_ROW &&
+            sqlite3_column_type(st, 0) != SQLITE_NULL)
+          r.schema_version = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+      }
+    }
+    r.is_project = true;
+  } catch (const std::exception &e) {
+    r.error = e.what();
+  } catch (...) {
+    r.error = "unknown error";
+  }
+  return r;
+}
+
 // --- Resource templates (schema v25) ---
 
 namespace {

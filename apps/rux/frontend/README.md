@@ -19,9 +19,18 @@ progress, and the durable history timeline.
 It is a **pure client of the shared API contract** in
 [`docs/gui/openapi.yaml`](../../../docs/gui/openapi.yaml) and
 [`docs/gui/websocket-events.md`](../../../docs/gui/websocket-events.md), never
-of a particular server. `ruxd` implements that contract: today `ruxd --local`
-serves one project; multi-case routes (`/api/v1/cases/{cid}/…`) and users
+of a particular server. `ruxd` implements that contract: `ruxd --local`
+serves every `.rux` it is given as a case under `/api/v1/cases/{cid}/…`; users
 follow (spec `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
+
+**Cases in the URL.** Every case screen lives under `/sager/:cid/…`, and
+`/sager` is the case list (create, upload). `main.tsx` reads the path: inside a
+case it points `api` at `/api/v1/cases/{cid}` (`api.selectCase`) and runs the
+case app in a router whose basename is the case prefix, so in-case paths and
+links keep their case-relative spelling (`/kortlaegning`). Entering or leaving
+a case is a page load — a fresh client, events socket and viewport per case.
+An old unprefixed path goes to the same place in the last-used case, or to
+`/sager` (`src/app/cases.ts`).
 The `rux gui` subcommand that used to serve it is gone.
 
 ## Development
@@ -35,14 +44,15 @@ npm run dev                 # http://localhost:5173  (or: gui-dev)
 In another terminal, start the server the dev app talks to:
 
 ```bash
-ruxd --local scan.rux        # http://127.0.0.1:8420; --port to change
+ruxd --local scan.rux        # one case; http://127.0.0.1:8420/sager
+ruxd --local ~/sager         # every .rux in the directory is a case
 ```
 
-Or let `.claude/skills/design-studio/scripts/dev_env.sh start [project.rux]`
-start both halves against a throwaway copy of the project.
+Or let `.claude/skills/design-studio/scripts/dev_env.sh start [project.rux | dir]`
+start both halves against a throwaway copy.
 
-The Vite dev server proxies `/api` — REST **and** the `/api/v1/events`
-WebSocket — to `http://localhost:8420`. Override the target with `RUX_GUI_URL`:
+The Vite dev server proxies `/api` — REST **and** each case's
+`/api/v1/cases/{cid}/events` WebSocket — to `http://localhost:8420`. Override the target with `RUX_GUI_URL`:
 
 ```bash
 RUX_GUI_URL=http://localhost:9000 npm run dev

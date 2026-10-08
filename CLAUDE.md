@@ -426,7 +426,7 @@ tree — if a doc mentions `RTABMapDatabase`, that doc is stale.
   most releases)
 - **NOT thread-safe** (sqlite3): create a per-thread instance if needed
 - Every connection sets a 5 s sqlite busy timeout (`BUSY_TIMEOUT_MS`), and `ruxd --local`
-  holds one idle read-write connection for its lifetime so the WAL index survives
+  holds one idle read-write connection per open case for as long as it is open so the WAL index survives
   between per-request connections and the WAL is checkpointed into the .rux on
   exit (a read-only last closer cannot); a lock held past the timeout throws, never
   reads as "no table" / schema `-1`
@@ -495,9 +495,23 @@ query paths lease from a fixed-size connection pool
 thread count; `/readyz` deliberately keeps its own short-lived connection.
 
 `ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
-WebSocket contract in `docs/gui/openapi.yaml` for one project (a directory must
-hold exactly one `.rux` until multi-case routes land), with no Postgres, Redis
-or S3. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
+WebSocket contract in `docs/gui/openapi.yaml`, with no Postgres, Redis or S3.
+Every `.rux` it is given is a **case** (UI: "sag"): a lone file, or every
+`.rux` directly in a directory plus `<data-dir>/<id>/project.rux` case
+directories, where created and uploaded cases go (`--data-dir`, default the
+`--local` directory; a lone file is read-only). Case ids are slugs of the file
+name (`office_corridor.rux` → `office-corridor`). Every project route lives
+under `/api/v1/cases/{cid}/…`, the events WebSocket too; `/api/v1/cases`,
+`/api/v1/uploads` (chunked), `/health`, `/endpoints` and `/models/sam3/status`
+are server-level. Cases open lazily and close when idle (`ProjectRegistry`,
+`--max-open-cases`, `--case-idle-minutes`); each open case
+(`ProjectContext`) holds its WAL anchor, job queue + writer lock, photo cache
+and socket subscribers. Jobs of every case share one
+`reusex::pipeline::JobScheduler` (`--job-workers`, default 1, at most one
+running job per case); progress is per job via `core::ScopedProgressObserver`,
+not the process-global observer. Deleting a case moves it to
+`<data-dir>/.ruxd/trash/`. The frontend's case screens live under
+`/sager/:cid/…`. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
 unless `--auth-token` is set, and the token is then required on every request
 (Bearer header, the per-port `ruxd_token_<port>` cookie, or `?token=`, which
 sets the cookie and 303-redirects to the URL without it); the page's own
@@ -512,8 +526,8 @@ The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`
 its tests (`tests/unit/ruxd_api/`) stay in the light binary. The heavy pieces
 it needs — SAM3 segmenters, managed-model provider, renderer, ICP, the
 `optimize` stage — are built in `ruxd_lib` (`src/injected.cpp`, `src/icp.cpp`)
-and injected by `src/local.cpp`. Multi-case routes (`/api/v1/cases/{cid}/…`)
-and users are the next phases of
+and injected by `src/local.cpp`. Users, sessions and Postgres-backed cases and
+jobs are phase S3 of
 `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`.
 
 ## Development Patterns

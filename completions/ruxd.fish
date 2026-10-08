@@ -11,8 +11,13 @@ complete -c ruxd -s p -l port -r -d "Port to listen on (local mode default: 8420
 complete -c ruxd -s t -l threads -r -d "Number of worker threads (0 = auto)"
 complete -c ruxd -l auth-token -r -d "Access token (required with --local beyond loopback)"
 
-# Local mode: the web GUI for one project (formerly `rux gui`)
-complete -c ruxd -l local -r -F -d "Serve the web GUI for a .rux file or a directory holding one"
+# Local mode: the web GUI; every .rux it is given is a case (formerly `rux gui`)
+complete -c ruxd -l local -r -F -d "Serve the web GUI for a .rux file, or every .rux in a directory"
+complete -c ruxd -l data-dir -r -a "(__fish_complete_directories)" -d "Where created and uploaded cases are stored"
+complete -c ruxd -l job-workers -r -d "Pipeline jobs that may run at once (default 1; one per case)"
+complete -c ruxd -l max-open-cases -r -d "Most cases kept open at once (default 16)"
+complete -c ruxd -l case-idle-minutes -r -d "Close a case unused this long (default 10)"
+complete -c ruxd -l max-upload-mb -r -d "Largest .rux upload accepted, in MiB"
 complete -c ruxd -l bind -r -d "Interface to bind in local mode (default: 127.0.0.1)"
 complete -c ruxd -l allow-origin -r -d "Additional allowed browser origin (repeatable)"
 complete -c ruxd -l assets -r -a "(__fish_complete_directories)" -d "Directory holding the frontend bundle"

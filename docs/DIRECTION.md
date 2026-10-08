@@ -99,7 +99,7 @@ a `workstream: *` label so alignment can be queried with
 | Workstream | Label | Anchor | Intent (one line) |
 |---|---|---|---|
 | SLAM / reconstruction quality | `workstream: slam-quality` | #221, #225 | Reach ~10 mm plane flatness via an owned global pose-optimization stage (plane landmarks + GNC), measured against fixture scans — not by tuning RTABMap forever |
-| GUI application | `workstream: gui` | #265 | `ruxd` serving a designed web frontend — `ruxd --local` for one project today, then multi-case and multi-user over the same API contract; a native Qt client (plain `rux`) alongside; visual language authored in Claude Design, behaviour owned by the repo |
+| GUI application | `workstream: gui` | #265 | `ruxd` serving a designed web frontend — `ruxd --local` serves many cases today (`/api/v1/cases/{cid}`), multi-user next over the same API contract; a native Qt client (plain `rux`) alongside; visual language authored in Claude Design, behaviour owned by the repo |
 | Gaussian splatting | `workstream: gsplat` | #240 | Native C++/CUDA 3DGS trained from `ProjectDB` — point-cloud-seeded Gaussians, sensor frames and sliced 360 panoramas as views, Apache-licensed gsplat kernels under a GPL trainer |
 | 360 integration | `workstream: 360-integration` | #236 | Turn panoramas into wide-baseline pose-graph constraints; a panorama that sees many temporally-distant frames supplies exactly the loop closures the plane-landmark back-end cannot. Mechanism landed and tested (`rux optimize --use-panoramas`); **blocked on matcher quality** — cross-camera ORB resections are too weak to help, see [`research/panorama-loop-closure.md`](research/panorama-loop-closure.md) |
 | Agent-driven modeling | `workstream: agent-modeling` | #267 | Evaluate an agent + MCP gateway + Blender path to a simplified, tagged building model as a complement to the geometric pipeline; requires headless rendering so the agent has eyes |
@@ -189,6 +189,28 @@ changelog — that history is the point of keeping it in the repo.
 ---
 
 ## Direction changelog
+
+- **2026-10-08** — **GUI: one ruxd serves many cases** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream S, phase S2). A ruxd process is no longer bound to one project:
+  - Every project route lives under **`/api/v1/cases/{cid}/…`**, the events
+    WebSocket included; `/api/v1/cases` (list, create, rename/archive,
+    delete-to-trash) and chunked `/api/v1/uploads` are server-level, as are
+    `/health`, `/endpoints` and the SAM3 model status.
+  - `ruxd --local <dir>` serves every `.rux` in the directory as a case (ids
+    are slugs of the file names) and stores created and uploaded cases there,
+    one directory each (`--data-dir`). Cases open lazily and close when idle,
+    at most `--max-open-cases` at once.
+  - One process-wide job scheduler (`--job-workers`, default 1 because the GPU
+    is shared; at most one running job per case, round robin between cases).
+    Progress is now **per job** (`core::ScopedProgressObserver`), so two
+    cases' stages can run at once without mixing their progress. Job records
+    go through a store interface — in memory in local mode, Postgres in S3.
+  - The frontend's case screens move under `/sager/:cid/…` and `/sager` is a
+    real case list with create and upload; old unprefixed links forward to the
+    last-used case.
+  - Next: S3 (users, sessions, roles, Postgres-backed cases and jobs). Still
+    deferred: S3 snapshots of case files, multi-instance advisory locks, and
+    streaming request bodies (Crow buffers each upload chunk in memory).
 
 - **2026-10-08** — **GUI: the web backend moves into `ruxd`; `rux gui` is
   removed** ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),

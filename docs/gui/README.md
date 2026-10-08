@@ -15,7 +15,7 @@ talking to.
 | File | What it is |
 |---|---|
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 description of every REST endpoint |
-| [`websocket-events.md`](websocket-events.md) | The `/api/v1/events` channel: envelope, event types, client messages |
+| [`websocket-events.md`](websocket-events.md) | The per-case `/api/v1/cases/{cid}/events` channel: envelope, event types, client messages |
 | [`events.schema.json`](events.schema.json) | JSON Schema for the WebSocket envelope, for client/test validation |
 
 > `docs/api/` is Doxygen output and is **not** related to this directory.
@@ -30,15 +30,21 @@ talking to.
              ┌─────────────┴────┐   ┌──────┴──────────────┐
              │ ruxd --local     │   │ ruxd (server mode)  │
              │ in-process jobs  │   │ cases, users,       │
-             │ one project      │   │ Postgres            │
+             │ cases = .rux dir │   │ Postgres            │
              └──────────────────┘   └─────────────────────┘
 ```
 
-`ruxd --local <file.rux>` implements the contract today; it replaced `rux gui`
-(2026-10-08), with the same routes. The API code is `ruxd_api_lib`
-(`apps/ruxd/src/api/`). The multi-user server re-roots the same routes under
-`/api/v1/cases/{cid}/…` (spec
-`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
+`ruxd --local <file.rux | dir>` implements the contract today; it replaced
+`rux gui` (2026-10-08). The API code is `ruxd_api_lib` (`apps/ruxd/src/api/`).
+Since phase S2 of spec
+`docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`
+every `.rux` it is given is a **case**, and every project route lives under
+`/api/v1/cases/{cid}/…` — the events WebSocket too. Server-level routes are the
+case list and uploads (`/cases`, `/uploads`), `/health`, `/endpoints` and
+`/models/sam3/status`. Cases open lazily and close when idle
+(`ProjectRegistry`); jobs of every case share one worker pool
+(`--job-workers`, default 1, one running job per case). Users and sessions
+(phase S3) change who may call a route, not the routes.
 Nothing in the contract assumes the client and server share a filesystem, and
 job identifiers are opaque server-generated strings, so a queued/remote
 implementation slots in without frontend changes.
@@ -421,7 +427,8 @@ right.
 
 ```bash
 ruxd --local scan.rux            # 127.0.0.1:8420
-curl -s localhost:8420/api/v1/project | jq
+curl -s localhost:8420/api/v1/cases | jq           # the cases
+curl -s localhost:8420/api/v1/cases/<cid>/project | jq
 
 # What Gaussian splats does this project hold, and what do they cost to load?
 curl -s localhost:8420/api/v1/gsplats | jq

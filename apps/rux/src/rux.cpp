@@ -24,6 +24,10 @@
 #include <view.hpp>
 
 #include <reusex/core/logging.hpp>
+#include <rux_qt/launch.hpp>
+#ifdef RUX_HAVE_QT_CLIENT
+#include <rux_qt/app.hpp>
+#endif
 #include <reusex/core/version.hpp>
 
 #include <CLI/CLI.hpp>
@@ -192,6 +196,13 @@ int run(int argc, char **argv) {
   setup_subcommand_validate(app, opt);
   setup_subcommand_view(app, opt);
 
+  // Dev/test flag of the Qt client (plain `rux`): quit after N ms and print
+  // a one-line state report. Hidden from --help (empty group).
+  int quit_after_ms = -1;
+  app.add_option("--quit-after-ms", quit_after_ms,
+                 "Qt client: quit after N ms (smoke tests)")
+      ->group("");
+
   app.require_subcommand(/* min */ 0, /* max */ 2);
 
   argv = app.ensure_utf8(argv);
@@ -222,6 +233,50 @@ int run(int argc, char **argv) {
     // viewer to wind down — keep the original early-out.
     spdlog::shutdown(); // Flush async queue before exit
     return app.exit(e);
+  }
+
+  // No subcommand: plain `rux` (or `rux -p x.rux`) is the Qt client when
+  // there is a display, and the help text otherwise (rux_qt/launch.hpp).
+  {
+    auto env = [](const char *name) {
+      const char *v = std::getenv(name);
+      return std::string_view(v ? v : "");
+    };
+    rux::qt::LaunchInputs in;
+    in.has_subcommand = !app.get_subcommands().empty();
+#ifdef RUX_HAVE_QT_CLIENT
+    in.qt_client_built = true;
+#else
+    in.qt_client_built = false;
+#endif
+    in.display = env("DISPLAY");
+    in.wayland_display = env("WAYLAND_DISPLAY");
+    in.qpa_platform = env("QT_QPA_PLATFORM");
+    switch (rux::qt::decide_launch(in)) {
+    case rux::qt::LaunchAction::run_subcommand:
+      break;
+    case rux::qt::LaunchAction::print_help:
+      std::cout << app.help();
+      if (!in.has_subcommand && in.qt_client_built)
+        std::cout << "\nNo display: the desktop app (plain `rux`) needs X11 "
+                     "or Wayland. Run a subcommand instead.\n";
+      break;
+    case rux::qt::LaunchAction::open_app: {
+#ifdef RUX_HAVE_QT_CLIENT
+      rux::qt::AppOptions qopt;
+      // Only an explicit -p opens a project; the ./project.rux default
+      // would otherwise be created by the open.
+      if (app.count("--project") > 0)
+        qopt.project = QString::fromStdString(opt->project_db.string());
+      qopt.quit_after_ms = quit_after_ms;
+      const int rc = rux::qt::run_app(argc, argv, qopt);
+      teardown();
+      return rc;
+#else
+      break;
+#endif
+    }
+    }
   }
 
   teardown();

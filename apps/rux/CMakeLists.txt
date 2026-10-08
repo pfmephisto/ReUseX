@@ -123,6 +123,14 @@ install(TARGETS rux DESTINATION bin)
 
 # The native Qt client (Stream Q): rux_qt_core, rux_qt_lib, rux-qt-gallery.
 # BUILD_QT_CLIENT is defined in the top-level CMakeLists.txt.
+# Plain `rux` (no subcommand) launches the Qt client through rux_qt_lib;
+# rux_qt_core alone decides whether to (launch.hpp), so a build without the
+# client still prints help instead of doing nothing.
+# apps/rux/qt always defines rux_qt_core (standard library only) and the Qt
+# targets only under BUILD_QT_CLIENT.
+add_subdirectory(qt)
+target_link_libraries(rux_lib PRIVATE rux_qt_core)
 if(BUILD_QT_CLIENT)
-    add_subdirectory(qt)
+    target_link_libraries(rux_lib PRIVATE rux_qt_lib)
+    target_compile_definitions(rux_lib PRIVATE RUX_HAVE_QT_CLIENT)
 endif()

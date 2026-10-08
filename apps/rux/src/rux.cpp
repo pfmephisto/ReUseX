@@ -19,12 +19,12 @@
 #include <render.hpp>
 #include <rux_app.hpp>
 #include <set.hpp>
-#include <stage_executor.hpp>
 #include <validate.hpp>
 #include <view.hpp>
 
 #include <reusex/core/logging.hpp>
 #include <reusex/core/version.hpp>
+#include <reusex/pipeline/optimize_stage.hpp>
 #include <rux_qt/background.hpp>
 #include <rux_qt/launch.hpp>
 #include <rux_qt/workspace_logic.hpp>
@@ -282,7 +282,7 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
       if (app.count("--project") > 0)
         request.project = opt->project_db;
       request.quit_after_ms = quit_after_ms;
-      request.stage_executor = make_stage_executor();
+      request.stage_executor = reusex::pipeline::stage_executor_with_optimize();
       const int rc = launch_gui(argc, argv, request);
       if (rux::qt::background_work_in_flight() > 0) {
         // run_app's bounded wait ran out while a detached thread (a project

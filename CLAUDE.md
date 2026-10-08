@@ -325,9 +325,9 @@ binaries carry no Qt client code. Hidden dev flag:
 `rux -p x.rux --quit-after-ms N`.
 The Qt client's 3D workspace and `rux render` share one scene builder,
 `visualize::populate_scene()` (`visualize/scene.hpp`); its Pipeline workspace
-runs stages in-process through `pipeline::JobRunner` with rux_lib's
-`make_stage_executor()` (`apps/rux/src/stage_executor.cpp`, handed over in
-`GuiLaunch`), and "Kopiér som
+runs stages in-process through `pipeline::JobRunner` with
+`pipeline::stage_executor_with_optimize()` (handed over in `GuiLaunch`; the
+same executor ruxd injects for the web GUI), and "Kopiér som
 rux-kommando" (`rux_qt/cli_command.hpp`) is round-trip tested against the real
 CLI (`tests/unit/rux_app/test_cli_command_roundtrip.cpp`, via
 `rux::set_stage_params_sink`). `RUX_QT_PAGE=database|3d|posegraf|pipeline|log`
@@ -386,6 +386,11 @@ and deleted the shims. `include/geometry/` now holds only the real
 - `JointPairwiseRegistration.hpp`: `rux register`
 - `frame_pair_icp.hpp`: depth-cloud ICP between two stored frames, behind
   the web GUI's `/posegraph/icp` and the Qt client's pair strip
+- `optimize_parameters.hpp`: the optimize stage's JSON parameters →
+  `PlaneGraphOptions`, the one reader `rux optimize`, the Qt client and the
+  web GUI share. The in-process `optimize` stage itself is the header-only
+  `pipeline/optimize_stage.hpp` (`stage_executor_with_optimize()`), compiled
+  into rux and ruxd because `reusex_pipeline` must not link GTSAM (#464)
 - `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
 - `PanoramaLoopEdges.hpp`: wide-baseline `LoopEdge`s derived from 360
   panoramas (`rux optimize --use-panoramas`, #236). Each panorama is resected

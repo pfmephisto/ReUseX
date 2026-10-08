@@ -108,6 +108,10 @@ The allowance comes with obligations:
   (`io`, `visualize`, `apps/rux`, tests) and deliberately not into
   `reusex_geometry_common`,
   so that module keeps its Layer-1½ position (#227).
+  `pipeline/optimize_stage.hpp` follows the same pattern: the in-process
+  `optimize` stage needs `slam` (GTSAM), which `reusex_pipeline` must not
+  link (#464), so it is header-only and compiled into the apps that run it
+  (rux for the Qt client, ruxd for the web GUI), never into a library module.
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
 - **An app target owns exactly one symbol the tests cannot link: `main`.**

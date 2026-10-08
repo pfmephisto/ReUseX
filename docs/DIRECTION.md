@@ -190,6 +190,15 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **GUI: Qt client and ruxd server merged; one optimize
+  stage** (Stream Q merged onto Stream S). Both GUIs now run `optimize`
+  through the same code: `pipeline/optimize_stage.hpp`
+  (`stage_executor_with_optimize()`, header-only so `reusex_pipeline` stays
+  free of GTSAM) on top of `slam/optimize_parameters.hpp`, the reader `rux
+  optimize` uses too. Before, ruxd's web stage kept its own reader and let a
+  wrong-typed parameter escape as an exception; it is now an invalid input.
+  ruxd's `/posegraph/icp` is a thin adapter over `slam::refine_frame_pair_icp`,
+  like the Qt client's pair strip.
 - **2026-10-08** — **Native Qt client, phase Q3: 3D, Posegraf, Pipeline, Log**
   ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream Q). The client's remaining workspaces. **3D** draws with

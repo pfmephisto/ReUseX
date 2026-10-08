@@ -22,6 +22,7 @@
 
 #include <reusex/pipeline/mesh_parameters.hpp>
 #include <reusex/pipeline/stage_parameters.hpp>
+#include <reusex/slam/optimize_parameters.hpp>
 #include <rux_qt/cli_command.hpp>
 
 #include <CLI/CLI.hpp>
@@ -245,7 +246,8 @@ TEST_CASE("CliCommandRoundTrip_MeshAndOptimize_ShareTheStageReader",
           "[rux_app][cli][qt]") {
   // `rux create mesh` and `rux optimize` drive their solvers themselves, but
   // read their options through the same functions the in-process stages use
-  // (pipeline::mesh_options_from_parameters, apply_optimize_parameters). So
+  // (pipeline::mesh_options_from_parameters,
+  // geometry::apply_optimize_parameters). So
   // the parameters a command line produces become the same options a GUI run
   // with that JSON gets.
   {
@@ -271,9 +273,97 @@ TEST_CASE("CliCommandRoundTrip_MeshAndOptimize_ShareTheStageReader",
     const Captured got = parse_through_cli(cmd.args);
     auto from_cli = plane_graph_options(SubcommandOptimizeOptions{});
     bool dry = false;
-    apply_optimize_parameters(from_cli, dry, got.params.dump());
+    reusex::geometry::apply_optimize_parameters(from_cli, dry,
+                                                got.params.dump());
     CHECK(from_cli.min_landmark_observations == 7);
     CHECK_FALSE(from_cli.use_gnc);
     CHECK_FALSE(dry);
   }
+}
+
+TEST_CASE("CliCommandRoundTrip_OptimizeFlagDefaults_MatchTheStageBase",
+          "[rux_app][cli][qt]") {
+  // The in-process optimize stage (pipeline/optimize_stage.hpp: the Qt client
+  // and ruxd's web GUI) starts from PlaneGraphOptions{}; `rux optimize`
+  // starts from its flag defaults. Both then apply the same stage
+  // parameters, so they solve the same problem only while every flag default
+  // mirrors the library default (STANDARDS §4).
+  const reusex::geometry::PlaneGraphOptions lib;
+  const auto cli = plane_graph_options(SubcommandOptimizeOptions{});
+  CHECK(cli.max_planes_per_frame == lib.max_planes_per_frame);
+  CHECK(cli.min_plane_inliers == lib.min_plane_inliers);
+  CHECK(cli.ransac_distance == lib.ransac_distance);
+  CHECK(cli.ransac_normal_angle == lib.ransac_normal_angle);
+  CHECK(cli.ransac_iterations == lib.ransac_iterations);
+  CHECK(cli.assoc_normal_angle == lib.assoc_normal_angle);
+  CHECK(cli.assoc_distance == lib.assoc_distance);
+  CHECK(cli.min_landmark_observations == lib.min_landmark_observations);
+  CHECK(cli.assoc_overlap_margin == lib.assoc_overlap_margin);
+  CHECK(cli.min_landmark_spread_ratio == lib.min_landmark_spread_ratio);
+  CHECK(cli.assoc_rounds == lib.assoc_rounds);
+  CHECK(cli.assoc_round_tol == lib.assoc_round_tol);
+  CHECK(cli.odometry_sigma_rot == lib.odometry_sigma_rot);
+  CHECK(cli.odometry_sigma_trans == lib.odometry_sigma_trans);
+  CHECK(cli.underconstrained_odom_scale == lib.underconstrained_odom_scale);
+  CHECK(cli.plane_sigma_normal == lib.plane_sigma_normal);
+  CHECK(cli.plane_sigma_distance == lib.plane_sigma_distance);
+  CHECK(cli.plane_noise_model == lib.plane_noise_model);
+  CHECK(cli.odometry_noise_model == lib.odometry_noise_model);
+  CHECK(cli.odometry_weight_min == lib.odometry_weight_min);
+  CHECK(cli.odometry_weight_max == lib.odometry_weight_max);
+  CHECK(cli.odometry_robust == lib.odometry_robust);
+  CHECK(cli.odometry_gnc_inlier_cost == lib.odometry_gnc_inlier_cost);
+  CHECK(cli.plane_weight_min == lib.plane_weight_min);
+  CHECK(cli.plane_weight_max == lib.plane_weight_max);
+  CHECK(cli.plane_sigma_scale == lib.plane_sigma_scale);
+  CHECK(cli.use_plane_factors == lib.use_plane_factors);
+  CHECK(cli.prior_sigma_rot == lib.prior_sigma_rot);
+  CHECK(cli.prior_sigma_trans == lib.prior_sigma_trans);
+  CHECK(cli.use_gnc == lib.use_gnc);
+  CHECK(cli.gnc_inlier_cost == lib.gnc_inlier_cost);
+  CHECK(cli.max_iterations == lib.max_iterations);
+  CHECK(cli.seed == lib.seed);
+  CHECK(cli.surfel.min_distance == lib.surfel.min_distance);
+  CHECK(cli.surfel.max_distance == lib.surfel.max_distance);
+  CHECK(cli.surfel.sampling_factor == lib.surfel.sampling_factor);
+  CHECK(cli.surfel.confidence_threshold == lib.surfel.confidence_threshold);
+  CHECK(cli.surfel.voxel_size == lib.surfel.voxel_size);
+  CHECK(cli.loop_closure.enable == lib.loop_closure.enable);
+  CHECK(cli.loop_closure.proposal == lib.loop_closure.proposal);
+  CHECK(cli.loop_closure.min_frame_gap == lib.loop_closure.min_frame_gap);
+  CHECK(cli.loop_closure.max_candidate_distance ==
+        lib.loop_closure.max_candidate_distance);
+  CHECK(cli.loop_closure.max_view_angle == lib.loop_closure.max_view_angle);
+  CHECK(cli.loop_closure.max_candidates_per_frame ==
+        lib.loop_closure.max_candidates_per_frame);
+  CHECK(cli.loop_closure.min_match_inliers ==
+        lib.loop_closure.min_match_inliers);
+  CHECK(cli.loop_closure.max_features == lib.loop_closure.max_features);
+  CHECK(cli.loop_closure.ratio_test == lib.loop_closure.ratio_test);
+  CHECK(cli.loop_closure.ransac_inlier_dist ==
+        lib.loop_closure.ransac_inlier_dist);
+  CHECK(cli.loop_closure.max_seed_disagreement ==
+        lib.loop_closure.max_seed_disagreement);
+  CHECK(cli.loop_closure.min_seed_disagreement ==
+        lib.loop_closure.min_seed_disagreement);
+  CHECK(cli.loop_closure.min_seed_disagreement_fraction ==
+        lib.loop_closure.min_seed_disagreement_fraction);
+  CHECK(cli.loop_closure.pcm == lib.loop_closure.pcm);
+  CHECK(cli.loop_edges_trusted == lib.loop_edges_trusted);
+  CHECK(cli.loop_trust_inlier_cost == lib.loop_trust_inlier_cost);
+  CHECK(cli.loop_edges_file == lib.loop_edges_file);
+  CHECK(cli.loop_edges_min_seed_disagreement ==
+        lib.loop_edges_min_seed_disagreement);
+  CHECK(cli.loop_edges_min_seed_disagreement_fraction ==
+        lib.loop_edges_min_seed_disagreement_fraction);
+  CHECK(cli.panorama_loops.enable == lib.panorama_loops.enable);
+  CHECK(cli.panorama_loops.max_frames == lib.panorama_loops.max_frames);
+  CHECK(cli.panorama_loops.min_frame_inliers ==
+        lib.panorama_loops.min_frame_inliers);
+  CHECK(cli.panorama_loops.max_edges_per_panorama ==
+        lib.panorama_loops.max_edges_per_panorama);
+  CHECK(cli.panorama_loops.n_yaw == lib.panorama_loops.n_yaw);
+  CHECK(cli.panorama_loops.max_features == lib.panorama_loops.max_features);
+  CHECK(cli.panorama_loops.max_pano_distance ==
+        lib.panorama_loops.max_pano_distance);
 }

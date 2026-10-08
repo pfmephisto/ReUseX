@@ -9,6 +9,7 @@
 
 #include <reusex/core/ProjectDB.hpp>
 #include <reusex/slam/PlaneGraphOptimizer.hpp>
+#include <reusex/slam/optimize_parameters.hpp>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -493,29 +494,6 @@ plane_graph_options(SubcommandOptimizeOptions const &opt) {
   return options;
 }
 
-void apply_optimize_parameters(reusex::geometry::PlaneGraphOptions &options,
-                               bool &dry_run, const std::string &parameters) {
-  nlohmann::json params = nlohmann::json::object();
-  if (!parameters.empty()) {
-    params = nlohmann::json::parse(parameters, nullptr,
-                                   /*allow_exceptions=*/false);
-    if (params.is_discarded() || !params.is_object())
-      throw std::invalid_argument("optimize parameters must be a JSON object");
-  }
-  auto get = [&](const char *key, auto fallback) {
-    auto it = params.find(key);
-    return it == params.end() || it->is_null()
-               ? fallback
-               : it->template get<decltype(fallback)>();
-  };
-  options.min_landmark_observations =
-      get("min_observations", options.min_landmark_observations);
-  options.assoc_rounds = get("assoc_rounds", options.assoc_rounds);
-  if (get("no_gnc", false))
-    options.use_gnc = false;
-  dry_run = get("dry_run", dry_run);
-}
-
 int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
                             const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
@@ -547,7 +525,8 @@ int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,
     // cannot read min_observations / assoc_rounds / no_gnc / dry_run apart.
     reusex::geometry::PlaneGraphOptions options = plane_graph_options(opt);
     bool dry_run = opt.dry_run;
-    apply_optimize_parameters(options, dry_run, optimize_stage_parameters(opt));
+    reusex::geometry::apply_optimize_parameters(options, dry_run,
+                                                optimize_stage_parameters(opt));
 
     int logId = db.log_pipeline_start(
         "pose_optimization_plane_graph",

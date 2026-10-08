@@ -249,7 +249,8 @@ ReUseX/
 ├── apps/rux/                       # CLI application
 │   ├── include/ + src/             # Subcommands, grouped in subdirs
 │   └── qt/                         # Native Qt client (in progress): rux_qt_core,
-│                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss
+│                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss;
+│                                   #   shell (Q1) + Database workspace (Q2)
 ├── apps/ruxd/                      # HTTP service worker (ruxd)
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
@@ -354,6 +355,8 @@ and deleted the shims. `include/geometry/` now holds only the real
   RANSAC), enabled with `--loop-closure`; run `rux optimize --help` for the
   current flag list rather than trusting a doc.
 - `JointPairwiseRegistration.hpp`: `rux register`
+- `frame_pair_icp.hpp`: depth-cloud ICP between two stored frames, behind
+  the web GUI's `/posegraph/icp` and the Qt client's pair strip
 - `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
 - `PanoramaLoopEdges.hpp`: wide-baseline `LoopEdge`s derived from 360
   panoramas (`rux optimize --use-panoramas`, #236). Each panorama is resected

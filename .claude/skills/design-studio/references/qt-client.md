@@ -2,9 +2,9 @@
 
 The second surface of the one design system. Status: **in progress** (Stream
 Q of `docs/superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md`).
-Q0 — this loop, the theme loader, the gallery and two demo pages — and Q1 —
-the app shell plain `rux` opens — are done; the Database workspace (Q2) and
-3D / pose graph / Pipeline (Q3) build on them.
+Q0 — this loop, the theme loader, the gallery and two demo pages — Q1 —
+the app shell plain `rux` opens — and Q2 — the Database workspace — are
+done; 3D / pose graph / Pipeline (Q3) build on them.
 
 ## 1. Where things live
 
@@ -27,7 +27,15 @@ apps/rux/qt/
 │   ├── AppShell.hpp          title bar, nav rail, stack, Inspector
 │   ├── StartPage.hpp         open / drop / recent / summary / error cards
 │   ├── CommandPalette.hpp    Ctrl+K overlay
-│   ├── workspaces.hpp        page order + Q2/Q3 placeholders
+│   ├── workspaces.hpp        page order + Q3 placeholders
+│   ├── DatabaseWorkspace.hpp Q2: ProjectTree + stack + pending banner
+│   ├── FrameBrowser.hpp      A/B sides, ImagePane, filmstrip, PairStrip
+│   ├── FrameImageLoader.hpp  off-thread decode (own read-only ProjectDBs)
+│   ├── EdgeEditor.hpp        pending pose-graph edits -> one transaction
+│   ├── TableBrowser.hpp      any sqlite table (paged), pipeline log
+│   ├── selection.hpp         what the inspector shows for a selection
+│   ├── database_logic.hpp    Qt-free: A/B pair, keys, pending edits,
+│   │   background.hpp        paging, formatters; detached-work counter
 │   └── app.hpp               run_app(): QApplication + MainWindow
 ├── src/  src/core/           implementations (core/ = the Qt-free half)
 ├── styles/app.qss            THE stylesheet template — var(--token) only
@@ -36,6 +44,16 @@ apps/rux/qt/
 └── gallery/                  rux-qt-gallery: main.cpp, demo pages and
                               shell_pages.cpp (the real AppShell)
 ```
+
+The Database pages (Q2), best shot with a real project copy (`--project`
+<copy of a project with frames>; the default fixture has few frames):
+`db-frames`, `db-depth`, `db-confidence`, `db-pending` (an ICP run plus a
+staged edge), `db-readonly` (a save refused, Danish banner), `db-saved`
+(WRITES an edge to the copy), `db-table`, `db-log`, `db-cloud`. The
+gallery waits for `FrameImageLoader::busy()` and
+`background_work_in_flight()` to reach 0 (twice) before it grabs.
+`RUX_QT_PAGE=database rux -p <copy> --quit-after-ms N` smokes the
+workspace in the real binary.
 
 The app shell's gallery pages: `start`, `start-readonly`, `start-empty`,
 `start-error`, `shell-empty`, `shell-project`, `palette-open` (query "pro"),
@@ -196,6 +214,19 @@ shot shows microscopic or wrong-face text, dump the QSS (`RUX_QT_DUMP_QSS`).
   Scope the specific rule the same way: `QFrame#card QLabel#chip`.
 - A `QPushButton` given a layout of labels (a clickable row) does not size
   from it: `setMinimumHeight(layout->sizeHint().height())`.
+- **`slots` is a Qt macro** (also `signals`, `emit`): a variable named
+  `slots` fails with "expected primary-expression" far from the cause.
+- **QSS cannot draw a slider handle taller than its groove** without a
+  negative margin, which the token lint rejects: the handle is a pill on a
+  6 px track instead.
+- **`QHeaderView::section` font rules replace a font set in code**, losing
+  `QFont::AllUppercase`: return upper-case header text from the model.
+- **Off-thread images**: never touch the session's ProjectDB from a worker;
+  open a read-only one per thread. Planes coloured by the theme (depth,
+  confidence, labels) are decoded as Indexed8 and get their colour table at
+  paint time, so a theme switch needs no re-decode.
+- **Only the view on screen drives the inspector**: a frame finishing its
+  decode behind a table must not replace the selected row.
 - A path in a narrow column: `ElidedLabel` (Qt::ElideMiddle keeps the file
   name); plain QLabel text never elides and widens its parent.
 

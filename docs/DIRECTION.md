@@ -190,6 +190,20 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-08** — **Native Qt client, phase Q2: the Database workspace**
+  ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
+  Stream Q). RTABMap's DatabaseViewer, made calm: a project tree with
+  counts; an A/B frame browser (colour, depth or confidence under the label
+  overlay and legend; pose, camera and time; ←/→ and Shift+←/→; filmstrip)
+  decoding off the GUI thread; a pair strip that shows the pose-graph edges
+  between A and B and edits them — ICP refine, add, delete — as pending
+  edits saved in one transaction with "Gem ændringer"; a read-only viewer
+  for every sqlite table; the pipeline log; and an inspector for whatever is
+  selected. Two library additions came with it: `ProjectDB::list_tables /
+  table_columns / table_rows` (read-only, blob sizes without the bytes) and
+  `slam::refine_frame_pair_icp`, the ICP that was app code behind the web
+  GUI's `/posegraph/icp` and is now shared by both clients. A WAL-mode
+  project in a read-only directory now probes and opens read-only.
 - **2026-10-08** — **Native Qt client, phase Q1: plain `rux` is an app**
   ([spec](superpowers/specs/2026-10-08-ruxd-multiuser-and-qt-client-design.md),
   Stream Q). `rux` with no subcommand (or `rux -p x.rux`) now opens the Qt

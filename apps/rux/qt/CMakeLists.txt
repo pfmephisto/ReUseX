@@ -19,15 +19,6 @@
 # AUTOMOC/AUTORCC are set per target: they are OFF globally (only
 # GUI_ENABLED turns them on for the whole tree).
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
-find_package(VTK REQUIRED COMPONENTS
-    CommonCore
-    CommonDataModel
-    RenderingCore
-    RenderingOpenGL2
-    InteractionStyle
-    GUISupportQt)
-
 # ---------------------------------------------------------------------------
 add_library(rux_qt_core STATIC
     src/core/tokens.cpp
@@ -37,6 +28,21 @@ add_library(rux_qt_core STATIC
     src/core/launch.cpp)
 target_include_directories(rux_qt_core PUBLIC include)
 target_compile_features(rux_qt_core PUBLIC cxx_std_20)
+
+# Everything below is the Qt half. Without the client, `rux` still links
+# rux_qt_core to decide what plain `rux` does (help instead of the app).
+if(NOT BUILD_QT_CLIENT)
+    return()
+endif()
+
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets)
+find_package(VTK REQUIRED COMPONENTS
+    CommonCore
+    CommonDataModel
+    RenderingCore
+    RenderingOpenGL2
+    InteractionStyle
+    GUISupportQt)
 
 # ---------------------------------------------------------------------------
 # Headers are listed as sources so AUTOMOC finds the Q_OBJECT classes: it

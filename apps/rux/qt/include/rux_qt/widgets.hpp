@@ -84,6 +84,8 @@ class NavItem : public QPushButton {
           QWidget *parent = nullptr);
   /// Keyboard mnemonic safety: a raw '&' in a page name is shown literally.
   static QString escape_mnemonic(QString s);
+  /// Replace the count chip's text; empty hides the chip.
+  void set_count(const QString &count);
 
     private:
   void sync_active(bool on);
@@ -102,6 +104,9 @@ class NavRail : public QFrame {
   NavItem *add_item(const QString &label, const QString &count = {});
   void add_footer(QWidget *w);
   void set_current(int index);
+  int current() const;
+  NavItem *item(int index) const;
+  void set_project_name(const QString &name);
 
     signals:
   void current_changed(int index);
@@ -110,6 +115,28 @@ class NavRail : public QFrame {
   QVBoxLayout *items_ = nullptr;
   QVBoxLayout *footer_ = nullptr;
   QButtonGroup *group_ = nullptr;
+  CapsLabel *name_ = nullptr;
+};
+
+/// A one-line label that elides instead of growing its parent: Qt::ElideMiddle
+/// for paths (the file name stays visible), ElideRight for prose. The full
+/// text is the tooltip.
+class ElidedLabel : public QLabel {
+  Q_OBJECT
+    public:
+  ElidedLabel(const QString &text, Qt::TextElideMode mode = Qt::ElideMiddle,
+              QWidget *parent = nullptr);
+  void set_full_text(const QString &text);
+  QString full_text() const { return full_; }
+  QSize minimumSizeHint() const override;
+  QSize sizeHint() const override;
+
+    protected:
+  void paintEvent(QPaintEvent *) override;
+
+    private:
+  QString full_;
+  Qt::TextElideMode mode_;
 };
 
 /// One categorical entry of a label legend.
@@ -148,6 +175,9 @@ class PropertyList : public QWidget {
     public:
   explicit PropertyList(QWidget *parent = nullptr);
   void add(const QString &key, const QString &value, bool mono = true);
+  /// A row whose key is a name (a cloud, a table): shown as written, in
+  /// mono, not in caps.
+  void add_name(const QString &name, const QString &value);
 
     private:
   QGridLayout *grid_ = nullptr;

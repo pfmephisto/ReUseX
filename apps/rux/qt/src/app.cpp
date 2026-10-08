@@ -1,0 +1,164 @@
+// SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include <rux_qt/AppShell.hpp>
+#include <rux_qt/ProjectSession.hpp>
+#include <rux_qt/RecentProjects.hpp>
+#include <rux_qt/Theme.hpp>
+#include <rux_qt/app.hpp>
+#include <rux_qt/fonts.hpp>
+
+#include <QApplication>
+#include <QCloseEvent>
+#include <QFileInfo>
+#include <QMainWindow>
+#include <QScreen>
+#include <QSettings>
+#include <QSurfaceFormat>
+#include <QTimer>
+#include <QVTKOpenGLNativeWidget.h>
+
+#include <cstdio>
+
+namespace rux::qt {
+namespace {
+
+constexpr const char *kThemeKey = "theme";
+constexpr const char *kGeometryKey = "mainWindow/geometry";
+constexpr const char *kInspectorKey = "mainWindow/inspector";
+
+/// The window: the shell plus what only a top-level window has — geometry
+/// and the settings it remembers between runs.
+class MainWindow : public QMainWindow {
+    public:
+  MainWindow(ProjectSession &session, RecentProjects &recent) {
+    setObjectName("mainWindow");
+    shell_ = new AppShell(session, recent, this);
+    setCentralWidget(shell_);
+    setWindowTitle("ReUseX");
+    setMinimumSize(theme().px("--layout-nav-width") * 4,
+                   theme().px("--layout-panel-width") * 2);
+
+    QSettings s;
+    if (!restoreGeometry(s.value(kGeometryKey).toByteArray())) {
+      QSize size(1440, 900); // the design reference size (qt_shot.sh)
+      if (const QScreen *scr = QGuiApplication::primaryScreen())
+        size = size.boundedTo(scr->availableSize() * 9 / 10);
+      resize(size);
+    }
+    shell_->set_inspector_visible(s.value(kInspectorKey, true).toBool());
+    connect(shell_, &AppShell::inspector_toggled, this,
+            [](bool on) { QSettings().setValue(kInspectorKey, on); });
+    connect(shell_, &AppShell::quit_requested, this, &QWidget::close);
+  }
+
+  AppShell *shell() const { return shell_; }
+
+    protected:
+  void closeEvent(QCloseEvent *e) override {
+    QSettings().setValue(kGeometryKey, saveGeometry());
+    QMainWindow::closeEvent(e);
+  }
+
+    private:
+  AppShell *shell_ = nullptr;
+};
+
+const char *state_name(ProjectSession::State s) {
+  switch (s) {
+  case ProjectSession::State::empty:
+    return "empty";
+  case ProjectSession::State::loading:
+    return "loading";
+  case ProjectSession::State::open:
+    return "open";
+  case ProjectSession::State::failed:
+    return "failed";
+  }
+  return "?";
+}
+
+} // namespace
+
+int run_app(int argc, char **argv, const AppOptions &options) {
+  // Before the QApplication: every QVTKOpenGLNativeWidget (the 3D
+  // workspace, Q3) needs this default format, and it cannot be set later.
+  QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
+
+  int qt_argc = 1; // rux's own flags are not Qt's to parse
+  char *qt_argv[] = {argv[0], nullptr};
+  (void)argc;
+  QApplication app(qt_argc, qt_argv);
+  QApplication::setOrganizationName("ReUseX");
+  QApplication::setApplicationName("rux");
+  QApplication::setApplicationDisplayName("ReUseX");
+
+  ensure_bundled_fonts();
+  QSettings settings;
+  const ThemeMode mode = settings.value(kThemeKey, "dark").toString() == "light"
+                             ? ThemeMode::light
+                             : ThemeMode::dark;
+  // Hot reload from the source tree in a Debug build or with RUX_QT_DEV=1;
+  // otherwise the stylesheet snapshot compiled into the binary.
+#ifdef NDEBUG
+  const bool dev = qEnvironmentVariableIntValue("RUX_QT_DEV") == 1;
+#else
+  const bool dev = true;
+#endif
+  const Theme::Source source =
+      dev ? Theme::dev_source() : Theme::embedded_source();
+  theme().apply(mode, source);
+
+  ProjectSession session;
+  RecentProjects *recent = RecentProjects::from_settings(&app);
+  MainWindow window(session, *recent);
+
+  QObject::connect(window.shell(), &AppShell::toggle_theme_requested, &app,
+                   [source] {
+                     const ThemeMode next = theme().mode() == ThemeMode::dark
+                                                ? ThemeMode::light
+                                                : ThemeMode::dark;
+                     theme().apply(next, source);
+                     QSettings().setValue(
+                         kThemeKey, next == ThemeMode::dark ? "dark" : "light");
+                   });
+
+  const bool report = options.quit_after_ms >= 0;
+  if (report) {
+    QObject::connect(&session, &ProjectSession::opened, &app, [&session] {
+      std::fprintf(stderr, "rux: project open: %s (schema v%d, %lld ms%s)\n",
+                   qPrintable(session.path()), session.summary().schema_version,
+                   static_cast<long long>(session.load_ms()),
+                   session.is_read_only() ? ", read-only" : "");
+    });
+    QObject::connect(&session, &ProjectSession::open_failed, &app, [&session] {
+      std::fprintf(stderr, "rux: project failed: %s: %s — %s\n",
+                   qPrintable(session.path()),
+                   qPrintable(session.error().title),
+                   qPrintable(session.error().detail));
+    });
+  }
+
+  window.show();
+  if (!options.project.isEmpty())
+    window.shell()->open_project(options.project);
+
+  if (report) {
+    std::fprintf(stderr, "rux: main window shown (%dx%d, platform %s)\n",
+                 window.width(), window.height(),
+                 qPrintable(QGuiApplication::platformName()));
+    QTimer::singleShot(options.quit_after_ms, &app, [&] {
+      std::fprintf(stderr,
+                   "rux: quitting after %d ms; window visible=%d, page=%d, "
+                   "project state=%s\n",
+                   options.quit_after_ms, window.isVisible() ? 1 : 0,
+                   static_cast<int>(window.shell()->current_page()),
+                   state_name(session.state()));
+      window.close();
+      app.quit();
+    });
+  }
+  return app.exec();
+}
+
+} // namespace rux::qt

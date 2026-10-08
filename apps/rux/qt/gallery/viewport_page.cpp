@@ -182,6 +182,7 @@ void register_demo_pages() {
                  make_components_page});
   register_page({"viewport", "3D-pladsholder: punktskyen via VTK EGL offscreen",
                  make_viewport_page});
+  register_shell_pages();
 }
 
 } // namespace rux::qt::gallery

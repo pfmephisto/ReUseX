@@ -155,11 +155,10 @@ NavItem::NavItem(const QString &label, const QString &count, QWidget *parent)
   text_->setObjectName("navText");
   l->addWidget(dot_, 0, Qt::AlignVCenter);
   l->addWidget(text_, 1);
-  if (!count.isEmpty()) {
-    count_ = new QLabel(count);
-    count_->setObjectName("navCount");
-    l->addWidget(count_, 0, Qt::AlignVCenter);
-  }
+  count_ = new QLabel(count);
+  count_->setObjectName("navCount");
+  count_->setVisible(!count.isEmpty());
+  l->addWidget(count_, 0, Qt::AlignVCenter);
   for (QWidget *w :
        {static_cast<QWidget *>(dot_), static_cast<QWidget *>(text_),
         static_cast<QWidget *>(count_)})
@@ -169,6 +168,11 @@ NavItem::NavItem(const QString &label, const QString &count, QWidget *parent)
   sync_active(false);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   setMinimumHeight(l->sizeHint().height());
+}
+
+void NavItem::set_count(const QString &count) {
+  count_->setText(count);
+  count_->setVisible(!count.isEmpty());
 }
 
 void NavItem::sync_active(bool on) {
@@ -196,11 +200,11 @@ NavRail::NavRail(const QString &project_name, QWidget *parent)
   eyebrow->setContentsMargins(theme().px("--space-4"), 0,
                               theme().px("--space-4"), 0);
   l->addWidget(eyebrow);
-  auto *name = new CapsLabel(project_name, "railProject", "--tracking-caps");
-  name->setContentsMargins(theme().px("--space-4"), theme().px("--space-1"),
-                           theme().px("--space-4"), theme().px("--space-3"));
-  name->setToolTip(project_name);
-  l->addWidget(name);
+  name_ = new CapsLabel(project_name, "railProject", "--tracking-caps");
+  name_->setContentsMargins(theme().px("--space-4"), theme().px("--space-1"),
+                            theme().px("--space-4"), theme().px("--space-3"));
+  name_->setToolTip(project_name);
+  l->addWidget(name_);
 
   items_ = new QVBoxLayout;
   items_->setSpacing(0);
@@ -236,6 +240,54 @@ void NavRail::add_footer(QWidget *w) { footer_->addWidget(w); }
 void NavRail::set_current(int index) {
   if (auto *b = group_->button(index))
     b->setChecked(true);
+}
+
+int NavRail::current() const { return group_->checkedId(); }
+
+NavItem *NavRail::item(int index) const {
+  return qobject_cast<NavItem *>(group_->button(index));
+}
+
+void NavRail::set_project_name(const QString &name) {
+  name_->setText(name);
+  name_->setToolTip(name);
+  name_->updateGeometry();
+  name_->update();
+}
+
+// -------------------------------------------------------------- ElidedLabel --
+
+ElidedLabel::ElidedLabel(const QString &text, Qt::TextElideMode mode,
+                         QWidget *parent)
+    : QLabel(parent), mode_(mode) {
+  set_full_text(text);
+  setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+}
+
+void ElidedLabel::set_full_text(const QString &text) {
+  full_ = text;
+  setText(text); // keeps sizeHint and accessibility honest
+  setToolTip(text);
+  updateGeometry();
+  update();
+}
+
+QSize ElidedLabel::minimumSizeHint() const {
+  return {0, QLabel::minimumSizeHint().height()};
+}
+
+QSize ElidedLabel::sizeHint() const { return QLabel::sizeHint(); }
+
+void ElidedLabel::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  QStyleOption opt;
+  opt.initFrom(this);
+  style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+  p.setPen(palette().color(foregroundRole()));
+  p.setFont(font());
+  const QRect r = contentsRect();
+  p.drawText(r, static_cast<int>(alignment()) | Qt::TextSingleLine,
+             fontMetrics().elidedText(full_, mode_, r.width()));
 }
 
 // ------------------------------------------------------------------- Swatch --
@@ -300,6 +352,19 @@ void PropertyList::add(const QString &key, const QString &value, bool mono) {
   grid_->addWidget(k, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
   auto *v = new QLabel(value);
   v->setObjectName(mono ? "propValueMono" : "propValue");
+  v->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  grid_->addWidget(v, row, 1);
+}
+
+void PropertyList::add_name(const QString &name, const QString &value) {
+  const int row = grid_->rowCount();
+  auto *k = new QLabel(name);
+  k->setObjectName("propName");
+  k->setToolTip(name);
+  grid_->addWidget(k, row, 0, Qt::AlignLeft | Qt::AlignVCenter);
+  auto *v = new QLabel(value);
+  v->setObjectName("propValueMono");
   v->setTextInteractionFlags(Qt::TextSelectableByMouse);
   v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   grid_->addWidget(v, row, 1);

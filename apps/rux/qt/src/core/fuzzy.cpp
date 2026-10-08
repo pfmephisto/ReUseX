@@ -123,6 +123,19 @@ int gap_cost(std::size_t gap) {
   return -std::min<int>(static_cast<int>(gap) * kGapPerChar, kGapCap);
 }
 
+/// The fuzzy score of @p query against @p keywords if the query occurs as a
+/// contiguous run in them, else -1.
+int keyword_score(std::string_view query, std::string_view keywords) {
+  std::vector<int> pos;
+  const int s = fuzzy_score(query, keywords, &pos);
+  if (s < 0)
+    return -1;
+  for (std::size_t i = 1; i < pos.size(); ++i)
+    if (pos[i] != pos[i - 1] + 1)
+      return -1;
+  return s;
+}
+
 } // namespace
 
 int fuzzy_score(std::string_view query_utf8, std::string_view text_utf8,
@@ -245,7 +258,10 @@ rank_palette(std::string_view query,
       out.push_back(std::move(m));
       continue;
     }
-    const int k = fuzzy_score(query, candidates[i].keywords);
+    // Keywords are long free text, where a scattered subsequence matches
+    // almost anything: they only count when the query occurs in them as one
+    // run (after folding), e.g. "theme" in "theme lys mørk".
+    const int k = keyword_score(query, candidates[i].keywords);
     if (k >= 0) {
       m.positions.clear();
       m.score = k + kKeywordOffset;

@@ -134,6 +134,16 @@ TEST_CASE("Palette_KeywordOnlyMatch_RanksBelowTitleMatch_WithoutPositions",
   CHECK_FALSE(m[0].positions.empty());
 }
 
+TEST_CASE("Palette_KeywordMatch_NeedsAContiguousRun", "[rux_qt][palette]") {
+  const std::vector<PaletteCandidate> c = {{"Afslut", "quit exit"},
+                                           {"Log", "pipeline kørsel"}};
+  // q-t: a subsequence of "quit", not a run -> no match.
+  CHECK(rank_palette("qt", c).empty());
+  CHECK(rank_palette("quit", c).size() == 1);
+  // Folding applies inside keywords too.
+  CHECK(rank_palette("korsel", c).size() == 1);
+}
+
 TEST_CASE("Palette_Ties_AreBrokenByLengthThenOrder", "[rux_qt][palette]") {
   const std::vector<PaletteCandidate> c = {
       {"Projekt B lang", ""}, {"Projekt A", ""}, {"Projekt C", ""}};

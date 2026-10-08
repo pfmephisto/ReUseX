@@ -424,6 +424,11 @@ QLabel#propValue {
   color: var(--color-text);
   font-size: var(--font-size-sm);
 }
+QLabel#propName {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
 QLabel#propValueMono {
   color: var(--color-text);
   font-family: var(--font-mono);
@@ -573,4 +578,293 @@ QLabel#jobMeta {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   background: transparent;
+}
+
+/* ======================================================= app shell (Q1) */
+
+#startPage, #workspaceStack, #startScroll, #inspectorScroll {
+  background: var(--color-surface);
+}
+#inspectorScroll, #inspectorBody, #inspectorHead {
+  background: var(--color-surface-raised);
+}
+QFrame#inspector > #inspectorHead {
+  border-bottom: 1px solid var(--color-border);
+}
+QLabel[role="sectionLabel"] {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-bold);
+  background: transparent;
+}
+QPushButton#inspectorHide {
+  padding: var(--space-1) var(--space-2);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Title-bar buttons on the navy chrome. */
+QPushButton#chromeButton {
+  background: transparent;
+  border: 1px solid var(--color-chrome-border);
+  border-radius: var(--radius-md);
+  padding: 0;
+}
+QPushButton#chromeButton:hover {
+  background: var(--color-chrome-raised);
+}
+QPushButton#chromeButton:checked {
+  background: var(--color-chrome-raised);
+  border: 1px solid var(--color-on-chrome-muted);
+}
+QPushButton#chromeButton:focus {
+  border: 1px solid var(--color-accent);
+}
+QLabel#chromeButtonText {
+  color: var(--color-on-chrome);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+#titleBar QLabel#titleProject {
+  color: var(--color-on-chrome);
+}
+
+/* The rail's Ctrl+K footer is a button. */
+QPushButton#railPalette {
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+}
+QPushButton#railPalette:hover QLabel#railHint {
+  color: var(--color-on-chrome);
+}
+
+/* ------------------------------------------------------- start page --- */
+
+QLabel#heroTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  background: transparent;
+}
+QLabel#heroText {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  background: transparent;
+}
+QLabel#warnText {
+  color: var(--tone-warn-ink);
+  background: var(--tone-warn-bg);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+}
+QLabel#metaText, QLabel#panelCount {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
+  background: transparent;
+}
+QLabel#pathMono {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: transparent;
+}
+QLabel#kbd {
+  color: var(--color-text-faint);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+QFrame#dropZone {
+  background: var(--color-surface-sunken);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+QFrame#dropZone[active="true"] {
+  background: var(--color-accent-muted);
+  border: 1px dashed var(--color-accent);
+}
+QLabel#dropTitle {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  background: transparent;
+}
+QLabel#dropHint {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-sm);
+  background: transparent;
+}
+
+QFrame#errorCard {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-status-failed);
+  border-radius: var(--radius-lg);
+}
+QFrame#errorCard QLabel {
+  background: transparent;
+}
+QLabel#errorTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+QLabel#errorText {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+QFrame#errorCard QLabel#errorDetail {
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+QPushButton#recentRow {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0;
+  text-align: left;
+}
+QPushButton#recentRow:hover {
+  background: var(--color-surface-sunken);
+}
+QPushButton#recentRow[missing="true"]:hover {
+  background: transparent;
+}
+QPushButton#recentRow:focus {
+  border: 1px solid var(--color-border-focus);
+}
+QLabel#recentName {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  background: transparent;
+}
+QLabel#recentName[missing="true"] {
+  color: var(--color-text-faint);
+}
+QLabel#recentPath {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: transparent;
+}
+QPushButton#recentRemove {
+  padding: var(--space-1) var(--space-2);
+}
+
+/* ------------------------------------------- workspace placeholders --- */
+
+QFrame#emptyCard {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+}
+QFrame#emptyCard QLabel {
+  background: transparent;
+}
+QLabel#emptyTitle {
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+QFrame#emptyCard QLabel#bulletDot {
+  min-width: 6px;
+  max-width: 6px;
+  min-height: 6px;
+  max-height: 6px;
+  margin-top: var(--space-2);
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+QLabel#bulletText {
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+QFrame#rule {
+  background: var(--color-border);
+  border: none;
+}
+QFrame#emptyCard QLabel#codeChip {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+QLabel#emptyStatus {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* -------------------------------------------------- command palette --- */
+
+QFrame#paletteCard {
+  background: var(--color-surface-overlay);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+}
+QLineEdit#paletteInput {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  padding: var(--space-4) var(--space-4);
+  font-size: var(--font-size-lg);
+  min-height: 1px;
+}
+QLineEdit#paletteInput:focus {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+}
+QListWidget#paletteList {
+  background: transparent;
+  border: none;
+  padding: var(--space-1) 0;
+  outline: none;
+}
+QLabel#paletteEmpty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  background: transparent;
+}
+QFrame#paletteFoot {
+  background: var(--color-surface-sunken);
+  border-top: 1px solid var(--color-border);
+  border-bottom-left-radius: var(--radius-xl);
+  border-bottom-right-radius: var(--radius-xl);
+}
+QFrame#paletteFoot QLabel {
+  background: transparent;
+}
+QLabel#paletteKey {
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+QFrame#paletteFoot QLabel#paletteKey {
+  background: var(--color-surface-raised);
+}
+QLabel#paletteHint, QLabel#paletteCount {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-xs);
 }

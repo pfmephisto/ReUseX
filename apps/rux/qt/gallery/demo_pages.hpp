@@ -24,5 +24,7 @@ QWidget *make_viewport_page(const PageContext &ctx);
 
 /// Register every demo page with the page registry.
 void register_demo_pages();
+/// The real app shell's pages (shell_pages.cpp).
+void register_shell_pages();
 
 } // namespace rux::qt::gallery

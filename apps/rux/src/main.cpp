@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
         if (request.project)
           o.project = QString::fromStdString(request.project->string());
         o.quit_after_ms = request.quit_after_ms;
+        o.stage_executor = request.stage_executor;
         return rux::qt::run_app(ac, av, o);
       });
 #else

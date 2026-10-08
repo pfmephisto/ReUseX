@@ -78,8 +78,23 @@ NOTES:
       ->delimiter(',');
 
   sub->callback([opt, global_opt]() {
+    if (rux::capture_stage_params("instances",
+                                  instances_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_segment_instances(*opt, *global_opt));
   });
+}
+
+std::string
+instances_stage_parameters(const SubcommandSegInstancesOptions &opt) {
+  return rux::StageParams()
+      .set("cluster_tolerance", opt.cluster_tolerance)
+      .set("min_cluster_size", opt.min_cluster_size)
+      .set("max_cluster_size", opt.max_cluster_size)
+      .set("semantic_cloud", opt.semantic_cloud_name)
+      .set("output_cloud", opt.output_cloud_name)
+      .set_if(!opt.labels_to_process.empty(), "labels", opt.labels_to_process)
+      .dump();
 }
 
 int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
@@ -104,15 +119,7 @@ int run_subcommand_segment_instances(const SubcommandSegInstancesOptions &opt,
     reusex::pipeline::StageContext ctx;
     ctx.project = project_path;
     ctx.stage = reusex::pipeline::JobStage::instances;
-    ctx.parameters = rux::StageParams()
-                         .set("cluster_tolerance", opt.cluster_tolerance)
-                         .set("min_cluster_size", opt.min_cluster_size)
-                         .set("max_cluster_size", opt.max_cluster_size)
-                         .set("semantic_cloud", opt.semantic_cloud_name)
-                         .set("output_cloud", opt.output_cloud_name)
-                         .set_if(!opt.labels_to_process.empty(), "labels",
-                                 opt.labels_to_process)
-                         .dump();
+    ctx.parameters = instances_stage_parameters(opt);
 
     // Everything the old body did here — clustering, GUID reconciliation
     // across regeneration (#207), material re-linking, and the per-class

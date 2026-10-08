@@ -7,6 +7,8 @@
 // with no subcommand) runs when there is a display. rux.cpp decides that
 // (rux_qt/launch.hpp) and calls run_app().
 
+#include <reusex/pipeline/stages.hpp>
+
 #include <QString>
 
 namespace rux::qt {
@@ -17,6 +19,9 @@ struct AppOptions {
   /// Dev/test: quit this many ms after the main window is shown, printing
   /// a one-line state report to stderr. Negative = run normally.
   int quit_after_ms = -1;
+  /// Runs the Pipeline workspace's stages; empty =
+  /// pipeline::default_stage_executor() (which cannot run `optimize`).
+  reusex::pipeline::StageExecutor stage_executor;
 };
 
 /// Create the QApplication, theme and main window and run the event loop.

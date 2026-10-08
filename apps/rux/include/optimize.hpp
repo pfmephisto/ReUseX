@@ -136,6 +136,9 @@ struct SubcommandOptimizeOptions {
   bool dry_run = false;
 };
 
+/// The flags the in-process optimize stage reads, as its JSON.
+std::string optimize_stage_parameters(SubcommandOptimizeOptions const &opt);
+
 void setup_subcommand_optimize(CLI::App &app,
                                std::shared_ptr<RuxOptions> global_opt);
 int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,

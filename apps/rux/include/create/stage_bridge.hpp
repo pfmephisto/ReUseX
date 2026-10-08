@@ -19,7 +19,9 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
+#include <functional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace rux {
@@ -66,5 +68,21 @@ class StageParams {
 
   std::string dump() const { return object_.dump(); }
 };
+
+/// Receives a subcommand's stage parameters instead of running the stage.
+using StageParamsSink =
+    std::function<void(std::string_view stage, const std::string &params)>;
+
+/// Test seam for "Kopiér som rux-kommando" (Qt client): while a sink is set,
+/// `rux create clouds|planes|rooms|instances|mesh` and `rux optimize` hand
+/// the parameters their flags produced to it and do nothing else — no
+/// project is opened. tests/unit/rux_app/test_cli_command_roundtrip.cpp
+/// parses the client's generated commands through the real CLI with it.
+/// Pass an empty function to clear it.
+void set_stage_params_sink(StageParamsSink sink);
+
+/// Called by each stage subcommand before it runs: true when a sink took
+/// @p params (the subcommand must then return without running).
+bool capture_stage_params(std::string_view stage, const std::string &params);
 
 } // namespace rux

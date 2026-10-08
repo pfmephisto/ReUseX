@@ -4,6 +4,7 @@
 
 #pragma once
 #include "../global-params.hpp"
+#include <string>
 
 #include <CLI/CLI.hpp>
 #include <filesystem>
@@ -31,5 +32,8 @@ struct SubcommandCreateCloudsOptions {
 // Function declarations.
 void setup_subcommand_create_clouds(CLI::App &app,
                                     std::shared_ptr<RuxOptions> global_opt);
+/// The stage parameters (pipeline_log / run_stage JSON) these options mean.
+std::string clouds_stage_parameters(SubcommandCreateCloudsOptions const &opt);
+
 int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
                                  const RuxOptions &global_opt);

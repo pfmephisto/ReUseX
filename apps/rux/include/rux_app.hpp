@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <reusex/pipeline/stages.hpp>
+
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -16,6 +18,9 @@ struct GuiLaunch {
   std::optional<std::filesystem::path> project;
   /// Dev/test `--quit-after-ms`; negative = run normally.
   int quit_after_ms = -1;
+  /// How the Pipeline workspace runs a stage in-process: rux_lib's executor,
+  /// which can also run `optimize` (the slam module).
+  reusex::pipeline::StageExecutor stage_executor;
 };
 
 /// Starts the desktop app and returns its exit code. Injected by the `rux`

@@ -27,6 +27,7 @@
 #include <reusex/core/version.hpp>
 #include <rux_qt/background.hpp>
 #include <rux_qt/launch.hpp>
+#include <rux_qt/workspace_logic.hpp>
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
@@ -111,6 +112,9 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
 
   reusex::core::set_log_handler(
       [](reusex::core::LogLevel level, std::string_view message) {
+        // The Qt client's Pipeline workspace tails a running stage through
+        // this tap; without a listener it costs a lock and an empty loop.
+        rux::qt::publish_log(static_cast<int>(level), message);
         switch (level) {
         case reusex::core::LogLevel::trace:
           spdlog::trace("{}", message);
@@ -279,6 +283,7 @@ int run(int argc, char **argv, GuiLauncher launch_gui) {
       if (app.count("--project") > 0)
         request.project = opt->project_db;
       request.quit_after_ms = quit_after_ms;
+      request.stage_executor = make_gui_stage_executor();
       const int rc = launch_gui(argc, argv, request);
       if (rux::qt::background_work_in_flight() > 0) {
         // run_app's bounded wait ran out while a detached thread (a project

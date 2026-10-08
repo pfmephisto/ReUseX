@@ -40,3 +40,9 @@ void setup_subcommand_gui(CLI::App &app,
 
 int run_subcommand_gui(SubcommandGuiOptions const &opt,
                        const RuxOptions &global_opt);
+
+/// The stage executor in-process job runners use: `optimize` through the slam
+/// module (which reusex_pipeline does not link, #464), every other stage
+/// through pipeline::default_stage_executor(). `rux gui` and the Qt client
+/// (via rux::GuiLaunch) share it.
+reusex::pipeline::StageExecutor make_gui_stage_executor();

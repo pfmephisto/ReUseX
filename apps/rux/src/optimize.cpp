@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "optimize.hpp"
+#include "create/stage_bridge.hpp"
 #include "exit_status.hpp"
 #include "stage_prerequisites.hpp"
 
@@ -383,8 +384,21 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_optimize");
+    if (rux::capture_stage_params("optimize", optimize_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_optimize(*opt, *global_opt));
   });
+}
+
+std::string optimize_stage_parameters(SubcommandOptimizeOptions const &opt) {
+  // The subset of the flags the in-process optimize stage reads (the GUI's
+  // and the Qt client's runs; pipeline/stage_parameters.cpp).
+  return rux::StageParams()
+      .set("min_observations", opt.min_observations)
+      .set("assoc_rounds", opt.assoc_rounds)
+      .set("no_gnc", opt.no_gnc)
+      .set("dry_run", opt.dry_run)
+      .dump();
 }
 
 int run_subcommand_optimize(SubcommandOptimizeOptions const &opt,

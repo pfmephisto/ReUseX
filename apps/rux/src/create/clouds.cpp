@@ -85,8 +85,22 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_create_clouds");
+    if (rux::capture_stage_params("clouds", clouds_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_create_clouds(*opt, *global_opt));
   });
+}
+
+std::string clouds_stage_parameters(SubcommandCreateCloudsOptions const &opt) {
+  return rux::StageParams()
+      .set("resolution", opt.resolution)
+      .set("min_distance", opt.min_distance)
+      .set("max_distance", opt.max_distance)
+      .set("sampling_factor", opt.sampling_factor)
+      .set("confidence_threshold", opt.confidence_threshold)
+      .set("glass_filter", opt.glass_filter)
+      .set("glass_threshold", opt.glass_threshold)
+      .dump();
 }
 
 int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
@@ -106,15 +120,7 @@ int run_subcommand_create_clouds(SubcommandCreateCloudsOptions const &opt,
     reusex::pipeline::StageContext ctx;
     ctx.project = project_path;
     ctx.stage = reusex::pipeline::JobStage::clouds;
-    ctx.parameters = rux::StageParams()
-                         .set("resolution", opt.resolution)
-                         .set("min_distance", opt.min_distance)
-                         .set("max_distance", opt.max_distance)
-                         .set("sampling_factor", opt.sampling_factor)
-                         .set("confidence_threshold", opt.confidence_threshold)
-                         .set("glass_filter", opt.glass_filter)
-                         .set("glass_threshold", opt.glass_threshold)
-                         .dump();
+    ctx.parameters = clouds_stage_parameters(opt);
 
     // run_stage owns the pipeline_log row, the input-contract check and the
     // failure reporting; it has already logged whatever went wrong.

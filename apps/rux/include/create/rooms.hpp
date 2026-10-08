@@ -6,6 +6,7 @@
 #include "../global-params.hpp"
 #include <CLI/CLI.hpp>
 #include <memory>
+#include <string>
 
 #include <reusex/segmentation/segment_rooms.hpp>
 
@@ -36,6 +37,9 @@ struct SubcommandSegRoomsOptions {
  * @brief Setup the segment rooms subcommand in the CLI application.
  * @param app CLI application to add the subcommand to.
  */
+/// The stage parameters (pipeline_log / run_stage JSON) these options mean.
+std::string rooms_stage_parameters(SubcommandSegRoomsOptions const &opt);
+
 void setup_subcommand_create_rooms(CLI::App &app,
                                    std::shared_ptr<RuxOptions> global_opt);
 

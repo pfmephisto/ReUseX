@@ -337,6 +337,8 @@ run_optimize_stage(reusex::ProjectDB &db,
   }
 }
 
+} // namespace
+
 /// StageExecutor that handles `optimize` directly and delegates everything else
 /// to the default executor (clouds / planes / rooms / instances / mesh).
 reusex::pipeline::StageExecutor make_gui_stage_executor() {
@@ -356,8 +358,6 @@ reusex::pipeline::StageExecutor make_gui_stage_executor() {
     return default_exec(ctx);
   };
 }
-
-} // namespace
 
 void setup_subcommand_gui(CLI::App &app,
                           std::shared_ptr<RuxOptions> global_opt) {

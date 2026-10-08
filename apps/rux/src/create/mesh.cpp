@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "create/mesh.hpp"
+#include "create/stage_bridge.hpp"
 #include "exit_status.hpp"
 #include "filter_utils.hpp"
 #include "processing_observer.hpp"
@@ -146,9 +147,29 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling run_subcommand_mesh");
+    if (rux::capture_stage_params("mesh", mesh_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_mesh(*opt, *global_opt));
   });
 };
+
+std::string mesh_stage_parameters(SubcommandMeshOptions const &opt) {
+  // `rux create mesh` still drives the solver itself (it predates
+  // pipeline::run_stage); these are its flags under the keys run_stage's mesh
+  // stage reads, which is what the Qt client's runs carry.
+  return rux::StageParams()
+      .set("solver", opt.solver)
+      .set("time_limit_seconds", opt.time_limit_seconds)
+      .set("output_name", opt.output_mesh_name)
+      .set("search_threshold", opt.search_threshold)
+      .set("new_plane_offset", opt.new_plane_offset)
+      .set("alpha", opt.alpha)
+      .set("max_cells", opt.max_cells)
+      .set("sectioned", opt.sectioned)
+      .set("sectioned_threshold", opt.sectioned_threshold)
+      .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
+      .dump();
+}
 
 int run_subcommand_mesh(SubcommandMeshOptions const &opt,
                         const RuxOptions &global_opt) {

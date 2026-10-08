@@ -102,6 +102,8 @@ NOTES:
 
   sub->callback([opt, global_opt]() {
     spdlog::trace("calling seg-rooms subcommand");
+    if (rux::capture_stage_params("rooms", rooms_stage_parameters(*opt)))
+      return;
     rux::finish(run_subcommand_segment_rooms(*opt, *global_opt));
   });
 }
@@ -116,6 +118,17 @@ NOTES:
  * @param opt Options containing project path and Leiden parameters.
  * @return Exit code (RuxError::SUCCESS on success).
  */
+std::string rooms_stage_parameters(SubcommandSegRoomsOptions const &opt) {
+  return rux::StageParams()
+      .set("grid_size", opt.grid_size)
+      .set("resolution", opt.resolution)
+      .set("beta", opt.beta)
+      .set("max_iter", opt.max_iter)
+      .set("propagate_max_radius", opt.propagate_max_radius)
+      .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
+      .dump();
+}
+
 int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
                                  const RuxOptions &global_opt) {
   fs::path project_path = global_opt.project_db;
@@ -133,15 +146,7 @@ int run_subcommand_segment_rooms(SubcommandSegRoomsOptions const &opt,
     reusex::pipeline::StageContext ctx;
     ctx.project = project_path;
     ctx.stage = reusex::pipeline::JobStage::rooms;
-    ctx.parameters =
-        rux::StageParams()
-            .set("grid_size", opt.grid_size)
-            .set("resolution", opt.resolution)
-            .set("beta", opt.beta)
-            .set("max_iter", opt.max_iter)
-            .set("propagate_max_radius", opt.propagate_max_radius)
-            .set_if(!opt.filter_expr.empty(), "filter", opt.filter_expr)
-            .dump();
+    ctx.parameters = rooms_stage_parameters(opt);
 
     const auto result = reusex::pipeline::run_stage(db, ctx);
     if (result.ok)

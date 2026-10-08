@@ -6,6 +6,7 @@
 #include "../global-params.hpp"
 #include <CLI/CLI.hpp>
 #include <memory>
+#include <string>
 
 #include <reusex/segmentation/segment_planes.hpp>
 
@@ -44,6 +45,9 @@ struct SubcommandSegPlanesOptions {
  */
 void setup_subcommand_create_planes(CLI::App &app,
                                     std::shared_ptr<RuxOptions> global_opt);
+
+/// The stage parameters (pipeline_log / run_stage JSON) these options mean.
+std::string planes_stage_parameters(SubcommandSegPlanesOptions const &opt);
 
 /**
  * @brief Run the segment planes subcommand with given options.

@@ -29,6 +29,7 @@
 #include <QVBoxLayout>
 #include <QVTKOpenGLNativeWidget.h>
 
+#include <clocale>
 #include <cstdio>
 #include <memory>
 
@@ -83,6 +84,12 @@ int main(int argc, char **argv) {
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 
   QApplication app(argc, argv);
+  // QApplication just called setlocale(LC_ALL, ""). Under a comma-decimal
+  // locale (da_DK) every strtod/stod/sscanf in the library and its
+  // dependencies (sqlite text, JSON, OpenCV, PCL) would read "799.85" as 799.
+  // Numbers shown to the user go through QLocale, so the C library's numeric
+  // locale stays "C" (the Qt docs recommend exactly this).
+  std::setlocale(LC_NUMERIC, "C");
   QApplication::setApplicationName("rux-qt-gallery");
 
   // Hot reload in --dev mode and in every Debug build (the spec's "debug or

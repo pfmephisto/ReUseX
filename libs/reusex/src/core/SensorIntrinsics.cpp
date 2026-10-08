@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/SensorIntrinsics.hpp"
+#include "utils/parse_number.hpp"
 
 #include <fmt/format.h>
 
@@ -41,7 +42,9 @@ SensorIntrinsics SensorIntrinsics::from_json(const std::string &json) {
     pos = json.find(':', pos);
     if (pos == std::string::npos)
       return 0.0;
-    return std::strtod(json.c_str() + pos + 1, nullptr);
+    return reusex::utils::parse_number<double>(
+               std::string_view(json).substr(pos + 1))
+        .value_or(0.0);
   };
 
   auto extract_int = [&](const char *key) -> int {
@@ -66,13 +69,19 @@ SensorIntrinsics SensorIntrinsics::from_json(const std::string &json) {
   if (arr_pos != std::string::npos) {
     auto bracket = json.find('[', arr_pos);
     if (bracket != std::string::npos) {
-      const char *p = json.c_str() + bracket + 1;
+      // Locale-independent (from_chars): under a comma-decimal LC_NUMERIC,
+      // strtod read "-1.19e-07" as -1 and every later element as 0.
+      std::string_view rest = std::string_view(json).substr(bracket + 1);
       for (int i = 0; i < 16; ++i) {
-        char *end = nullptr;
-        si.local_transform[i] = std::strtod(p, &end);
-        p = end;
-        if (*p == ',')
-          ++p;
+        std::size_t used = 0;
+        const auto v = reusex::utils::parse_number<double>(rest, &used);
+        if (!v)
+          break; // malformed: keep the identity defaults for the rest
+        si.local_transform[i] = *v;
+        rest.remove_prefix(used);
+        while (!rest.empty() && (rest.front() == ',' || rest.front() == ' ' ||
+                                 rest.front() == '\n' || rest.front() == '\t'))
+          rest.remove_prefix(1);
       }
     }
   }

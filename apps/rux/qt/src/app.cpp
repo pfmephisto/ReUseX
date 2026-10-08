@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QVTKOpenGLNativeWidget.h>
 
+#include <clocale>
 #include <cstdio>
 
 namespace rux::qt {
@@ -95,6 +96,12 @@ int run_app(int argc, char **argv, const AppOptions &options) {
   char *qt_argv[] = {argv[0], nullptr};
   (void)argc;
   QApplication app(qt_argc, qt_argv);
+  // QApplication just called setlocale(LC_ALL, ""). Under a comma-decimal
+  // locale (da_DK) every strtod/stod/sscanf in the library and its
+  // dependencies (sqlite text, JSON, OpenCV, PCL) would read "799.85" as 799.
+  // Numbers shown to the user go through QLocale, so the C library's numeric
+  // locale stays "C" (the Qt docs recommend exactly this).
+  std::setlocale(LC_NUMERIC, "C");
   QApplication::setOrganizationName("ReUseX");
   QApplication::setApplicationName("rux");
   QApplication::setApplicationDisplayName("ReUseX");

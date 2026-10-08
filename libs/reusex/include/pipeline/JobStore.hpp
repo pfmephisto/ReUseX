@@ -47,6 +47,10 @@ class IJobStore {
 
   /// Every retained record of @p queue, most recently submitted first.
   virtual std::vector<JobRecord> list(std::string_view queue) const = 0;
+
+  /// Drop every record of @p queue (its case was deleted, and a new case may
+  /// reuse the key). Unknown queues are ignored.
+  virtual void forget(std::string_view queue) = 0;
 };
 
 /// The in-memory store: bounded per queue, nothing survives a restart.
@@ -63,6 +67,7 @@ class InMemoryJobStore final : public IJobStore {
   std::optional<JobRecord> find(std::string_view queue,
                                 std::string_view id) const override;
   std::vector<JobRecord> list(std::string_view queue) const override;
+  void forget(std::string_view queue) override;
 
     private:
   class Impl;

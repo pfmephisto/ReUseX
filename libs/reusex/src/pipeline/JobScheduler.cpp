@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -53,7 +54,10 @@ struct JobQueue::State {
   std::string current_id;
   bool closed = false;
   uint64_t sequence = 0; ///< See JobEvent::sequence; per queue.
-  std::chrono::steady_clock::time_point last_progress_emit{};
+  /// Events made but not yet delivered to every listener. A queue is not
+  /// idle — and may not be destroyed — while this is non-zero: a listener
+  /// typically captures the object that owns the queue.
+  std::size_t emitting = 0;
 
   /// The running job's cancel token (one running job per queue).
   std::atomic_bool cancel_flag{false};
@@ -85,8 +89,13 @@ struct JobScheduler::Core {
 
   // --- helpers (caller holds `mutex` unless noted) --------------------------
 
+  /// Every event made here MUST then go through emit(): making it counts it
+  /// as in flight (State::emitting), in the same critical section as the
+  /// state change it reports, so no observer of that state change can see
+  /// the queue idle before its listeners have run.
   JobEvent make_event(JobQueue::State &q, JobEvent::Type type,
                       const JobRecord &record) {
+    ++q.emitting;
     JobEvent event;
     event.sequence = ++q.sequence;
     event.type = type;
@@ -95,9 +104,19 @@ struct JobScheduler::Core {
     return event;
   }
 
-  /// Without `mutex`: invoke @p q's listeners. A listener may call back into
-  /// the queue (e.g. to render a status page), so no lock is held.
-  static void emit(JobQueue::State &q, const JobEvent &event) {
+  /// Without `mutex`: invoke @p q's listeners, then mark the event delivered.
+  /// A listener may call back into the queue (e.g. to render a status page),
+  /// so no lock is held while it runs.
+  void emit(JobQueue::State &q, const JobEvent &event) {
+    deliver(q, event);
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      --q.emitting;
+    }
+    idle_cv.notify_all();
+  }
+
+  static void deliver(JobQueue::State &q, const JobEvent &event) {
     std::vector<JobListener> targets;
     {
       std::lock_guard<std::mutex> lock(q.listeners_mutex);
@@ -172,6 +191,11 @@ namespace {
 /// worker thread via core::ScopedProgressObserver, and chained to whatever
 /// observer was current before (the rux CLI's progress bar, say), so that one
 /// keeps working.
+///
+/// Ticks are counted in an atomic and only every kProgressInterval does one
+/// take the scheduler lock to publish the count: stages call update() per
+/// point or voxel from TBB pool threads, and with several workers a lock per
+/// tick would make every running stage contend on one mutex.
 class ProgressBridge final : public core::IProgressObserver {
     public:
   ProgressBridge(JobScheduler::Core &core, JobQueue::State &q)
@@ -180,6 +204,9 @@ class ProgressBridge final : public core::IProgressObserver {
   void on_process_started(core::Stage stage, size_t total) override {
     if (previous_ != nullptr)
       previous_->on_process_started(stage, total);
+    current_.store(0, std::memory_order_relaxed);
+    stage_.store(static_cast<int>(stage), std::memory_order_relaxed);
+    last_emit_ns_.store(now_ns(), std::memory_order_relaxed);
     std::optional<JobEvent> event;
     {
       std::lock_guard<std::mutex> lock(core_.mutex);
@@ -187,32 +214,39 @@ class ProgressBridge final : public core::IProgressObserver {
         record->progress_stage = stage;
         record->progress_total = total;
         record->progress_current = 0;
-        q_.last_progress_emit = std::chrono::steady_clock::now();
         event = core_.make_event(q_, JobEvent::Type::progress, *record);
       }
     }
     if (event)
-      JobScheduler::Core::emit(q_, *event);
+      core_.emit(q_, *event);
   }
 
   void on_process_updated(core::Stage stage, size_t increment) override {
     if (previous_ != nullptr)
       previous_->on_process_updated(stage, increment);
+    current_.fetch_add(increment, std::memory_order_relaxed);
+    stage_.store(static_cast<int>(stage), std::memory_order_relaxed);
+
+    // Throttle without the lock: only the thread that wins the timestamp
+    // swap publishes.
+    const auto now = now_ns();
+    auto last = last_emit_ns_.load(std::memory_order_relaxed);
+    if (now - last < interval_ns() || !last_emit_ns_.compare_exchange_strong(
+                                          last, now, std::memory_order_relaxed))
+      return;
+
     std::optional<JobEvent> event;
     {
       std::lock_guard<std::mutex> lock(core_.mutex);
       JobRecord *record = current();
       if (record == nullptr)
         return;
-      record->progress_stage = stage;
-      record->progress_current += increment;
-      const auto now = std::chrono::steady_clock::now();
-      if (now - q_.last_progress_emit < kProgressInterval)
-        return;
-      q_.last_progress_emit = now;
+      record->progress_stage =
+          static_cast<core::Stage>(stage_.load(std::memory_order_relaxed));
+      record->progress_current = current_.load(std::memory_order_relaxed);
       event = core_.make_event(q_, JobEvent::Type::progress, *record);
     }
-    JobScheduler::Core::emit(q_, *event);
+    core_.emit(q_, *event);
   }
 
   void on_process_finished(core::Stage stage) override {
@@ -223,17 +257,30 @@ class ProgressBridge final : public core::IProgressObserver {
       std::lock_guard<std::mutex> lock(core_.mutex);
       if (JobRecord *record = current()) {
         record->progress_stage = stage;
-        if (record->progress_total > 0)
-          record->progress_current = record->progress_total;
-        q_.last_progress_emit = std::chrono::steady_clock::now();
+        record->progress_current =
+            record->progress_total > 0
+                ? record->progress_total
+                : current_.load(std::memory_order_relaxed);
         event = core_.make_event(q_, JobEvent::Type::progress, *record);
       }
     }
+    last_emit_ns_.store(now_ns(), std::memory_order_relaxed);
     if (event)
-      JobScheduler::Core::emit(q_, *event);
+      core_.emit(q_, *event);
   }
 
     private:
+  static std::int64_t now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  }
+  static constexpr std::int64_t interval_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               kProgressInterval)
+        .count();
+  }
+
   /// The queue's running record. Caller holds core_.mutex.
   JobRecord *current() {
     if (!q_.running)
@@ -245,6 +292,9 @@ class ProgressBridge final : public core::IProgressObserver {
   JobScheduler::Core &core_;
   JobQueue::State &q_;
   core::IProgressObserver *previous_ = nullptr;
+  std::atomic<size_t> current_{0};
+  std::atomic<int> stage_{0};
+  std::atomic<std::int64_t> last_emit_ns_{0};
 };
 
 } // namespace
@@ -408,7 +458,7 @@ JobScheduler::~JobScheduler() {
   }
   core_->work_cv.notify_all();
   for (const auto &[q, event] : abandoned)
-    Core::emit(*q, event);
+    core_->emit(*q, event);
   for (auto &worker : core_->workers)
     if (worker.joinable())
       worker.join();
@@ -464,11 +514,14 @@ JobQueue::~JobQueue() {
     abandoned = core.abandon_pending(*state_, "queue closed before execution");
   }
   for (const auto &event : abandoned)
-    JobScheduler::Core::emit(*state_, event);
+    core.emit(*state_, event);
   core.idle_cv.notify_all();
 
   std::unique_lock<std::mutex> lock(core.mutex);
-  core.idle_cv.wait(lock, [this] { return !state_->running; });
+  // Not just "not running": the finished event's listeners must have run
+  // too, or one could still be reaching into whatever owns this queue.
+  core.idle_cv.wait(
+      lock, [this] { return !state_->running && state_->emitting == 0; });
   auto &rotation = core.rotation;
   auto it = std::find(rotation.begin(), rotation.end(), state_);
   if (it != rotation.end()) {
@@ -519,7 +572,7 @@ std::string JobQueue::submit(JobStage stage, std::string parameters) {
   core.work_cv.notify_all();
   info("job {} queued: stage '{}' ({})", event.job.id, to_string(stage),
        state_->key);
-  JobScheduler::Core::emit(*state_, event);
+  core.emit(*state_, event);
   return event.job.id;
 }
 
@@ -553,7 +606,7 @@ bool JobQueue::cancel(std::string_view id) {
     state_->live.erase(it);
   }
   info("job {} cancelled before execution", finished->job.id);
-  JobScheduler::Core::emit(*state_, *finished);
+  core.emit(*state_, *finished);
   core.idle_cv.notify_all();
   return true;
 }
@@ -589,10 +642,16 @@ bool JobQueue::is_busy() const {
   return state_->running;
 }
 
+bool JobQueue::has_work() const {
+  std::lock_guard<std::mutex> lock(core_->mutex);
+  return state_->running || !state_->pending.empty() || state_->emitting != 0;
+}
+
 void JobQueue::wait_idle() {
   std::unique_lock<std::mutex> lock(core_->mutex);
-  core_->idle_cv.wait(
-      lock, [this] { return state_->pending.empty() && !state_->running; });
+  core_->idle_cv.wait(lock, [this] {
+    return state_->pending.empty() && !state_->running && state_->emitting == 0;
+  });
 }
 
 WriterLease JobQueue::try_acquire_writer(std::chrono::milliseconds timeout) {

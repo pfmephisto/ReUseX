@@ -255,21 +255,33 @@ TEST_CASE("JobScheduler_QueueClosedAndReopened_HistorySurvivesInStore",
     return StageResult::success();
   };
 
-  std::string done, running, queued;
+  std::string running, queued;
+  std::mutex mutex;
   std::vector<JobEvent> finished;
+  auto finished_count = [&] {
+    std::lock_guard<std::mutex> lock(mutex);
+    return finished.size();
+  };
   {
     auto q = scheduler.make_queue("case", "P", held);
     q->add_listener([&](const JobEvent &e) {
-      if (e.type == JobEvent::Type::finished)
-        finished.push_back(e);
+      if (e.type != JobEvent::Type::finished)
+        return;
+      std::lock_guard<std::mutex> lock(mutex);
+      finished.push_back(e);
     });
     running = q->submit(JobStage::clouds);
     REQUIRE(wait_for([&] { return q->is_busy(); }));
     queued = q->submit(JobStage::planes);
+    // Close while the first job still holds the worker, so the backlog is
+    // cancelled rather than picked up; only then let the job finish.
+    std::thread closer([&] { q.reset(); });
+    REQUIRE(wait_for([&] { return finished_count() == 1; }));
     gate.open(); // Closing waits for the running job.
+    closer.join();
   }
   // The backlog was reported, not silently dropped.
-  REQUIRE(finished.size() == 2);
+  REQUIRE(finished_count() == 2);
 
   // The case closed (idle eviction) and opened again: same key, same history.
   auto again = scheduler.make_queue("case", "P", held);
@@ -297,6 +309,7 @@ TEST_CASE("JobScheduler_SharedStore_ReceivesTransitionsNotTicks",
     std::vector<JobRecord> list(std::string_view q) const override {
       return inner.list(q);
     }
+    void forget(std::string_view q) override { inner.forget(q); }
   };
   auto store = std::make_shared<CountingStore>();
   JobScheduler scheduler({1}, store);
@@ -310,4 +323,73 @@ TEST_CASE("JobScheduler_SharedStore_ReceivesTransitionsNotTicks",
   q->wait_idle();
   // submitted + started + finished; the thousand ticks never reach the store.
   CHECK(store->saves.load() == 3);
+}
+
+TEST_CASE("JobQueue_DestroyedWhileFinishedEventInFlight_WaitsForListener",
+          "[pipeline][jobs][scheduler]") {
+  // Review I1: the finished event is delivered without the lock, after the
+  // job stopped running. Whatever owns the queue (a ruxd case) must not be
+  // torn down while a listener — which captures it — is still running.
+  JobScheduler scheduler({1});
+  std::atomic<bool> in_listener{false};
+  std::atomic<bool> listener_done{false};
+  Gate release;
+
+  auto q = scheduler.make_queue(
+      "c", "P", [](const StageContext &) { return StageResult::success(); });
+  q->add_listener([&](const JobEvent &e) {
+    if (e.type != JobEvent::Type::finished)
+      return;
+    in_listener = true;
+    release.wait();
+    listener_done = true;
+  });
+  q->submit(JobStage::planes);
+  REQUIRE(wait_for([&] { return in_listener.load(); }));
+  // The job is no longer running, but its event is still in flight.
+  CHECK_FALSE(q->is_busy());
+  CHECK(q->has_work());
+
+  std::atomic<bool> destroyed{false};
+  std::thread closer([&] {
+    q.reset();
+    destroyed = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK_FALSE(destroyed.load());
+  release.open();
+  closer.join();
+  CHECK(listener_done.load());
+  CHECK(destroyed.load());
+}
+
+TEST_CASE("JobQueue_HasWork_QueuedRunningOrDelivering",
+          "[pipeline][jobs][scheduler]") {
+  JobScheduler scheduler({1});
+  Gate gate;
+  auto q = scheduler.make_queue("c", "P", [&](const StageContext &) {
+    gate.wait();
+    return StageResult::success();
+  });
+  CHECK_FALSE(q->has_work());
+  q->submit(JobStage::planes);
+  CHECK(q->has_work()); // queued or already running: never a gap
+  REQUIRE(wait_for([&] { return q->is_busy(); }));
+  CHECK(q->has_work());
+  gate.open();
+  q->wait_idle();
+  CHECK_FALSE(q->has_work());
+}
+
+TEST_CASE("InMemoryJobStore_Forget_DropsOneQueue", "[pipeline][jobs]") {
+  InMemoryJobStore store;
+  JobRecord r;
+  r.id = "x";
+  r.status = JobStatus::succeeded;
+  store.save("a", r);
+  store.save("b", r);
+  store.forget("a");
+  CHECK_FALSE(store.find("a", "x"));
+  CHECK(store.find("b", "x"));
+  store.forget("nope");
 }

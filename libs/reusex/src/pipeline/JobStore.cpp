@@ -54,6 +54,12 @@ class InMemoryJobStore::Impl {
     return out;
   }
 
+  void forget(std::string_view queue) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (auto it = queues_.find(queue); it != queues_.end())
+      queues_.erase(it);
+  }
+
     private:
   struct Queue {
     std::vector<std::string> order; ///< Submission order.
@@ -115,5 +121,7 @@ std::optional<JobRecord> InMemoryJobStore::find(std::string_view queue,
 std::vector<JobRecord> InMemoryJobStore::list(std::string_view queue) const {
   return impl_->list(queue);
 }
+
+void InMemoryJobStore::forget(std::string_view queue) { impl_->forget(queue); }
 
 } // namespace reusex::pipeline

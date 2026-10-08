@@ -93,7 +93,10 @@ class JobScheduler {
 class JobQueue {
     public:
   /// Closes the queue: queued jobs are reported cancelled, a running job is
-  /// asked to stop, and the destructor waits until it has.
+  /// asked to stop, and the destructor waits until it has AND until every
+  /// event already raised has reached the listeners — so an object owning
+  /// the queue may destroy it and then its listener's captures safely. Must
+  /// not run on a thread that is inside one of this queue's listeners.
   ~JobQueue();
 
   JobQueue(const JobQueue &) = delete;
@@ -124,7 +127,13 @@ class JobQueue {
   /// True while one of this queue's jobs is executing.
   bool is_busy() const;
 
-  /// Block until this queue has nothing queued and nothing running.
+  /// True while a job is queued or running, or an event is still being
+  /// delivered to the listeners — read under ONE lock, so a job moving from
+  /// queued to running can never make it read false.
+  bool has_work() const;
+
+  /// Block until this queue has nothing queued, nothing running and every
+  /// event delivered. Do not call it from a listener.
   void wait_idle();
 
   /// Try to take the project's exclusive writer lock (see JobRunner).

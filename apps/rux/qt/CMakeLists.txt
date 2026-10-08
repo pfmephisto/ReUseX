@@ -30,7 +30,8 @@ add_library(rux_qt_core STATIC
     src/core/recent.cpp
     src/core/launch.cpp
     src/core/palette_table.cpp
-    src/core/background.cpp)
+    src/core/background.cpp
+    src/core/database_logic.cpp)
 target_include_directories(rux_qt_core PUBLIC include)
 target_compile_features(rux_qt_core PUBLIC cxx_std_20)
 

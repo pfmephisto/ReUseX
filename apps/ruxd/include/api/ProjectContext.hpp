@@ -44,12 +44,52 @@ class ProjectDB;
 
 namespace ruxd::api {
 
+/// The WebSocket subscribers of one case.
+///
+/// Separate from ProjectContext, and shared, so a socket can unsubscribe or
+/// set its filter WITHOUT a strong reference to the context: a socket handler
+/// that took one (`weak_ptr::lock()`) could keep a deleted case's context —
+/// its WAL anchor and job queue — alive past the delete, onto an IO thread,
+/// after its files had moved (S2 re-review N1). The hub holds no project
+/// resources, so the socket table may keep it alive as long as it likes.
+class SubscriberHub {
+    public:
+  /// Sends one text frame to a subscriber. Called with the hub locked, so it
+  /// must not block and must not call back into this hub.
+  using SendFn = std::function<void(const std::string &)>;
+
+  /// Add a subscriber under @p key and send it @p greeting (under the lock).
+  void subscribe(const void *key, SendFn send, const std::string &greeting);
+  /// Remove one; unknown keys are ignored.
+  void unsubscribe(const void *key);
+  /// Set (or clear, with nullopt) a subscriber's job filter.
+  void set_filter(const void *key, std::optional<std::string> job_id);
+  std::size_t size() const;
+  /// Drop every subscriber (the case closed): later sends reach nobody.
+  void clear();
+
+  /// Send @p payload to every subscriber whose filter accepts it.
+  /// @p accepts is called with each subscriber's filter.
+  void send_if(
+      const std::string &payload,
+      const std::function<bool(const std::optional<std::string> &)> &accepts);
+
+    private:
+  struct Subscriber {
+    SendFn send;
+    std::optional<std::string> filter; ///< nullopt = every event.
+  };
+
+  mutable std::mutex mutex_;
+  std::map<const void *, Subscriber> subscribers_;
+};
+
 class ProjectContext {
     public:
   using Clock = std::chrono::steady_clock;
   /// Sends one text frame to a subscriber. Called with the subscriber table
   /// locked, so it must not block and must not call back into this context.
-  using SendFn = std::function<void(const std::string &)>;
+  using SendFn = SubscriberHub::SendFn;
 
   /// Opens @p project read-write (creating and migrating it if needed) as the
   /// WAL anchor and registers a queue named @p id on @p scheduler.
@@ -101,6 +141,11 @@ class ProjectContext {
   /// Set (or clear, with nullopt) a subscriber's job filter.
   void set_filter(const void *key, std::optional<std::string> job_id);
   std::size_t subscriber_count() const;
+  /// The subscriber table itself, for a socket to keep: unsubscribing through
+  /// it never needs (or extends the life of) this context.
+  std::shared_ptr<SubscriberHub> subscribers() const noexcept {
+    return subscribers_;
+  }
 
   /// The `hello` frame for a new subscriber.
   nlohmann::json hello() const;
@@ -111,11 +156,6 @@ class ProjectContext {
 
     private:
   void launch_photo_warmup();
-
-  struct Subscriber {
-    SendFn send;
-    std::optional<std::string> filter; ///< nullopt = every event.
-  };
 
   const std::string id_;
   const std::filesystem::path project_;
@@ -128,8 +168,8 @@ class ProjectContext {
   std::unique_ptr<reusex::ProjectDB> wal_anchor_;
   int schema_version_ = 0;
 
-  mutable std::mutex subscribers_mutex_;
-  std::map<const void *, Subscriber> subscribers_;
+  std::shared_ptr<SubscriberHub> subscribers_ =
+      std::make_shared<SubscriberHub>();
 
   PhotoEvidenceCache photo_cache_;
   std::atomic<bool> stopping_{false};

@@ -798,9 +798,18 @@ class UploadManager::Impl {
       throw HttpError(429, "too many uploads in progress; try again later");
     // Room for this file AND every upload already promised space, with a
     // margin for the migration that adopting it runs.
+    // `received` is written under each upload's own lock, so read it under
+    // that lock too (review N4). try_lock, never lock: an upload mid-write
+    // holds its lock across a disk write, and the order elsewhere is entry
+    // lock -> map lock. One busy writing counts as owing its whole size — an
+    // over-estimate, which only errs towards refusing.
     std::uint64_t promised = 0;
-    for (const auto &[id, entry] : sessions_)
-      promised += entry->session.size - entry->session.received;
+    for (const auto &[id, entry] : sessions_) {
+      std::unique_lock<std::mutex> entry_lock(entry->mutex, std::try_to_lock);
+      promised += entry_lock.owns_lock()
+                      ? entry->session.size - entry->session.received
+                      : entry->session.size;
+    }
     std::error_code ec;
     const auto space = fs::space(dir_, ec);
     const std::uint64_t needed = size + promised + limits_.free_space_margin;

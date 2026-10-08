@@ -26,6 +26,16 @@
 #include <crow.h>
 #include <spdlog/spdlog.h>
 
+// overlays/crow.nix patches Crow with a request-body cap and a header-phase
+// check; without them an oversized or unauthenticated body is buffered
+// whole. A stale Crow_DIR (an unpatched store path) must fail the build, not
+// silently drop both (S2 re-review N8): reconfigure with `cmake -B build
+// -UCrow_DIR` inside `nix develop`.
+#if !defined(CROW_REUSEX_MAX_BODY_PATCH) || !defined(CROW_REUSEX_HEADER_CHECK)
+#error                                                                         \
+    "ruxd needs the patched Crow from overlays/crow.nix (reconfigure: cmake -B build -UCrow_DIR)"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -36,6 +46,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <semaphore>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -52,6 +63,11 @@ namespace {
 
 namespace pipeline = reusex::pipeline;
 using json = nlohmann::json;
+
+/// Evidence/thumbnail renders (`GET /cases/{cid}/renders` cache misses) that
+/// may run at once, and how long one waits for a slot before a 503.
+constexpr std::ptrdiff_t kMaxConcurrentRenders = 2;
+constexpr std::chrono::seconds kRenderSlotWait{30};
 
 crow::response json_response(int status, const json &body) {
   // dump(-1): compact. The pretty-printer added ~20% to every response for a
@@ -1076,13 +1092,23 @@ class Server::Impl {
             std::min(req.raw_url.size(), req.raw_url.find('?')));
         if (auto hit = renders_.get(info->path, key))
           return blob_response(*hit);
+        // A render is seconds of VTK work on a Crow thread: a case list full
+        // of new cards must not start one per card at once (review N7).
+        RenderSlot slot(render_slots_);
+        if (!slot.acquired())
+          throw HttpError(503, "the server is busy rendering; retry shortly");
+        if (auto hit = renders_.get(info->path, key)) // Rendered meanwhile.
+          return blob_response(*hit);
         const Params params = params_of(req);
+        // Stamp first: a write committing during the render must leave the
+        // entry stale, not cache the old image under the new stamp (N2).
+        const FileStamp stamp = file_stamp(info->path);
         Blob blob;
         {
           reusex::ProjectDB db(info->path, /*readOnly=*/true);
           blob = render_blob(db, view_renderer_, params);
         }
-        renders_.put(info->path, key, blob);
+        renders_.put(info->path, key, stamp, blob);
         return blob_response(blob);
       });
     });
@@ -2012,11 +2038,14 @@ class Server::Impl {
             return;
           }
           {
-            // The socket keeps no lease (a weak reference only): an open tab
-            // keeps its case open through the subscriber count, not by
-            // pinning it, so deleting the case still works.
+            // The socket keeps no reference to the context at all — only the
+            // case id and its subscriber hub. An open tab keeps its case open
+            // through the subscriber count, not by pinning it, and no socket
+            // handler can ever be the one that destroys a context (review
+            // N1: a deleted case's WAL anchor closing on an IO thread after
+            // its files had moved).
             std::lock_guard<std::mutex> lock(sockets_mutex_);
-            sockets_[&conn] = ctx;
+            sockets_[&conn] = SocketCase{ctx->id(), ctx->subscribers()};
           }
           ctx->subscribe(&conn, [&conn](const std::string &payload) {
             conn.send_text(payload);
@@ -2032,11 +2061,11 @@ class Server::Impl {
                                .dump());
             return;
           }
-          auto ctx = socket_case(conn);
+          auto hub = socket_hub(conn);
           auto reply =
               handle_ws_message(data, [&](std::optional<std::string> job_id) {
-                if (ctx)
-                  ctx->set_filter(&conn, std::move(job_id));
+                if (hub)
+                  hub->set_filter(&conn, std::move(job_id));
               });
           if (reply)
             conn.send_text(reply->dump());
@@ -2053,30 +2082,32 @@ class Server::Impl {
         });
   }
 
-  /// The case a socket subscribed to, if it is still open.
-  std::shared_ptr<ProjectContext>
-  socket_case(crow::websocket::connection &conn) {
+  /// The subscriber hub of the case a socket subscribed to.
+  std::shared_ptr<SubscriberHub> socket_hub(crow::websocket::connection &conn) {
     std::lock_guard<std::mutex> lock(sockets_mutex_);
     auto it = sockets_.find(&conn);
-    return it == sockets_.end() ? nullptr : it->second.lock();
+    return it == sockets_.end() ? nullptr : it->second.hub;
   }
 
   /// Unsubscribe and forget a socket. Runs before Crow frees the connection,
-  /// which is what makes ProjectContext::broadcast's send-under-lock safe.
+  /// which is what makes SubscriberHub::send_if's send-under-lock safe. Goes
+  /// through the hub, never the context (see SocketCase).
   void drop_socket(crow::websocket::connection &conn) {
-    std::weak_ptr<ProjectContext> weak;
+    SocketCase entry;
     {
       std::lock_guard<std::mutex> lock(sockets_mutex_);
       auto it = sockets_.find(&conn);
       if (it == sockets_.end())
         return;
-      weak = it->second;
+      entry = std::move(it->second);
       sockets_.erase(it);
     }
-    if (auto ctx = weak.lock()) {
-      ctx->unsubscribe(&conn);
+    entry.hub->unsubscribe(&conn);
+    // Counts as use; find_open never hands out a case that is closing or
+    // being deleted, and its lease is the ordinary kind begin_delete waits
+    // out.
+    if (auto ctx = registry_->find_open(entry.cid))
       ctx->touch(ProjectContext::Clock::now());
-    }
   }
 
   /// Serve one file from the bundle, or an empty optional if it is not there.
@@ -2178,12 +2209,36 @@ class Server::Impl {
   /// Card figures and renders, read without opening a case.
   CaseSummaryCache summaries_;
   RenderCache renders_;
+  /// Renders that may run at once (cache misses only).
+  std::counting_semaphore<kMaxConcurrentRenders> render_slots_{
+      kMaxConcurrentRenders};
+  /// One held render slot, released on scope exit.
+  class RenderSlot {
+      public:
+    explicit RenderSlot(std::counting_semaphore<kMaxConcurrentRenders> &slots)
+        : slots_(slots), acquired_(slots.try_acquire_for(kRenderSlotWait)) {}
+    ~RenderSlot() {
+      if (acquired_)
+        slots_.release();
+    }
+    RenderSlot(const RenderSlot &) = delete;
+    RenderSlot &operator=(const RenderSlot &) = delete;
+    bool acquired() const noexcept { return acquired_; }
+
+      private:
+    std::counting_semaphore<kMaxConcurrentRenders> &slots_;
+    bool acquired_;
+  };
 
   std::mutex sockets_mutex_;
+  /// What an open WebSocket subscribed to: the case id and its subscriber
+  /// hub — deliberately not the context (review N1).
+  struct SocketCase {
+    std::string cid;
+    std::shared_ptr<SubscriberHub> hub;
+  };
   /// Open WebSocket -> the case it subscribed to.
-  std::unordered_map<crow::websocket::connection *,
-                     std::weak_ptr<ProjectContext>>
-      sockets_;
+  std::unordered_map<crow::websocket::connection *, SocketCase> sockets_;
 
   App app_;
 

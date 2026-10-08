@@ -17,6 +17,7 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -129,6 +130,10 @@ struct JobScheduler::Core {
         listener(event);
       } catch (const std::exception &e) {
         warn("job listener threw: {}", e.what());
+      } catch (...) {
+        // Anything else must not escape either: emit() still has to mark the
+        // event delivered, and on a worker thread it would terminate.
+        warn("job listener threw a non-standard exception");
       }
     }
   }
@@ -370,7 +375,10 @@ void JobScheduler::Core::execute(const std::shared_ptr<JobQueue::State> &q,
     }
   }
 
-  JobEvent finished;
+  // Made (and so counted as in flight) only when the record is still live;
+  // emitted only when made, so `emitting` can never be decremented for an
+  // event that was never counted (review N3).
+  std::optional<JobEvent> finished;
   {
     std::lock_guard<std::mutex> lock(mutex);
     q->running = false;
@@ -407,9 +415,14 @@ void JobScheduler::Core::execute(const std::shared_ptr<JobQueue::State> &q,
     q->current_id.clear();
   }
 
-  info("job {} {}: {}", id, to_string(finished.job.status),
-       result.message.empty() ? "(no detail)" : result.message);
-  emit(*q, finished);
+  if (finished) {
+    info("job {} {}: {}", id, to_string(finished->job.status),
+         result.message.empty() ? "(no detail)" : result.message);
+    emit(*q, *finished);
+  } else {
+    warn("job {} finished but its record was gone: {}", id,
+         result.message.empty() ? "(no detail)" : result.message);
+  }
   idle_cv.notify_all();
   // This queue may have more work, which another worker can now take.
   work_cv.notify_all();

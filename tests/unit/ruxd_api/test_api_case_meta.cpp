@@ -58,14 +58,14 @@ TEST_CASE("RenderCache_HitsUntilTheProjectChanges", "[ruxd_api][cases]") {
   RenderCache cache(/*budget_bytes=*/100);
   Blob blob{"image/png", std::vector<uint8_t>(40, 7)};
   CHECK_FALSE(cache.get(file, "?view=plan"));
-  cache.put(file, "?view=plan", blob);
+  cache.put(file, "?view=plan", file_stamp(file), blob);
   REQUIRE(cache.get(file, "?view=plan"));
   CHECK(cache.get(file, "?view=plan")->data.size() == 40);
   CHECK_FALSE(cache.get(file, "?view=top"));
 
   // Over the byte budget: least recently used out first.
-  cache.put(file, "?a", blob);
-  cache.put(file, "?b", blob);
+  cache.put(file, "?a", file_stamp(file), blob);
+  cache.put(file, "?b", file_stamp(file), blob);
   CHECK(cache.bytes() <= 100);
   CHECK_FALSE(cache.get(file, "?view=plan"));
 

@@ -277,31 +277,21 @@ TEST_CASE("ProjectRegistry_Delete_TombstonesAndRollsBack",
 
 TEST_CASE("ProjectRegistry_ConcurrentOpenSweepDelete_NeverTwoContexts",
           "[ruxd_api][registry][stress]") {
-  // Review I2: a close or delete racing an open must never leave two live
-  // contexts for one case (two WAL anchors, a clash over the job-queue key —
-  // which the scheduler reports by throwing). Hammer one case from several
-  // threads with acquire, sweep and delete (rolled back), under a clock that
-  // makes every case look idle.
+  // Review I2 (and N5): a close or delete racing an open must never leave two
+  // live contexts for one case (two WAL anchors, a clash over the job-queue
+  // key — which the scheduler reports by throwing). Hammer one case from
+  // several threads with acquire, sweep and delete (rolled back), under a
+  // clock that makes every case look idle — with WebSocket-like subscribers
+  // coming and going through the hub and jobs being queued, which is what
+  // review N1 needed to be visible here.
   CaseDir cases(2);
-  pipeline::JobScheduler scheduler;
-  // Live contexts per case id: "a" -> [0], "b" -> [1].
+  pipeline::JobScheduler scheduler({2});
+  // Live contexts per case id: "a" -> [0], "b" -> [1]. Counted from before
+  // construction until AFTER full destruction (a shared_ptr deleter), so a
+  // teardown overlapping the next open is caught (N5).
   std::array<std::atomic<int>, 2> live{};
   std::array<std::atomic<int>, 2> max_live{};
   std::atomic<int> opener_failures{0};
-  struct Counted : ProjectContext {
-    Counted(const CaseInfo &info, pipeline::JobScheduler &s,
-            std::atomic<int> &live, std::atomic<int> &max_live)
-        : ProjectContext(info.id, info.path, s,
-                         pipeline::default_stage_executor()),
-          live_(live) {
-      const int now = ++live_;
-      int seen = max_live.load();
-      while (now > seen && !max_live.compare_exchange_weak(seen, now)) {
-      }
-    }
-    ~Counted() { --live_; }
-    std::atomic<int> &live_;
-  };
   FakeClock clock;
   clock.now += std::chrono::hours(24);
   RegistryOptions options = manual(/*max_open=*/1);
@@ -309,32 +299,69 @@ TEST_CASE("ProjectRegistry_ConcurrentOpenSweepDelete_NeverTwoContexts",
   ProjectRegistry registry(
       cases.store,
       [&](const CaseInfo &info) -> std::shared_ptr<ProjectContext> {
+        const std::size_t slot = info.id == "a" ? 0 : 1;
+        const int now = ++live[slot];
+        int seen = max_live[slot].load();
+        while (now > seen && !max_live[slot].compare_exchange_weak(seen, now)) {
+        }
         try {
-          const std::size_t slot = info.id == "a" ? 0 : 1;
-          return std::make_shared<Counted>(info, scheduler, live[slot],
-                                           max_live[slot]);
+          return std::shared_ptr<ProjectContext>(
+              new ProjectContext(info.id, info.path, scheduler,
+                                 [](const pipeline::StageContext &) {
+                                   return pipeline::StageResult::success();
+                                 }),
+              [&live, slot](ProjectContext *ctx) {
+                delete ctx;
+                --live[slot];
+              });
         } catch (...) {
+          --live[slot];
           ++opener_failures;
           throw;
         }
       },
       options, clock.fn());
 
-  std::atomic<bool> stop{false};
   std::atomic<int> unexpected{0};
+  std::atomic<int> frames{0};
   std::vector<std::thread> threads;
   for (int t = 0; t < 4; ++t)
     threads.emplace_back([&, t] {
-      for (int i = 0; i < 150 && !stop; ++i) {
+      // This thread's "sockets": a hub and a key per case it subscribed to.
+      std::vector<std::pair<std::shared_ptr<SubscriberHub>, std::string>>
+          sockets;
+      int key_storage[2] = {0, 0};
+      for (int i = 0; i < 150; ++i) {
         const std::string id = (t + i) % 2 == 0 ? "a" : "b";
         try {
-          switch ((t * 7 + i) % 3) {
+          switch ((t * 7 + i) % 5) {
           case 0:
             if (auto ctx = registry.acquire(id))
               ctx->touch(ProjectRegistry::Clock::time_point{});
             break;
           case 1:
             registry.sweep();
+            break;
+          case 2:
+            // A tab opens the events socket: lease, subscribe, keep only
+            // the hub (as Server's socket table does), drop the lease.
+            if (auto ctx = registry.acquire(id)) {
+              const void *key = &key_storage[id == "a" ? 0 : 1];
+              ctx->subscribe(key, [&](const std::string &) { ++frames; });
+              sockets.emplace_back(ctx->subscribers(), id);
+              if (i % 3 == 0)
+                ctx->jobs().submit(pipeline::JobStage::planes);
+            }
+            break;
+          case 3:
+            // A tab closes: unsubscribe through the hub, touch through
+            // find_open — never a strong reference of its own.
+            for (auto &[hub, cid] : sockets) {
+              hub->unsubscribe(&key_storage[cid == "a" ? 0 : 1]);
+              if (auto ctx = registry.find_open(cid))
+                ctx->touch(ProjectRegistry::Clock::time_point{});
+            }
+            sockets.clear();
             break;
           default:
             if (registry.begin_delete(id, std::chrono::milliseconds(5)) ==
@@ -351,14 +378,70 @@ TEST_CASE("ProjectRegistry_ConcurrentOpenSweepDelete_NeverTwoContexts",
           ++unexpected;
         }
       }
+      for (auto &[hub, cid] : sockets)
+        hub->unsubscribe(&key_storage[cid == "a" ? 0 : 1]);
     });
   for (auto &t : threads)
     t.join();
   CHECK(unexpected.load() == 0);
   CHECK(opener_failures.load() == 0);
+  CHECK(frames.load() > 0);
   // Never two live contexts for one case, ever.
   CHECK(max_live[0].load() <= 1);
   CHECK(max_live[1].load() <= 1);
+}
+
+TEST_CASE("ProjectRegistry_Delete_SubscriberCannotKeepContextAlive",
+          "[ruxd_api][registry]") {
+  // Review N1: a socket handler that re-took the context (weak_ptr::lock)
+  // while a delete closed it kept the WAL anchor open past the file move.
+  // Sockets now hold only the SubscriberHub; a handler that asks for the
+  // context gets find_open(), which never hands out a case being deleted.
+  CaseDir cases(1);
+  pipeline::JobScheduler scheduler;
+  std::atomic<int> destroyed{0};
+  ProjectRegistry registry(
+      cases.store,
+      [&](const CaseInfo &info) {
+        return std::shared_ptr<ProjectContext>(
+            new ProjectContext(info.id, info.path, scheduler,
+                               pipeline::default_stage_executor()),
+            [&](ProjectContext *ctx) {
+              delete ctx;
+              ++destroyed;
+            });
+      },
+      manual());
+
+  auto ctx = registry.acquire("a");
+  const auto hub = ctx->subscribers();
+  std::vector<std::shared_ptr<ProjectContext>> retaken;
+  std::vector<std::string> told;
+  bool armed = false;
+  int key = 0;
+  // Single-threaded here, so calling into the registry from inside the send
+  // is safe; the real socket table never does (see Server.cpp drop_socket).
+  ctx->subscribe(&key, [&](const std::string &m) {
+    told.push_back(m);
+    if (armed)
+      retaken.push_back(registry.find_open("a"));
+  });
+  armed = true;
+  ctx.reset();
+
+  REQUIRE(registry.begin_delete("a", std::chrono::seconds(1)) ==
+          DeleteStart::started);
+  // Closed by begin_delete itself, before it returned: the files can move.
+  CHECK(destroyed.load() == 1);
+  REQUIRE_FALSE(told.empty());
+  CHECK(told.back().find("case.closed") != std::string::npos);
+  REQUIRE(retaken.size() == 1);
+  CHECK(retaken.front() == nullptr);
+  // The socket's hub outlives the context harmlessly: it is empty, and its
+  // close handler can still unsubscribe through it.
+  CHECK(hub->size() == 0);
+  hub->unsubscribe(&key);
+  registry.end_delete("a");
 }
 
 TEST_CASE("ProjectContext_Broadcast_ReachesOnlyItsOwnSubscribers",

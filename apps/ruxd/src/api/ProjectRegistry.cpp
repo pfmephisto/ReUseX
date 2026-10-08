@@ -13,6 +13,11 @@
 
 namespace ruxd::api {
 
+namespace {
+/// Least time begin_delete() waits for a closed context's last reference.
+constexpr std::chrono::milliseconds kReleaseWait{2000};
+} // namespace
+
 ProjectRegistry::ProjectRegistry(std::shared_ptr<ICaseStore> store,
                                  Opener opener, RegistryOptions options,
                                  ClockFn clock)
@@ -211,12 +216,18 @@ std::size_t ProjectRegistry::sweep() {
 
 DeleteStart ProjectRegistry::begin_delete(std::string_view id,
                                           std::chrono::milliseconds wait) {
+  const auto deadline = std::chrono::steady_clock::now() + wait;
   std::unique_lock<std::mutex> lock(mutex_);
-  changed_.wait(lock, [&] {
+  // An open (a migration, say) or close under way settles first — within the
+  // same bound as the lease wait below, so a delete never ties up a request
+  // thread for a whole migration (review N6).
+  const bool settled = changed_.wait_until(lock, deadline, [&] {
     auto it = entries_.find(id);
     return it == entries_.end() || it->second.state == State::open ||
            it->second.state == State::deleting;
   });
+  if (!settled)
+    return DeleteStart::in_use;
   auto it = entries_.find(id);
   if (it == entries_.end()) {
     entries_[std::string(id)] = Entry{State::deleting, nullptr};
@@ -231,7 +242,6 @@ DeleteStart ProjectRegistry::begin_delete(std::string_view id,
   // 409) and the sweeper leaves it alone. The context stays in the entry, so
   // "only the registry holds it" is still use_count() == 1.
   it->second.state = State::deleting;
-  const auto deadline = std::chrono::steady_clock::now() + wait;
   auto rollback = [&](DeleteStart why) {
     auto again = entries_.find(id);
     again->second.state = State::open;
@@ -259,7 +269,23 @@ DeleteStart ProjectRegistry::begin_delete(std::string_view id,
   // The close is certain now: tell the open tabs, then close it HERE so the
   // WAL is checkpointed and the files released before they move.
   ctx->broadcast_message({{"type", "case.closed"}});
+  std::weak_ptr<ProjectContext> weak = ctx;
   ctx.reset();
+  // Belt to the braces: nothing outside the registry may hold a context
+  // without a lease (sockets keep only its SubscriberHub), so this is already
+  // the last reference. Should anything ever take one anyway, wait for it
+  // (bounded) rather than move files under an open WAL anchor.
+  const auto release_deadline =
+      std::chrono::steady_clock::now() + std::max(wait, kReleaseWait);
+  while (!weak.expired()) {
+    if (std::chrono::steady_clock::now() >= release_deadline) {
+      spdlog::error("Case '{}' is still referenced after its close; its files "
+                    "move with its WAL anchor open",
+                    id);
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
   return DeleteStart::started;
 }
 

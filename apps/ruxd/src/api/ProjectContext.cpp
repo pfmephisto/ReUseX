@@ -71,10 +71,8 @@ ProjectContext::~ProjectContext() {
     queue_->remove_listener(listener_);
     queue_.reset();
   }
-  {
-    std::lock_guard<std::mutex> lock(subscribers_mutex_);
-    subscribers_.clear();
-  }
+  // Sockets may still hold the hub; from here it reaches nobody.
+  subscribers_->clear();
   // Last, once the job worker and every request have released their
   // connections: as the last connection it checkpoints and removes the WAL.
   wal_anchor_.reset();
@@ -128,11 +126,46 @@ json ProjectContext::hello() const {
 }
 
 void ProjectContext::subscribe(const void *key, SendFn send) {
-  const std::string greeting = hello().dump();
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
   // Snapshot on connect, so a client that joins mid-run is immediately
-  // consistent without a separate GET /jobs. Sent under the lock, like every
-  // send (see broadcast()).
+  // consistent without a separate GET /jobs.
+  subscribers_->subscribe(key, std::move(send), hello().dump());
+}
+
+void ProjectContext::unsubscribe(const void *key) {
+  subscribers_->unsubscribe(key);
+}
+
+void ProjectContext::set_filter(const void *key,
+                                std::optional<std::string> job_id) {
+  subscribers_->set_filter(key, std::move(job_id));
+}
+
+std::size_t ProjectContext::subscriber_count() const {
+  return subscribers_->size();
+}
+
+void ProjectContext::broadcast(const pipeline::JobEvent &event) {
+  json message = job_event_json(event, file_name());
+  message["case"] = id_;
+  subscribers_->send_if(message.dump(),
+                        [&](const std::optional<std::string> &filter) {
+                          return event_matches_subscription(event, filter);
+                        });
+}
+
+void ProjectContext::broadcast_message(const json &message) {
+  json out = message;
+  out["case"] = id_;
+  subscribers_->send_if(
+      out.dump(), [](const std::optional<std::string> &) { return true; });
+}
+
+// --- SubscriberHub -----------------------------------------------------------
+
+void SubscriberHub::subscribe(const void *key, SendFn send,
+                              const std::string &greeting) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // Sent under the lock, like every send (see send_if()).
   try {
     send(greeting);
   } catch (const std::exception &e) {
@@ -141,30 +174,33 @@ void ProjectContext::subscribe(const void *key, SendFn send) {
   subscribers_[key] = Subscriber{std::move(send), std::nullopt};
 }
 
-void ProjectContext::unsubscribe(const void *key) {
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
+void SubscriberHub::unsubscribe(const void *key) {
+  std::lock_guard<std::mutex> lock(mutex_);
   subscribers_.erase(key);
 }
 
-void ProjectContext::set_filter(const void *key,
-                                std::optional<std::string> job_id) {
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
+void SubscriberHub::set_filter(const void *key,
+                               std::optional<std::string> job_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it = subscribers_.find(key);
   if (it != subscribers_.end())
     it->second.filter = std::move(job_id);
 }
 
-std::size_t ProjectContext::subscriber_count() const {
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
+std::size_t SubscriberHub::size() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return subscribers_.size();
 }
 
-void ProjectContext::broadcast(const pipeline::JobEvent &event) {
-  json message = job_event_json(event, file_name());
-  message["case"] = id_;
-  const std::string payload = message.dump();
+void SubscriberHub::clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  subscribers_.clear();
+}
 
-  // LOCKING INVARIANT — the sends happen INSIDE subscribers_mutex_ on purpose.
+void SubscriberHub::send_if(
+    const std::string &payload,
+    const std::function<bool(const std::optional<std::string> &)> &accepts) {
+  // LOCKING INVARIANT — the sends happen INSIDE mutex_ on purpose.
   //
   // A subscriber's send callback reaches a crow::websocket::connection we do
   // not own; Crow frees it right after its close handler runs, and that close
@@ -174,24 +210,10 @@ void ProjectContext::broadcast(const pipeline::JobEvent &event) {
   // against the job worker and send into freed memory. Holding the lock across
   // the send is cheap: Crow's send_text() only posts the frame to its
   // io_context, it never runs a handler inline.
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   for (auto &[key, subscriber] : subscribers_) {
-    if (!event_matches_subscription(event, subscriber.filter))
+    if (!accepts(subscriber.filter))
       continue;
-    try {
-      subscriber.send(payload);
-    } catch (const std::exception &e) {
-      spdlog::debug("WebSocket send failed: {}", e.what());
-    }
-  }
-}
-
-void ProjectContext::broadcast_message(const json &message) {
-  json out = message;
-  out["case"] = id_;
-  const std::string payload = out.dump();
-  std::lock_guard<std::mutex> lock(subscribers_mutex_);
-  for (auto &[key, subscriber] : subscribers_) {
     try {
       subscriber.send(payload);
     } catch (const std::exception &e) {

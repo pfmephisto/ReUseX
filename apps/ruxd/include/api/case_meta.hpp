@@ -79,8 +79,12 @@ class RenderCache {
 
   std::optional<Blob> get(const std::filesystem::path &project,
                           const std::string &request);
+  /// Store @p blob under @p stamp — the file stamp taken BEFORE the project
+  /// was read for it, so a write that commits during the render leaves the
+  /// entry stale rather than caching the old image under the new stamp
+  /// (review N2).
   void put(const std::filesystem::path &project, const std::string &request,
-           Blob blob);
+           const FileStamp &stamp, Blob blob);
   std::size_t bytes() const;
 
     private:

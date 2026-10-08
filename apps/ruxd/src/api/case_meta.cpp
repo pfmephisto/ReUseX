@@ -10,7 +10,9 @@
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <system_error>
+#include <thread>
 #include <utility>
 
 namespace ruxd::api {
@@ -38,33 +40,55 @@ FileStamp file_stamp(const fs::path &project) {
   return stamp;
 }
 
+namespace {
+
+bool is_transient(const std::exception &e) {
+  const std::string what = e.what();
+  return what.find("locked") != std::string::npos ||
+         what.find("busy") != std::string::npos;
+}
+
+/// Attempts at a card that keeps meeting a lock (a checkpoint, a migration on
+/// open) before it is reported unreadable (review N7).
+constexpr int kSummaryAttempts = 3;
+
+} // namespace
+
 json read_case_summary(const fs::path &project) {
   std::error_code ec;
   if (!fs::exists(project, ec))
     return nullptr; // Not created yet: nothing to say.
-  try {
-    reusex::ProjectDB db(project, /*readOnly=*/true);
-    json out{{"project", nullptr}, {"survey", nullptr}, {"fractions", nullptr}};
-    const auto records = projects_json(db, Params{});
-    if (records.contains("projects") && !records["projects"].empty())
-      out["project"] = records["projects"][0];
-    // A read-only probe never migrates, and the survey tables are recent: an
-    // older project shows its record only, until someone opens it.
-    if (db.schema_version() >= reusex::ProjectDB::latest_schema_version()) {
-      out["survey"] = survey_summary_json(db);
-      try {
-        out["fractions"] = survey_fractions_json(db);
-      } catch (const std::exception &e) {
-        spdlog::debug("No fractions for {}: {}", project.filename().string(),
-                      e.what());
+  for (int attempt = 1;; ++attempt)
+    try {
+      reusex::ProjectDB db(project, /*readOnly=*/true);
+      json out{
+          {"project", nullptr}, {"survey", nullptr}, {"fractions", nullptr}};
+      const auto records = projects_json(db, Params{});
+      if (records.contains("projects") && !records["projects"].empty())
+        out["project"] = records["projects"][0];
+      // A read-only probe never migrates, and the survey tables are recent: an
+      // older project shows its record only, until someone opens it.
+      if (db.schema_version() >= reusex::ProjectDB::latest_schema_version()) {
+        out["survey"] = survey_summary_json(db);
+        try {
+          out["fractions"] = survey_fractions_json(db);
+        } catch (const std::exception &e) {
+          spdlog::debug("No fractions for {}: {}", project.filename().string(),
+                        e.what());
+        }
       }
+      return out;
+    } catch (const std::exception &e) {
+      // A lock is transient — a writer's checkpoint, an open migrating the
+      // file — and a card must not read "Kan ikke læses" for it: retry.
+      if (is_transient(e) && attempt < kSummaryAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
+        continue;
+      }
+      spdlog::debug("Could not read the card of {}: {}",
+                    project.filename().string(), e.what());
+      return nullptr;
     }
-    return out;
-  } catch (const std::exception &e) {
-    spdlog::debug("Could not read the card of {}: {}",
-                  project.filename().string(), e.what());
-    return nullptr;
-  }
 }
 
 json CaseSummaryCache::get(const CaseInfo &info) {
@@ -110,12 +134,11 @@ std::optional<Blob> RenderCache::get(const fs::path &project,
 }
 
 void RenderCache::put(const fs::path &project, const std::string &request,
-                      Blob blob) {
+                      const FileStamp &stamp, Blob blob) {
   const std::size_t size = blob.data.size();
   if (size > budget_)
     return;
   const std::string key = project.string() + '\n' + request;
-  const FileStamp stamp = file_stamp(project);
   std::lock_guard<std::mutex> lock(mutex_);
   if (auto it = index_.find(key); it != index_.end()) {
     bytes_ -= it->second->blob.data.size();

@@ -111,9 +111,16 @@ class ProjectRegistry {
 
   /// Start deleting @p id: tombstone it and, when it is open, close it HERE
   /// once in-flight requests let go (up to @p wait), so its WAL is
-  /// checkpointed and its files closed before the caller moves them. Open
-  /// tabs get `case.closed` only once the close is certain. On anything but
-  /// `started`, nothing changed. After `started`, call end_delete().
+  /// checkpointed and its files closed before the caller moves them. An open
+  /// or close of it already under way gets the same @p wait to settle
+  /// (`in_use` otherwise). Open tabs get `case.closed` only once the close is
+  /// certain. On anything but `started`, nothing changed. After `started`,
+  /// call end_delete().
+  ///
+  /// The close is committed before the files move: if moving them then fails
+  /// and end_delete() rolls the delete back, the case exists again but the
+  /// tabs that had it open have already been told `case.closed` and gone to
+  /// the case list. They can reopen it from there; nothing is lost.
   DeleteStart begin_delete(std::string_view id, std::chrono::milliseconds wait);
 
   /// Lift the tombstone of a delete begin_delete() started — after the files

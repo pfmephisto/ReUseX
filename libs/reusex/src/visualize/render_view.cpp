@@ -121,7 +121,7 @@ void validate(const RenderOptions &opts) {
     throw std::runtime_error(
         "render: no layers selected — pass at least one of "
         "cloud, labels, planes, rooms, instances, mesh, "
-        "components");
+        "components, frustums, panoramas");
   if (opts.width <= 0 || opts.height <= 0)
     throw std::runtime_error("render: image size must be positive (got " +
                              std::to_string(opts.width) + "x" +
@@ -184,6 +184,10 @@ std::string_view to_string(Layer layer) {
     return "mesh";
   case Layer::components:
     return "components";
+  case Layer::frustums:
+    return "frustums";
+  case Layer::panoramas:
+    return "panoramas";
   }
   return "unknown";
 }
@@ -216,8 +220,9 @@ std::optional<ViewPreset> view_preset_from_string(std::string_view name) {
 
 const std::vector<Layer> &all_layers() {
   static const std::vector<Layer> layers{
-      Layer::cloud,     Layer::labels, Layer::planes,    Layer::rooms,
-      Layer::instances, Layer::mesh,   Layer::components};
+      Layer::cloud,      Layer::labels,    Layer::planes,
+      Layer::rooms,      Layer::instances, Layer::mesh,
+      Layer::components, Layer::frustums,  Layer::panoramas};
   return layers;
 }
 

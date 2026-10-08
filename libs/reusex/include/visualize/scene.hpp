@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class vtkActor;
@@ -44,6 +45,54 @@ struct SceneBounds {
   double diagonal() const;
 };
 
+/// The categorical colour scale label layers are drawn with.
+///
+/// The default is the design tokens' `--label-0 … --label-7` scale
+/// (Okabe-Ito, colourblind-safe) and `--label-unlabeled`, so a `rux render`,
+/// the web viewport and the Qt client colour a label the same way and their
+/// legends agree. `tests/unit/visualize/test_scene.cpp` pins these values to
+/// `apps/rux/frontend/src/tokens.css`; a design sync that changes the scale
+/// fails that test until this table follows.
+struct LabelPalette {
+  std::vector<std::array<std::uint8_t, 3>> colors; ///< labels 1..N, cyclic
+  std::array<std::uint8_t, 3> unlabeled{0, 0, 0};  ///< label 0 (STANDARDS §3)
+};
+
+/// The tokens' scale (see LabelPalette).
+const LabelPalette &default_label_palette();
+
+/// Palette slot of a point label: `(label - 1) % size`, or -1 for label 0
+/// (unlabeled) or an empty palette. The same rule as the web viewport's
+/// `labelColorIndex()` — indexing with `label` itself would shift every class
+/// by one against the legend.
+int label_palette_slot(std::uint32_t label, std::size_t size);
+
+/// The colour of @p label in @p palette.
+std::array<std::uint8_t, 3> label_palette_color(const LabelPalette &palette,
+                                                std::uint32_t label);
+
+/// How a large cloud was thinned for drawing.
+enum class LodMethod {
+  all,           ///< every point is drawn
+  morton_prefix, ///< a prefix of a bit-reversed Morton cloud (stratified)
+  stride,        ///< every k-th point, evenly over the storage order
+};
+
+std::string_view to_string(LodMethod method);
+
+/// Which of @p total stored points to draw within a budget of @p budget.
+///
+/// A cloud stored in bit-reversed Morton order (`rux create clouds`,
+/// `storage_order` "morton_10bit_bitrev", #394/#396) is spatially stratified,
+/// so any prefix is a uniform sample: the first @p budget points. Every other
+/// order is thinned by an even stride — a plain Morton or insertion-order
+/// prefix would cover one corner of the scene, not all of it.
+/// @return the storage indices, ascending; empty when every point fits
+///         (method == LodMethod::all).
+std::vector<std::uint32_t> lod_indices(std::size_t total, std::size_t budget,
+                                       std::string_view storage_order,
+                                       LodMethod *method = nullptr);
+
 /// What populate_scene() draws, and how.
 struct SceneOptions {
   /// Layers in draw order. Empty is an error.
@@ -56,6 +105,23 @@ struct SceneOptions {
   double point_size = 2.0;
   /// Paint one instance and dim the rest (see render_view.hpp).
   std::optional<InstanceHighlight> highlight;
+  /// Colours of the label layers; std::nullopt = default_label_palette().
+  std::optional<LabelPalette> palette;
+
+  /// Draw at most this many points per point layer (0 = all). See
+  /// lod_indices() for which.
+  std::size_t max_points = 0;
+  /// Also build a hidden coarse actor of at most this many points per point
+  /// layer (0 = none), for an interactive viewer to show while the camera
+  /// moves. Only built when it is smaller than what the full actor draws.
+  std::size_t coarse_points = 0;
+
+  /// Frustums drawn at most; posed frames beyond it are skipped evenly.
+  std::size_t max_frustums = 300;
+  /// Depth of a drawn frustum, in metres.
+  double frustum_depth = 0.25;
+  std::array<std::uint8_t, 3> frustum_rgb{150, 160, 176};
+  std::array<std::uint8_t, 3> panorama_rgb{255, 176, 64};
 };
 
 /// The actors one layer added, so an interactive viewer can toggle it.
@@ -63,8 +129,12 @@ struct SceneLayer {
   Layer layer = Layer::cloud;
   /// Every actor of the layer (one for a point layer, one per component).
   std::vector<vtkActor *> actors;
-  std::size_t points = 0; ///< points drawn
+  /// Point layers only: the hidden coarse twin (SceneOptions::coarse_points),
+  /// or nullptr.
+  vtkActor *coarse = nullptr;
+  std::size_t points = 0; ///< points drawn (per point layer)
   std::size_t faces = 0;  ///< mesh faces drawn
+  std::size_t items = 0;  ///< frustums / panoramas / components drawn
 };
 
 /// What populate_scene() added.
@@ -73,6 +143,12 @@ struct SceneInfo {
   std::size_t drawn_points = 0;
   std::size_t drawn_faces = 0;
   std::vector<SceneLayer> layers;
+  /// Points in the geometry cloud (0 when no point layer was drawn).
+  std::size_t source_points = 0;
+  LodMethod lod = LodMethod::all;
+  /// Storage index of each point a full point actor draws (its vtk point id
+  /// -> cloud index); empty when every point is drawn (the identity).
+  std::vector<std::uint32_t> indices;
 };
 
 /// Load @p opts' layers from @p db and add them to @p renderer.

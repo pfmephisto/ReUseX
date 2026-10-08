@@ -38,8 +38,11 @@ namespace visualize {
 ///
 /// `cloud` draws the geometry cloud with its stored RGB colour; the four
 /// label layers draw the same geometry recoloured by the corresponding
-/// index-aligned `Label` cloud (CONTRACTS.md); `mesh` draws a stored mesh and
-/// `components` draws building-component outlines.
+/// index-aligned `Label` cloud (CONTRACTS.md) on the design tokens'
+/// categorical `--label-*` scale (visualize/scene.hpp); `mesh` draws a stored
+/// mesh, `components` building-component outlines, `frustums` the camera
+/// frustum of each posed sensor frame and `panoramas` a marker where each 360
+/// panorama was taken.
 enum class Layer {
   cloud,      ///< `cloud` (PointXYZRGB), stored per-point colour
   labels,     ///< `labels` (Label) — semantic classes
@@ -48,6 +51,8 @@ enum class Layer {
   instances,  ///< `instances` (Label) — spatial instances
   mesh,       ///< a stored mesh from the `meshes` table
   components, ///< building-component outlines (windows / doors / walls)
+  frustums,   ///< camera frustums of the posed sensor frames (subsampled)
+  panoramas,  ///< a marker at each placed 360 panorama
 };
 
 /// Parse a layer name as accepted by `rux render --layers`.

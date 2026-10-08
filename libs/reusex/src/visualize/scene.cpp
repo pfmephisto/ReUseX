@@ -5,6 +5,7 @@
 #include "visualize/scene.hpp"
 
 #include "core/ProjectDB.hpp"
+#include "core/SensorIntrinsics.hpp"
 #include "core/logging.hpp"
 #include "geometry/BuildingComponent.hpp"
 #include "geometry/component_persistence.hpp"
@@ -13,7 +14,6 @@
 #include "types/point_types.hpp"
 
 #include <pcl/PolygonMesh.h>
-#include <pcl/common/colors.h>
 #include <pcl/conversions.h>
 
 #include <vtkActor.h>
@@ -86,25 +86,6 @@ void vtk_log_callback(void * /*user_data*/, const vtkLogger::Message &message) {
 
 // ── Colour helpers ───────────────────────────────────────────────────────────
 
-/// Colour for a label, matching what the interactive viewer shows.
-///
-/// PCL's PointCloudColorHandlerLabelField (used by `rux view`) maps labels
-/// through the Glasbey LUT modulo its size, and the legend in
-/// apps/rux/src/view/project_loader.cpp does the same — so a render and the
-/// viewer agree on colours. Label 0 is "unlabeled" per STANDARDS §3 and is
-/// drawn as a muted grey instead of a Glasbey colour, so unsegmented geometry
-/// is visible but never mistaken for a class.
-void label_color(std::uint32_t label, unsigned char rgb[3]) {
-  if (label == 0) {
-    rgb[0] = rgb[1] = rgb[2] = 90;
-    return;
-  }
-  const pcl::RGB c = pcl::GlasbeyLUT::at(label % pcl::GlasbeyLUT::size());
-  rgb[0] = c.r;
-  rgb[1] = c.g;
-  rgb[2] = c.b;
-}
-
 void component_color(geometry::ComponentType type, double rgb[3]) {
   // Same convention as the interactive viewer (view/component_renderer.cpp).
   switch (type) {
@@ -140,6 +121,10 @@ std::string producing_command(Layer layer) {
     return "rux create mesh";
   case Layer::components:
     return "rux create windows";
+  case Layer::frustums:
+    return "rux import rtabmap (or another importer of posed frames)";
+  case Layer::panoramas:
+    return "rux import 360";
   }
   return "the corresponding rux create subcommand";
 }
@@ -179,10 +164,16 @@ std::string label_cloud_name(Layer layer) {
 // ── VTK geometry construction ────────────────────────────────────────────────
 
 /// Wrap positions + per-point colours in a renderable vertex poly-data.
+///
+/// @p colors holds 3 bytes for every point of @p cloud; @p indices selects
+/// which points to draw (empty = all of them, in order).
 vtkSmartPointer<vtkPolyData>
 make_point_polydata(const Cloud &cloud,
-                    const std::vector<unsigned char> &colors) {
-  const vtkIdType n = static_cast<vtkIdType>(cloud.size());
+                    const std::vector<unsigned char> &colors,
+                    const std::vector<std::uint32_t> &indices) {
+  const bool all = indices.empty();
+  const vtkIdType n =
+      static_cast<vtkIdType>(all ? cloud.size() : indices.size());
 
   vtkNew<vtkPoints> points;
   points->SetDataTypeToFloat();
@@ -197,14 +188,13 @@ make_point_polydata(const Cloud &cloud,
   verts->AllocateEstimate(n, 1);
 
   for (vtkIdType i = 0; i < n; ++i) {
-    const auto &p = cloud[static_cast<std::size_t>(i)];
+    const std::size_t k = all ? static_cast<std::size_t>(i)
+                              : indices[static_cast<std::size_t>(i)];
+    const auto &p = cloud[k];
     points->SetPoint(i, p.x, p.y, p.z);
-    scalars->SetTypedComponent(i, 0,
-                               colors[3 * static_cast<std::size_t>(i) + 0]);
-    scalars->SetTypedComponent(i, 1,
-                               colors[3 * static_cast<std::size_t>(i) + 1]);
-    scalars->SetTypedComponent(i, 2,
-                               colors[3 * static_cast<std::size_t>(i) + 2]);
+    scalars->SetTypedComponent(i, 0, colors[3 * k + 0]);
+    scalars->SetTypedComponent(i, 1, colors[3 * k + 1]);
+    scalars->SetTypedComponent(i, 2, colors[3 * k + 2]);
     verts->InsertNextCell(1, &i);
   }
 
@@ -387,6 +377,157 @@ std::optional<double> detect_floor_z(const ProjectDB &db) {
   return lowest;
 }
 
+/// One line-set actor in a single colour.
+vtkActor *add_lines_actor(vtkRenderer *renderer, vtkPoints *points,
+                          vtkCellArray *lines,
+                          const std::array<std::uint8_t, 3> &rgb,
+                          double width) {
+  vtkNew<vtkPolyData> poly;
+  poly->SetPoints(points);
+  poly->SetLines(lines);
+  vtkNew<vtkPolyDataMapper> mapper;
+  mapper->SetInputData(poly);
+  vtkNew<vtkActor> actor;
+  actor->SetMapper(mapper);
+  actor->GetProperty()->SetColor(rgb[0] / 255.0, rgb[1] / 255.0,
+                                 rgb[2] / 255.0);
+  actor->GetProperty()->SetLineWidth(width);
+  actor->GetProperty()->SetLighting(false);
+  renderer->AddActor(actor);
+  return actor;
+}
+
+/// Camera frustums of the posed sensor frames, as one line set: the eye, the
+/// four image corners at @p depth metres and the image rectangle. The camera
+/// sits at pose * local_transform, as in camera_from_sensor_frame().
+vtkActor *add_frustum_actor(vtkRenderer *renderer, const ProjectDB &db,
+                            const SceneOptions &opts, SceneBounds &bounds,
+                            std::size_t &drawn) {
+  std::vector<int> posed;
+  for (const int id : db.sensor_frame_ids())
+    if (db.has_sensor_frame_pose(id))
+      posed.push_back(id);
+  if (posed.empty())
+    throw std::runtime_error(
+        "render: layer 'frustums' needs posed sensor frames, and this project "
+        "has none — run `" +
+        producing_command(Layer::frustums) + "` first");
+
+  // Evenly spaced over the capture, so a long scan keeps its whole path.
+  const std::size_t budget = std::max<std::size_t>(opts.max_frustums, 1);
+  std::vector<int> ids;
+  if (posed.size() <= budget) {
+    ids = posed;
+  } else {
+    for (std::size_t i = 0; i < budget; ++i)
+      ids.push_back(posed[i * posed.size() / budget]);
+  }
+
+  vtkNew<vtkPoints> points;
+  points->SetDataTypeToFloat();
+  vtkNew<vtkCellArray> lines;
+  std::size_t skipped = 0;
+  const double d = opts.frustum_depth;
+  for (const int id : ids) {
+    const core::SensorIntrinsics intr = db.sensor_frame_intrinsics(id);
+    if (intr.fx <= 0.0 || intr.fy <= 0.0 || intr.width <= 0 ||
+        intr.height <= 0) {
+      ++skipped;
+      continue;
+    }
+    const Eigen::Affine3d c2w = geometry::to_affine(db.sensor_frame_pose(id)) *
+                                geometry::to_affine(intr.local_transform);
+    const Eigen::Vector3d eye = c2w.translation();
+    const double us[4] = {0.0, static_cast<double>(intr.width),
+                          static_cast<double>(intr.width), 0.0};
+    const double vs[4] = {0.0, 0.0, static_cast<double>(intr.height),
+                          static_cast<double>(intr.height)};
+    const vtkIdType e = points->InsertNextPoint(eye.x(), eye.y(), eye.z());
+    bounds.add(eye.x(), eye.y(), eye.z());
+    vtkIdType corner[4];
+    for (int k = 0; k < 4; ++k) {
+      const Eigen::Vector3d ray((us[k] - intr.cx) / intr.fx,
+                                (vs[k] - intr.cy) / intr.fy, 1.0);
+      const Eigen::Vector3d c = c2w * (ray * d);
+      corner[k] = points->InsertNextPoint(c.x(), c.y(), c.z());
+    }
+    for (int k = 0; k < 4; ++k) {
+      const vtkIdType spoke[2] = {e, corner[k]};
+      lines->InsertNextCell(2, spoke);
+      const vtkIdType edge[2] = {corner[k], corner[(k + 1) % 4]};
+      lines->InsertNextCell(2, edge);
+    }
+    ++drawn;
+  }
+  if (drawn == 0)
+    throw std::runtime_error("render: none of the " +
+                             std::to_string(ids.size()) +
+                             " posed sensor frames has usable intrinsics, so "
+                             "no frustum can be drawn");
+  if (skipped > 0)
+    core::warn("render: {} of {} frames have no usable intrinsics; their "
+               "frustums are not drawn",
+               skipped, ids.size());
+  return add_lines_actor(renderer, points, lines, opts.frustum_rgb, 1.0);
+}
+
+/// A marker where each placed 360 panorama was taken: its aligned pose, or
+/// the timestamp-matched frame's pose. Points drawn as spheres.
+vtkActor *add_panorama_actor(vtkRenderer *renderer, const ProjectDB &db,
+                             const SceneOptions &opts, SceneBounds &bounds,
+                             std::size_t &drawn) {
+  const auto panoramas = db.list_panoramic_images();
+  if (panoramas.empty())
+    throw std::runtime_error(
+        "render: layer 'panoramas' needs 360 panoramas, and this project has "
+        "none — run `" +
+        producing_command(Layer::panoramas) + "` first");
+  vtkNew<vtkPoints> points;
+  points->SetDataTypeToFloat();
+  vtkNew<vtkCellArray> verts;
+  std::size_t unplaced = 0;
+  for (const auto &p : panoramas) {
+    std::array<double, 16> pose{};
+    if (p.has_pose)
+      pose = p.pose;
+    else if (p.node_id >= 0 && db.has_sensor_frame_pose(p.node_id))
+      pose = db.sensor_frame_pose(p.node_id);
+    else {
+      ++unplaced;
+      continue;
+    }
+    const vtkIdType id = points->InsertNextPoint(pose[3], pose[7], pose[11]);
+    bounds.add(pose[3], pose[7], pose[11]);
+    verts->InsertNextCell(1, &id);
+    ++drawn;
+  }
+  if (drawn == 0)
+    throw std::runtime_error("render: none of the " +
+                             std::to_string(panoramas.size()) +
+                             " panoramas has a pose or a posed matching frame "
+                             "— run `rux align 360`");
+  if (unplaced > 0)
+    core::warn("render: {} of {} panoramas have no pose and no posed matching "
+               "frame; they are not drawn",
+               unplaced, panoramas.size());
+
+  vtkNew<vtkPolyData> poly;
+  poly->SetPoints(points);
+  poly->SetVerts(verts);
+  vtkNew<vtkPolyDataMapper> mapper;
+  mapper->SetInputData(poly);
+  vtkNew<vtkActor> actor;
+  actor->SetMapper(mapper);
+  const auto &rgb = opts.panorama_rgb;
+  actor->GetProperty()->SetColor(rgb[0] / 255.0, rgb[1] / 255.0,
+                                 rgb[2] / 255.0);
+  actor->GetProperty()->SetPointSize(4.0 * opts.point_size);
+  actor->GetProperty()->SetRenderPointsAsSpheres(true);
+  actor->GetProperty()->SetLighting(false);
+  renderer->AddActor(actor);
+  return actor;
+}
+
 /// Parallel scale (half the viewport height in world units) that exactly fits
 /// an @p across x @p up rectangle into an image of the given aspect ratio.
 ///
@@ -402,6 +543,72 @@ double parallel_scale_for(double across, double up, double aspect,
 }
 
 } // namespace
+
+// ── Label palette and LOD ────────────────────────────────────────────────────
+
+const LabelPalette &default_label_palette() {
+  // tokens.css --label-0..7 and --label-unlabeled (Okabe-Ito); pinned to the
+  // file by tests/unit/visualize/test_scene.cpp.
+  static const LabelPalette palette{{{0xe6, 0x9f, 0x00},
+                                     {0x56, 0xb4, 0xe9},
+                                     {0x00, 0x9e, 0x73},
+                                     {0xf0, 0xe4, 0x42},
+                                     {0x00, 0x72, 0xb2},
+                                     {0xd5, 0x5e, 0x00},
+                                     {0xcc, 0x79, 0xa7},
+                                     {0x99, 0x99, 0x99}},
+                                    {0x4a, 0x50, 0x5c}};
+  return palette;
+}
+
+int label_palette_slot(std::uint32_t label, std::size_t size) {
+  if (label == 0 || size == 0)
+    return -1;
+  return static_cast<int>((label - 1) % size);
+}
+
+std::array<std::uint8_t, 3> label_palette_color(const LabelPalette &palette,
+                                                std::uint32_t label) {
+  const int slot = label_palette_slot(label, palette.colors.size());
+  return slot < 0 ? palette.unlabeled
+                  : palette.colors[static_cast<std::size_t>(slot)];
+}
+
+std::string_view to_string(LodMethod method) {
+  switch (method) {
+  case LodMethod::all:
+    return "all";
+  case LodMethod::morton_prefix:
+    return "morton_prefix";
+  case LodMethod::stride:
+    return "stride";
+  }
+  return "unknown";
+}
+
+std::vector<std::uint32_t> lod_indices(std::size_t total, std::size_t budget,
+                                       std::string_view storage_order,
+                                       LodMethod *method) {
+  std::vector<std::uint32_t> out;
+  if (budget == 0 || total <= budget) {
+    if (method)
+      *method = LodMethod::all;
+    return out;
+  }
+  out.reserve(budget);
+  if (storage_order == "morton_10bit_bitrev") {
+    if (method)
+      *method = LodMethod::morton_prefix;
+    for (std::size_t i = 0; i < budget; ++i)
+      out.push_back(static_cast<std::uint32_t>(i));
+    return out;
+  }
+  if (method)
+    *method = LodMethod::stride;
+  for (std::size_t i = 0; i < budget; ++i)
+    out.push_back(static_cast<std::uint32_t>(i * total / budget));
+  return out;
+}
 
 // ── SceneBounds ──────────────────────────────────────────────────────────────
 
@@ -450,22 +657,57 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
     throw std::runtime_error(
         "render: no layers selected — pass at least one of "
         "cloud, labels, planes, rooms, instances, mesh, "
-        "components");
+        "components, frustums, panoramas");
   if (opts.point_size <= 0.0)
     throw std::runtime_error("render: point size must be positive (got " +
                              std::to_string(opts.point_size) + ")");
 
+  const LabelPalette &palette =
+      opts.palette ? *opts.palette : default_label_palette();
   SceneInfo info;
   SceneBounds &bounds = info.bounds;
   CloudPtr geometry; // loaded lazily; shared by every point layer
+  std::vector<std::uint32_t> coarse_indices;
+  bool coarse = false;
 
   const auto ensure_geometry = [&]() -> const Cloud & {
     if (!geometry) {
       geometry = load_geometry_cloud(db, opts.cloud_name);
       for (const auto &p : *geometry)
         bounds.add(p.x, p.y, p.z);
+      // Which points to draw, the same for every point layer so a label
+      // layer lines up with the geometry it recolours.
+      const std::string order = db.point_cloud_storage_order(opts.cloud_name);
+      info.source_points = geometry->size();
+      info.indices =
+          lod_indices(geometry->size(), opts.max_points, order, &info.lod);
+      const std::size_t full =
+          info.indices.empty() ? geometry->size() : info.indices.size();
+      if (opts.coarse_points > 0 && opts.coarse_points < full) {
+        coarse = true;
+        coarse_indices =
+            lod_indices(geometry->size(), opts.coarse_points, order, nullptr);
+      }
+      if (info.lod != LodMethod::all)
+        core::info("render: drawing {} of {} points of '{}' ({})", full,
+                   geometry->size(), opts.cloud_name, to_string(info.lod));
     }
     return *geometry;
+  };
+
+  // The full actor of a point layer, plus its hidden coarse twin.
+  const auto add_point_layer = [&](SceneLayer &drawn, const Cloud &cloud,
+                                   const std::vector<unsigned char> &colors) {
+    drawn.actors.push_back(add_points_actor(
+        renderer, make_point_polydata(cloud, colors, info.indices),
+        opts.point_size));
+    drawn.points = info.indices.empty() ? cloud.size() : info.indices.size();
+    if (coarse) {
+      drawn.coarse = add_points_actor(
+          renderer, make_point_polydata(cloud, colors, coarse_indices),
+          opts.point_size);
+      drawn.coarse->SetVisibility(false);
+    }
   };
 
   std::optional<std::vector<std::uint32_t>> highlight_labels;
@@ -510,9 +752,7 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
         colors[3 * i + 2] = cloud[i].b;
       }
       highlight(colors, cloud.size());
-      drawn.actors.push_back(add_points_actor(
-          renderer, make_point_polydata(cloud, colors), opts.point_size));
-      drawn.points = cloud.size();
+      add_point_layer(drawn, cloud, colors);
       break;
     }
 
@@ -552,7 +792,10 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
         const std::uint32_t label = (*labels)[i].label;
         if (label == 0)
           ++unlabeled;
-        label_color(label, &colors[3 * i]);
+        const auto c = label_palette_color(palette, label);
+        colors[3 * i + 0] = c[0];
+        colors[3 * i + 1] = c[1];
+        colors[3 * i + 2] = c[2];
       }
       if (unlabeled == cloud.size()) {
         core::warn("render: every point in '{}' is unlabeled (0/{} labeled); "
@@ -560,9 +803,7 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
                    name, cloud.size(), to_string(layer));
       }
       highlight(colors, cloud.size());
-      drawn.actors.push_back(add_points_actor(
-          renderer, make_point_polydata(cloud, colors), opts.point_size));
-      drawn.points = cloud.size();
+      add_point_layer(drawn, cloud, colors);
       break;
     }
 
@@ -595,8 +836,19 @@ SceneInfo populate_scene(vtkRenderer *renderer, const ProjectDB &db,
       for (const auto &name : names)
         components.push_back(geometry::building_component(db, name));
       drawn.actors = add_component_actors(renderer, components, bounds);
+      drawn.items = drawn.actors.size();
       break;
     }
+
+    case Layer::frustums:
+      drawn.actors.push_back(
+          add_frustum_actor(renderer, db, opts, bounds, drawn.items));
+      break;
+
+    case Layer::panoramas:
+      drawn.actors.push_back(
+          add_panorama_actor(renderer, db, opts, bounds, drawn.items));
+      break;
     }
     info.drawn_points += drawn.points;
     info.drawn_faces += drawn.faces;

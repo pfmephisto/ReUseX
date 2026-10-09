@@ -274,6 +274,11 @@ in
     cmakeFlags =
       [
         (lib.cmakeBool "WITH_CUDA" cudaSupport)
+        # The `reusex_package_consumer` ctest installs the build tree into a
+        # temp prefix with `cmake --install --prefix`, which the absolute
+        # CMAKE_INSTALL_*DIR nixpkgs' cmake hook passes would ignore. Here the
+        # same consumer runs against the real $out instead (installCheckPhase).
+        (lib.cmakeBool "REUSEX_PACKAGE_TEST" false)
       ]
       # Without libtorch, pin the backend list instead of relying on AUTO: an
       # explicit list makes a missing TensorRT/ONNX dependency a configure
@@ -309,10 +314,35 @@ in
     # Nothing here interacts with the postFixup runpath loop below: that loop
     # only walks $out/bin and $out/lib and additionally guards on isELF, while
     # these are static web assets under $out/share.
+    #
+    # The library itself installs as a CMake package (cmake/Installation.cmake):
+    # headers under include/reusex/, the per-module static libraries in lib/,
+    # and lib/cmake/ReUseX/ReUseXConfig.cmake, so another derivation can
+    # `find_package(ReUseX CONFIG REQUIRED)` against this one. Fail here, not in
+    # a downstream build, if that ever stops being installed.
     postInstall = ''
+      test -f $out/lib/cmake/ReUseX/ReUseXConfig.cmake \
+        || { echo "ReUseX CMake package config was not installed" >&2; exit 1; }
       mkdir -p $out/share/reusex/gui
       cp -r ${reusex-gui-frontend}/share/reusex/gui/. $out/share/reusex/gui/
       chmod -R u+w $out/share/reusex/gui
+    '';
+
+    # Build and run tests/package/consumer against the installed $out with
+    # find_package(ReUseX CONFIG REQUIRED): the installed CMake package is only
+    # proven by consuming it. Off by default (it re-runs the whole dependency
+    # lookup, minutes on the CUDA variant); `checks.tests` in flake.nix turns
+    # it on for the CPU variant CI builds.
+    doInstallCheck = false;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      cmake -DINSTALLED_PREFIX=$out \
+        -DCONSUMER_SOURCE_DIR=$NIX_BUILD_TOP/$sourceRoot/tests/package/consumer \
+        -DWORK_DIR=$TMPDIR/reusex-package-test \
+        "-DGENERATOR=Unix Makefiles" \
+        -DBUILD_CONFIG=Release \
+        -P $NIX_BUILD_TOP/$sourceRoot/tests/package/run_package_test.cmake
+      runHook postInstallCheck
     '';
 
     # Patch the installed binaries and shared libraries so the dynamic loader

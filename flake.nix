@@ -147,6 +147,9 @@
         checks.tests = self.packages.${system}.cpu.overrideAttrs (old: {
           pname = old.pname + "-tests";
           doCheck = true;
+          # Builds tests/package/consumer against the installed package
+          # (find_package(ReUseX)); see installCheckPhase in default.nix.
+          doInstallCheck = true;
           checkPhase = ''
             runHook preCheck
             # --parallel: the suite is dominated by per-process loader

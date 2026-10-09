@@ -370,4 +370,36 @@ if(INTEGRATION_TEST_SOURCES)
     catch_discover_tests(reusex_integration_tests)
 endif()
 
+# -----------------------------------------------
+# Installed-package consumer (repo split, P1)
+# -----------------------------------------------
+# `cmake --install`s the ReUseX_Development component into a temp prefix, then
+# configures, builds and runs tests/package/consumer against it with
+# find_package(ReUseX CONFIG REQUIRED). This is what keeps the exported CMake
+# package (cmake/Installation.cmake, cmake/ReUseXConfig.cmake.in) from rotting
+# now that ruxd consumes the library from outside this tree. It needs a
+# complete build (it installs the built archives) and re-runs every
+# find_package of the dependency closure, so it takes on the order of a minute;
+# `ctest -L package` runs it alone, `-LE package` skips it.
+option(REUSEX_PACKAGE_TEST
+       "Register the installed-package consumer ctest (tests/package)" ON)
+if(REUSEX_PACKAGE_TEST)
+    add_test(NAME reusex_package_consumer
+             COMMAND ${CMAKE_COMMAND}
+                     -DREUSEX_BUILD_DIR=${CMAKE_BINARY_DIR}
+                     -DCONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/package/consumer
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/package_test
+                     -DBUILD_CONFIG=$<CONFIG>
+                     -DGENERATOR=${CMAKE_GENERATOR}
+                     -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+                     "-DOUTER_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/package/run_package_test.cmake)
+    set_tests_properties(reusex_package_consumer PROPERTIES
+        LABELS package
+        TIMEOUT 1800
+        # Its own work dir, but a long multi-process configure+link: keep it
+        # from competing with itself if ctest is re-run concurrently.
+        RESOURCE_LOCK reusex_package_test)
+endif()
+
 message(STATUS "Unit tests configured successfully")

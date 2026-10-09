@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "vision/tensor_rt/common/norm.hpp"
+#include "reusex/vision/tensor_rt/common/norm.hpp"
 
 #include <cuda_runtime.h>
 

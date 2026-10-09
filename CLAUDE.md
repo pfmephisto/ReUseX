@@ -117,6 +117,7 @@ cmake --build build
 | `ML_BACKENDS` | `AUTO` | `libs/reusex/cmake/Dependencies.cmake:49` | Cache string, not a bool: `AUTO`, `NONE`, or a list like `TensorRT;LibTorch;ONNX;OpenVINO` |
 | `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
 | `LIN_ENABLE_WERROR` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake:23` | `-Werror` |
+| `REUSEX_PACKAGE_TEST` | `ON` | `tests/CMakeLists.txt:384` | Registers the `reusex_package_consumer` ctest (label `package`). `default.nix` turns it off and runs the same check in `installCheckPhase` instead. |
 
 There is no option to make visualization optional: `rux` links
 `pcl_visualization` unconditionally (`apps/rux/CMakeLists.txt`). Separately,
@@ -126,6 +127,48 @@ the `visualize` library module is built whenever
 it up only `if(TARGET reusex_visualize)`.
 
 **CMake auto-detection:** The build system uses `GLOB_RECURSE` with `CONFIGURE_DEPENDS`, so new .cpp/.cu files are automatically detected. No need to manually update CMakeLists.txt when adding source files.
+
+### Installing / the ReUseX CMake package
+
+`cmake --install build` installs the library as a CMake package
+(`cmake/Installation.cmake`, `cmake/ReUseXConfig.cmake.in`), laid out like this:
+
+- `include/reusex/...` holds the public headers, so `<reusex/...>` works unchanged.
+- `include/reusex/extern/` holds the vendored CGAL/PCL extension headers.
+- `lib/libreusex_<module>.a` holds the static libraries.
+- `lib/cmake/ReUseX/` holds the package config.
+
+Outside consumers (ruxd after the repo split) use
+`find_package(ReUseX CONFIG REQUIRED)` and link `ReUseX::<module>`
+(`ReUseX::core`, `ReUseX::pipeline`, …, umbrella `ReUseX::reusex`). The same
+`ReUseX::` names are ALIAS targets in-tree. Everything the package needs is in
+the install component `ReUseX_Development`:
+
+```bash
+cmake --install build --prefix /tmp/rx --component ReUseX_Development
+```
+
+Rules when touching the build:
+
+- The modules are **static**, so every PRIVATE `target_link_libraries`
+  dependency is exported as `$<LINK_ONLY:...>` and must resolve in the
+  consumer. A new `find_package` in `libs/reusex/cmake/Dependencies.cmake`
+  whose targets end up on a module's link line needs a matching
+  `find_dependency` in `cmake/ReUseXConfig.cmake.in`.
+- A third-party header included from a **public** header must be a PUBLIC
+  dependency (range-v3 lives on `reusex_common` for that reason).
+  `LINK_ONLY` carries no include directories.
+- Public headers include siblings as `<reusex/...>`, never by the flat
+  `core/...` path, which only resolves inside the build tree.
+- Compile options on `reusex_common` are `$<BUILD_INTERFACE:...>`, so a
+  consumer does not inherit our warnings or `-Werror`.
+
+`ctest -L package` (`reusex_package_consumer`) runs `cmake --install` into
+a temp prefix, then builds and runs `tests/package/consumer` against it.
+That takes about 2.5 min, almost all of it the consumer's dependency lookups.
+`nix build .#default` installs the same package into `$out`. The nix
+`checks.tests` build runs the consumer against `$out` in `installCheckPhase`
+(`doInstallCheck`).
 
 ### Testing
 

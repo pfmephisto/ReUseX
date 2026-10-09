@@ -3,108 +3,125 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # ===============================================
-# Installation Configuration
+# Installation: the ReUseX CMake package
 # ===============================================
+#
+# Installs the library as a relocatable CMake package so an external project
+# (ruxd, after the repo split) can write
+#
+#     find_package(ReUseX CONFIG REQUIRED)
+#     target_link_libraries(app PRIVATE ReUseX::pipeline)
+#
+# Layout under the install prefix:
+#
+#     include/reusex/...           public headers  (#include <reusex/core/...>)
+#     include/reusex/extern/...    vendored CGAL/PCL extension headers
+#     lib/libreusex_<module>.a     one static library per module
+#     lib/cmake/ReUseX/            ReUseXConfig.cmake, ReUseXConfigVersion.cmake,
+#                                  ReUseXTargets*.cmake
+#
+# Everything the package needs is in the `ReUseX_Development` install
+# component, so `cmake --install build --component ReUseX_Development` installs
+# the library without the executables (tests/package uses exactly that).
+# Executables (rux, ruxd) install from their own CMakeLists.txt.
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(REUSEX_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/ReUseX)
+set(REUSEX_INSTALL_COMPONENT ReUseX_Development)
 
 # -----------------------------------------------
-# Install library (if target exists)
+# Targets
 # -----------------------------------------------
-# `reusex` is an INTERFACE umbrella (#222) whose INTERFACE_LINK_LIBRARIES point
-# at the per-module static libraries; every referenced target must be part of
-# the same export set or install(EXPORT) fails at generate time.
-if(TARGET reusex)
-    set(_reusex_install_targets
-        reusex
-        reusex_common
-        reusex_private_deps
-        reusex_utils
-        reusex_geometry_common
-        reusex_core
-        reusex_io
-        reusex_vision
-        reusex_segmentation
-        reusex_reconstruction
-        reusex_slam
-        reusex_gsplat_common
-        reusex_pipeline)
-    if(TARGET reusex_visualize)
-        list(APPEND _reusex_install_targets reusex_visualize)
-    endif()
-    if(TARGET reusex_gsplat)
-        list(APPEND _reusex_install_targets reusex_gsplat)
-    endif()
-    install(TARGETS ${_reusex_install_targets}
-        EXPORT reusexTargets
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif()
+# REUSEX_PACKAGE_TARGETS comes from libs/reusex/cmake/reusexLibrary.cmake,
+# which also sets each target's EXPORT_NAME (reusex_core -> ReUseX::core).
+# `reusex` is an INTERFACE umbrella whose INTERFACE_LINK_LIBRARIES point at the
+# per-module static libraries, and every module links the INTERFACE helpers
+# reusex_common / reusex_private_deps, so all of them must be in the same export
+# set or install(EXPORT) fails at generate time.
+install(TARGETS ${REUSEX_PACKAGE_TARGETS}
+    EXPORT ReUseXTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${REUSEX_INSTALL_COMPONENT}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${REUSEX_INSTALL_COMPONENT}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ${REUSEX_INSTALL_COMPONENT}
+)
 
 # -----------------------------------------------
-# Install executable (if target exists)
+# Headers
 # -----------------------------------------------
-if(TARGET rux)
-    install(TARGETS rux
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-endif() 
-
-# -----------------------------------------------
-# Install headers
-# -----------------------------------------------
+# libs/reusex/include/<module>/... -> include/reusex/<module>/..., matching the
+# build tree's build/include/reusex symlink, so <reusex/...> works unchanged.
 install(DIRECTORY libs/reusex/include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/reusex
+    COMPONENT ${REUSEX_INSTALL_COMPONENT}
     FILES_MATCHING
     PATTERN "*.hpp"
     PATTERN "*.cuh"
 )
 
-# Install external headers (CGAL, pcl, spdmon extensions)
+# Vendored CGAL / PCL extension headers. Public headers include them by their
+# upstream-style path (<pcl/planar_region_growing.hpp>), so they get their own
+# include root (added to reusex_common's INSTALL_INTERFACE).
 install(DIRECTORY libs/reusex/extern/include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/reusex
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/reusex/extern
+    COMPONENT ${REUSEX_INSTALL_COMPONENT}
     FILES_MATCHING
     PATTERN "*.hpp"
     PATTERN "*.h"
 )
 
+# Generated headers: build/generated/reusex/{core/version.hpp, vision/sam3/...}
 install(DIRECTORY ${CMAKE_BINARY_DIR}/generated/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT ${REUSEX_INSTALL_COMPONENT}
     FILES_MATCHING PATTERN "*.hpp"
 )
 
 # -----------------------------------------------
-# Export targets
+# Export set + package config
 # -----------------------------------------------
-install(EXPORT reusexTargets
-    FILE reusexTargets.cmake
-    NAMESPACE reusex::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
+install(EXPORT ReUseXTargets
+    FILE ReUseXTargets.cmake
+    NAMESPACE ReUseX::
+    DESTINATION ${REUSEX_INSTALL_CMAKEDIR}
+    COMPONENT ${REUSEX_INSTALL_COMPONENT}
 )
 
-# -----------------------------------------------
-# Generate and install CMake config files
-# -----------------------------------------------
-include(CMakePackageConfigHelpers)
-
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
+# Build-time facts the config needs to reproduce the dependency lookups. Static
+# libraries carry their PRIVATE deps as $<LINK_ONLY:...>, so every one of those
+# imported targets must exist in the consumer too — including the optional ML
+# backends, the MIP solver and the CUDA-only modules, which depend on what this
+# particular build found.
+set(REUSEX_PKG_WITH_CUDA ${WITH_CUDA})
+set(REUSEX_PKG_ML_BACKENDS "${ENABLED_ML_BACKENDS}")
+set(REUSEX_PKG_MIP_SOLVER ${USE_MIP_SOLVER})
+set(REUSEX_PKG_HAVE_GSPLAT ${REUSEX_HAVE_GSPLAT})
+if(TARGET reusex_visualize)
+    set(REUSEX_PKG_HAVE_VISUALIZE ON)
+else()
+    set(REUSEX_PKG_HAVE_VISUALIZE OFF)
+endif()
 
 configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/reusexConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ReUseXConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfig.cmake
+    INSTALL_DESTINATION ${REUSEX_INSTALL_CMAKEDIR}
+)
+
+# 0.x: a minor bump may break the API, so only the same major.minor matches.
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMinorVersion
 )
 
 install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/reusexConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reusex
+    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/ReUseXConfigVersion.cmake
+    DESTINATION ${REUSEX_INSTALL_CMAKEDIR}
+    COMPONENT ${REUSEX_INSTALL_COMPONENT}
 )
 
-message(STATUS "Installation configured to ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "Installation configured to ${CMAKE_INSTALL_PREFIX} "
+               "(CMake package: ${REUSEX_INSTALL_CMAKEDIR}/ReUseXConfig.cmake)")

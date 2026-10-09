@@ -5,11 +5,15 @@
 """Guard the rux GUI token rule: no literal colour, radius, spacing or type size
 in component styles — only var(--…).
 
-Why this exists: `apps/rux/frontend/src/tokens.css` is owned by the Claude Design
-project and is the single source of truth for every visual value. Components must
-reference tokens by name so a design change (or the future Qt theme generated from
-the same names) is a value swap, not a refactor. A hardcoded colour or size is
+Why this exists: tokens.css (owned by rux-frontend, where the Claude Design
+project writes it; vendored here at apps/rux/qt/theme/tokens.css) is the
+single source of truth for every visual value. Components must reference
+tokens by name so a design change (or the Qt theme generated from the same
+names) is a value swap, not a refactor. A hardcoded colour or size is
 invisible to that system and drifts the two surfaces apart.
+
+This script is duplicated verbatim into both the rux-frontend and ReUseX
+repos — see find_tokens_css() below for the two layouts it resolves.
 
 What it flags, per the documented rule (README "Design tokens"):
   - colour  : any hex / rgb() / rgba() / hsl() / named colour in any property
@@ -31,11 +35,10 @@ The native Qt client (apps/rux/qt) follows the same rule:
   divider, or a documented fallback).
 
 Usage:
-  python token_lint.py apps/rux/frontend/src          # lint a tree
-  python token_lint.py path/to/Foo.module.css         # lint one file
-  python token_lint.py apps/rux/frontend/src --tsx    # also scan JSX style={{…}}
   python token_lint.py apps/rux/qt --qt               # QSS + Qt C++ under a tree
   python token_lint.py apps/rux/qt/styles/app.qss     # one stylesheet
+  python token_lint.py path/to/Foo.module.css         # lint one CSS file
+  python token_lint.py src --tsx                      # (rux-frontend) also scan JSX style={{…}}
 
 Exit status is non-zero if any violation is found, so it works in a pre-commit
 hook or CI step.
@@ -159,12 +162,16 @@ def lint_tsx(path: Path):
 # --- Qt ---------------------------------------------------------------------
 
 def find_tokens_css(start: Path) -> Path | None:
-    """tokens.css of the repo that contains @p start (or the cwd)."""
+    """tokens.css of the repo that contains @p start (or the cwd). Tried at
+    both this repo's vendored layout (apps/rux/qt/theme/tokens.css) and the
+    rux-frontend repo layout (src/tokens.css) this script is also duplicated
+    verbatim into, since this file is shared between the two repos."""
     for base in [start.resolve(), Path.cwd().resolve()]:
         for d in [base, *base.parents]:
-            cand = d / "apps/rux/frontend/src/tokens.css"
-            if cand.is_file():
-                return cand
+            for rel in ("apps/rux/qt/theme/tokens.css", "src/tokens.css"):
+                cand = d / rel
+                if cand.is_file():
+                    return cand
     return None
 
 

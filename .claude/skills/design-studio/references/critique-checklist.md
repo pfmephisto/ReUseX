@@ -49,33 +49,13 @@ Use on every screenshot round. Look at the image, not the code. Note the 3–5 w
 - One memorable move, everything else calm.
 - Remove one decorative element before calling it done.
 
-## ReUseX rux GUI (check on every rux screen)
-- **Both themes reviewed.** You screenshotted `--theme dark` *and* `--theme light`.
-  Nothing looks right in one and broken in the other (light is the default,
-  `[data-theme='dark']` re-points the themed roles) — a component that flips
-  wrong is hardcoding a colour.
-- **Tokens only.** `scripts/token_lint.py` passes: no literal colour, radius,
-  spacing or type size in the changed `.module.css`. `tokens.css` untouched.
-- **Fits the app.** It looks like it belongs next to the existing routes/panels;
-  you reused `DataTable`/`StatCard`/`Sidebar`/`EmptyState`/`ErrorBanner`/… rather
-  than inventing a near-duplicate.
-- **Viewport stays near-black** (`--color-canvas`) in both themes — point-cloud
-  depth read depends on it. An untextured mesh uses `--mesh-surface`, not black.
-- **Label colours intact.** `--label-0..7` remain the colourblind-safe Okabe-Ito
-  set; the legend and viewport agree. Semantic classes must be distinguishable
-  under deuteranopia/protanopia/tritanopia.
-- **Dense-data legibility.** Figures use `.mono` / tabular-nums and align in
-  columns; tables stay scannable at real row counts, not just 3 demo rows.
-- **States present.** Empty (no project / no data), loading, error and running
-  states are designed — this is a long-running pipeline tool, not a static page.
-- **Real domain copy.** "Back-project depth frames", "Loop closures",
-  "Unlabeled points" — not "Feature one". Actions name what they do.
-- **Contract-honest.** Data shown matches `docs/gui/openapi.yaml`; nothing
-  invented. A view needing an endpoint that doesn't exist yet says so.
-- **Chrome text uses chrome tokens.** Text on the navy chrome uses
-  `--color-on-chrome` / `--color-on-chrome-muted`, never surface text tokens.
-- **TS/inline colours are tokens too.** Colours in TS constants and inline
-  `style={…}` are `var(--…)` too — the token linter only sees CSS.
+The web frontend's own critique checklist (a `shot.sh` round against
+`apps/rux/frontend`) lives in the `rux-frontend` repo's `design-studio` skill,
+not here — this repo covers the Qt client only. A few of its correctness
+rules still bind code in this repo because the Qt client mirrors the same
+design system: the viewport canvas stays near-black (`--color-canvas`) in
+both themes, and `--label-0..7` stays the colourblind-safe Okabe-Ito set the
+legend and 3D view agree on.
 
 ## Qt client (check on every `qt_shot.sh` round)
 - **Both themes, at `--scale 2`.** Text and 1 px borders crisp; nothing

@@ -201,3 +201,7 @@ scratch/
 
 # design-studio screenshots: a per-phase review artefact, never committed
 /shots/
+
+# local dev service state (process-compose postgres/minio data from the
+# pre-split services devshell; ruxd's service stack now lives in ReUse-X/ruxd)
+.dev/

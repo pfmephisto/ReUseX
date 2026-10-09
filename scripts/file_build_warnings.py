@@ -108,6 +108,17 @@ def parse_warnings(log_path: str) -> list[dict]:
     return warnings
 
 
+def issues_enabled(repo: str) -> bool:
+    """True when the repository has GitHub issues turned on."""
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo}", "--jq", ".has_issues"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip() == "true"
+
+
 def fetch_existing_issues(repo: str) -> dict[str, int]:
     """Return {fingerprint: issue_number} for all open build-warning issues."""
     result = subprocess.run(
@@ -213,6 +224,12 @@ def main() -> None:
 
     repo = current_repo()
     print(f"Repo: {repo}  dry-run={dry_run}")
+
+    if not issues_enabled(repo):
+        # Forks (and repos that track work elsewhere) have issues turned off;
+        # `gh issue list` then fails outright. Nothing to sync, not an error.
+        print(f"Issues are disabled on {repo}; skipping warning sync.")
+        return
 
     warnings = parse_warnings(log_files[0])
     print(f"Parsed {len(warnings)} unique warnings from {log_files[0]}")

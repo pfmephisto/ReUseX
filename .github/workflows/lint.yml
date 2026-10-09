@@ -36,7 +36,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install clang-format (pinned to match pre-commit)
-        run: pip install clang-format==21.1.8
+        run: pip install clang-format==23.1.0
 
       - name: Run clang-format (dry run)
         run: |

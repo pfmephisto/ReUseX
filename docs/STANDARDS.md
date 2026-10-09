@@ -32,7 +32,8 @@ Layer 2:  core                                 (ProjectDB, logging, materials, s
 Layer 1½: geometry_common                      (shared CGAL/PCL helpers: utils, cgal_utils,
                                                 CoplanarPolygon, BuildingComponent)
 Layer 1:  utils, types.hpp                     (no internal dependencies)
-External: apps/rux, apps/ruxd                  (may use everything; keeps logic thin)
+External: apps/rux                             (may use everything; keeps logic thin)
+          ruxd (own repo, via find_package(ReUseX))
 ```
 
 The former single `geometry` module was split into the pipeline-stage peers
@@ -63,8 +64,9 @@ to one side deliberately — adding a `src/gsplat/*.cpp` needs a CMake edit.
 
 `pipeline` (#265) is the other Layer-4 module. It holds the database-level
 stage runners (`run_stage(ProjectDB&, StageContext)`) and the in-process
-`JobRunner` that ruxd's web API drives (`ruxd --local` today, the multi-case
-server next). **It is the one module
+`JobRunner` that the Qt client drives directly and that `ruxd`'s web API
+drives from its own repo (`ruxd --local` today, the multi-case server next).
+**It is the one module
 permitted to link several Layer-3 peers at once** — running a stage end to end
 inherently spans `core` (the ProjectDB read/write) plus whichever peers
 implement that stage, which is exactly the combination a peer is forbidden to
@@ -111,7 +113,8 @@ The allowance comes with obligations:
   `pipeline/optimize_stage.hpp` follows the same pattern: the in-process
   `optimize` stage needs `slam` (GTSAM), which `reusex_pipeline` must not
   link (#464), so it is header-only and compiled into the apps that run it
-  (rux for the Qt client, ruxd for the web GUI), never into a library module.
+  (`rux` for the Qt client, and `ruxd`, in its own repo, for the web GUI),
+  never into a library module.
 - `apps/rux/` subcommands are thin wrappers: parse arguments, validate, call
   one library entry point, report. Business logic lives in the library.
 - **An app target owns exactly one symbol the tests cannot link: `main`.**
@@ -139,27 +142,29 @@ defining `main` cannot be linked into a Catch2 binary that supplies its own
 | `rux_core_lib` | app logic that stops at `reusex_core`: `path_parser`, `filter_utils`, `stage_prerequisites`, the stdin/format handlers | `tests/unit/rux/` | light |
 | `rux_lib` | everything else under `apps/rux/src`: subcommands, `database/*_router.cpp`, the interactive viewer, `rux::run()` | `tests/unit/rux_app/` | heavy |
 | `rux` | `src/main.cpp` — `return rux::run(argc, argv);` | — | — |
-| `ruxd_api_lib` | `apps/ruxd/src/api/`: the web GUI's REST + WebSocket API, served by `ruxd --local` (#265; formerly `rux gui`'s `rux_gui_lib`) — links `reusex_core` + `reusex_pipeline`, not the umbrella | `tests/unit/ruxd_api/` | light |
-| `ruxd_cli_lib` | `apps/ruxd/src/cli/`: ruxd's option set and post-parse defaults (`configure_cli`, `finish_invocation`) — links `ruxd_api_lib` + CLI11 | `tests/unit/ruxd_cli/` | light |
-| `ruxd_pg_lib` | `apps/ruxd/src/pg/`: server mode's Postgres stores (users, sessions, tokens, cases, membership, jobs, audit), the schema migrations (`apps/ruxd/migrations/`, embedded at build time) and `ruxd admin` — links `ruxd_api_lib` + libpqxx | `tests/unit/ruxd_pg/` (`[postgres]` tests skip without `initdb`) | light |
-| `ruxd_lib` | everything else under `apps/ruxd/src` except `main.cpp`: the backend clients and connection pool, `ruxd::run()` (`src/run.cpp`), server mode (`src/server.cpp`), local mode, and the heavy pieces injected into the API (SAM3, renderer, ICP, optimize) | `tests/unit/ruxd/` | heavy |
-| `ruxd` | `src/main.cpp` — `return ruxd::run(argc, argv);` | — | — |
+
+`ruxd` (the HTTP service worker) and its own app-target split
+(`ruxd_api_lib`, `ruxd_cli_lib`, `ruxd_pg_lib`, `ruxd_lib`) moved to the
+standalone `ruxd` repo (repo split, P4, 2026-10-09); this table only covers
+`apps/rux` now. `ruxd` consumes this library through its installed CMake
+package (`find_package(ReUseX CONFIG REQUIRED)`), linking `ReUseX::core` +
+`ReUseX::pipeline` for its light API layer, the same way `rux_core_lib` does
+in-tree.
 
 Rules for adding to `apps/`:
 
-- **New source files need no CMake edit.** `rux_lib`, `ruxd_api_lib` and
-  `ruxd_lib` are `GLOB_RECURSE ... CONFIGURE_DEPENDS` (a file goes under
-  `apps/ruxd/src/api/` only if it links no further than core + pipeline); only `rux_core_lib` is
-  an explicit list, and only because membership there is a *claim* — that the
-  file links no further than `reusex_core`, and therefore that its tests can
-  stay in the fast binary. When in doubt, leave the file in `rux_lib`.
-- **New app code does not go in `main.cpp`.** The two `main.cpp` files are
-  one statement each and stay that way; CLI wiring belongs in `rux::run()`
+- **New source files need no CMake edit.** `rux_lib` is
+  `GLOB_RECURSE ... CONFIGURE_DEPENDS`; only `rux_core_lib` is an explicit
+  list, and only because membership there is a *claim* — that the file links
+  no further than `reusex_core`, and therefore that its tests can stay in the
+  fast binary. When in doubt, leave the file in `rux_lib`.
+- **New app code does not go in `main.cpp`.** `apps/rux/src/main.cpp` is one
+  statement and stays that way; CLI wiring belongs in `rux::run()`
   (`apps/rux/src/rux.cpp`), inside the library.
 - **Splitting an app library further is a dependency decision, not a
-  responsibility one.** `rux_core_lib` and `ruxd_api_lib` exist because they
-  keep the ML/viewer closure out of the light test binary (§7), which is the
-  only thing that makes their tests cheap. Do not split for tidiness.
+  responsibility one.** `rux_core_lib` exists because it keeps the ML/viewer
+  closure out of the light test binary (§7), which is the only thing that
+  makes its tests cheap. Do not split for tidiness.
 
 ## 2. Header hygiene
 
@@ -309,21 +314,21 @@ writes labels MUST follow it; any deviation is a bug.
   sidecars. The suite must stay green under `ctest --parallel $(nproc)`.
 - **Which test binary**: unit tests build into `reusex_unit_tests` (light) or
   `reusex_unit_tests_vision` (full dependency closure). A test lands in the
-  heavy binary by living in `tests/unit/vision/`, `tests/unit/ruxd/`,
-  `tests/unit/rux_app/`, `tests/unit/visualize/` or `tests/unit/gsplat/cuda/`.
-  Keep new tests out of those directories unless they genuinely need the ML
-  backends, `ruxd_lib`, `rux_lib`, the PCL/Qt viewer or torch: linking
-  libtorch/TensorRT adds ~0.6 s of dynamic-loader time to *every* test process
-  in that binary (#268).
-- **App-layer tests** (`apps/rux`, `apps/ruxd`) are unit tests like any other;
-  the app code is reachable because each app is a static library plus a
-  one-line `main.cpp` (§1.1). Which directory a test goes in follows the same
+  heavy binary by living in `tests/unit/vision/`, `tests/unit/rux_app/`,
+  `tests/unit/visualize/` or `tests/unit/gsplat/cuda/`. Keep new tests out of
+  those directories unless they genuinely need the ML backends, `rux_lib`,
+  the PCL/Qt viewer or torch: linking libtorch/TensorRT adds ~0.6 s of
+  dynamic-loader time to *every* test process in that binary (#268). `ruxd`'s
+  own tests (formerly `tests/unit/ruxd{,_api,_cli,_pg}`) moved with it to the
+  standalone `ruxd` repo (repo split, P4).
+- **App-layer tests** (`apps/rux`) are unit tests like any other; the app
+  code is reachable because the app is a static library plus a one-line
+  `main.cpp` (§1.1). Which directory a test goes in follows the same
   light/heavy rule as everything else: `tests/unit/rux/` for anything covered
-  by `rux_core_lib`, `tests/unit/ruxd_api/` for the web API (`ruxd_api_lib`),
-  `tests/unit/rux_app/` only when the test needs a subcommand, a
-  `database/*_router.cpp` or the viewer. Adding a file to any of these needs
-  no CMake change — `tests/unit/**/*.cpp` is globbed and the libraries are
-  already linked.
+  by `rux_core_lib`, `tests/unit/rux_app/` only when the test needs a
+  subcommand, a `database/*_router.cpp` or the viewer. Adding a file to
+  either needs no CMake change — `tests/unit/**/*.cpp` is globbed and the
+  libraries are already linked.
 - **gsplat tests**: `tests/unit/gsplat/cuda/` is for tests that need torch or
   the rasterizer; it is dropped entirely from a build without
   `REUSEX_HAVE_GSPLAT`. Tests directly under `tests/unit/gsplat/` cover

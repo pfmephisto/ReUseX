@@ -38,7 +38,8 @@ namespace reusex::pipeline {
 /// Deliberately narrower than core::PipelineStage (which also covers stages
 /// with no runner yet) and than core::Stage (which is a progress-reporting
 /// phase, not a unit of work). Extending this enum is how a stage becomes
-/// GUI-runnable; see docs/gui/openapi.yaml, which lists the same names.
+/// GUI-runnable; see `ruxd`'s `docs/gui/openapi.yaml` (in its own repo),
+/// which lists the same names.
 enum class JobStage {
   clouds,    ///< back-project sensor frames into "cloud" + "normals"
   planes,    ///< detect planar surfaces -> "planes"/"plane_*"

@@ -31,8 +31,12 @@ The project consists of:
   (`reusex_core`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam`,
   `reusex_io`, `reusex_vision`, …) with a link-enforced layer graph
 - **rux CLI** (`apps/rux/`): command-line interface with subcommands for the
-  whole pipeline
-- **ruxd** (`apps/ruxd/`): HTTP service worker
+  whole pipeline, plus a native Qt client (`apps/rux/qt`)
+
+The HTTP service worker (`ruxd`) and the web GUI frontend live in their own
+repos — `ruxd` and `rux-frontend` — and build against this repo's installed
+CMake package (`find_package(ReUseX CONFIG REQUIRED)`; see "Using ReUseX as a
+library" below).
 
 For details see [ARCHITECTURE.md](ARCHITECTURE.md), the engineering standards in
 [docs/STANDARDS.md](docs/STANDARDS.md), and the pipeline-stage data contracts in
@@ -206,7 +210,8 @@ rux assemble <paths...> -o <out.rux>
 Run `rux <command> --help` for the full flag list; the pipeline-stage
 prerequisites are documented in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
-`ruxd` is a separate HTTP service worker binary (`ruxd --help`).
+`ruxd` (the HTTP service worker serving the web GUI) and the web frontend
+live in their own repos — `ruxd` and `rux-frontend` — not in this one.
 
 > **Note:** the Python bindings in `bindings/python/` are built by default
 > (`BUILD_PYTHON_BINDINGS=ON`) and currently expose **read-only** `.rux`

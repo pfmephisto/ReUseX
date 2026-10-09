@@ -172,7 +172,7 @@ TEST_CASE("ReportBlockingTypes_CountsUnapprovedNonRejected",
 }
 
 TEST_CASE("DanishLabels_MatchTheFrontendVocabulary", "[report][survey]") {
-  // Mirrors apps/rux/frontend/src/kortlaegning/vocab.ts.
+  // Mirrors the rux-frontend repo's src/kortlaegning/vocab.ts.
   CHECK(core::treatment_label_da(core::Treatment::bevaring) == "Bevaring");
   CHECK(core::treatment_label_da(core::Treatment::nyttiggoerelse) ==
         "Nyttiggørelse");

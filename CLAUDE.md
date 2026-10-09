@@ -109,15 +109,15 @@ cmake --build build
 | `WITH_CUDA` | `ON` | `CMakeLists.txt:38` | CUDA / NVIDIA GPU support. Also gates the TensorRT backend search and `cuOpt`. |
 | `USE_CCACHE` | `ON` | `CMakeLists.txt:79` | Use ccache when available |
 | `ENABLE_COVERAGE` | `OFF` | `cmake/Coverage.cmake:30` | Code coverage instrumentation |
-| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:137` | Adds `bindings/python` |
-| `BUILD_TESTS` | `ON` | `CMakeLists.txt:145` | Adds `tests/` and `enable_testing()` |
-| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:154`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
+| `BUILD_PYTHON_BINDINGS` | `ON` | `CMakeLists.txt:134` | Adds `bindings/python` |
+| `BUILD_TESTS` | `ON` | `CMakeLists.txt:142` | Adds `tests/` and `enable_testing()` |
+| `BUILD_DOCUMENTATION` | `ON` | `CMakeLists.txt:151`, `cmake/Documentation.cmake:9` | Defines the `docs` target |
 | `BUILD_QT_CLIENT` | `ON` | `CMakeLists.txt:128` | Native Qt client `apps/rux/qt` (`rux_qt_core`, `rux_qt_lib`, `rux-qt-gallery`) and `tests/unit/rux_qt`; needs Qt6 OpenGLWidgets + VTK GUISupportQt |
 | `GUI_ENABLED` | `OFF` | `libs/reusex/cmake/Dependencies.cmake:207` | CGAL Qt6 GUI components |
 | `ML_BACKENDS` | `AUTO` | `libs/reusex/cmake/Dependencies.cmake:49` | Cache string, not a bool: `AUTO`, `NONE`, or a list like `TensorRT;LibTorch;ONNX;OpenVINO` |
 | `LIN_ENABLE_ASAN` / `MSAN` / `UBSAN` / `TSAN` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake` | Sanitizers |
 | `LIN_ENABLE_WERROR` | `OFF` | `libs/reusex/cmake/CompilerOptions.cmake:23` | `-Werror` |
-| `REUSEX_PACKAGE_TEST` | `ON` | `tests/CMakeLists.txt:384` | Registers the `reusex_package_consumer` ctest (label `package`). `default.nix` turns it off and runs the same check in `installCheckPhase` instead. |
+| `REUSEX_PACKAGE_TEST` | `ON` | `tests/CMakeLists.txt:346` | Registers the `reusex_package_consumer` ctest (label `package`). `default.nix` turns it off and runs the same check in `installCheckPhase` instead. |
 
 There is no option to make visualization optional: `rux` links
 `pcl_visualization` unconditionally (`apps/rux/CMakeLists.txt`). Separately,
@@ -195,20 +195,19 @@ for temp paths.
 
 Tests live in `tests/`: `unit/` (per-module: `core`, `geometry`, `io`,
 `utils`, `vision`, `visualize`, plus `pipeline`, `reconstruction`,
-`segmentation`, `slam`; `ruxd` (ruxd_lib's injected heavy pieces),
-`ruxd_api` (the web GUI's REST + WS API, `ruxd_api_lib`), `ruxd_cli` and
-`ruxd_pg`; `rux` (`rux_core_lib`'s app logic — path parsing, filter
+`segmentation`, `slam`; `rux` (`rux_core_lib`'s app logic — path parsing, filter
 validation, stage prerequisites — short of a subcommand or the viewer),
 `rux_app` (CLI subcommands, needs `rux_lib`; incl. "Kopiér som
 rux-kommando"'s CLI round-trip) and `rux_qt` (the native Qt client's Qt-free
 logic, `rux_qt_core`)), `integration/`, `benchmarks/`, `support/`,
-`fixtures/`. Catch2 v3.
+`fixtures/`. Catch2 v3. `ruxd`'s own tests (formerly `unit/ruxd{,_api,_cli,_pg}`)
+moved with it to the standalone `ruxd` repo (repo split, P4).
 
 Unit tests link into **two** executables (`tests/CMakeLists.txt`):
 `reusex_unit_tests` for most modules, and `reusex_unit_tests_vision` for
-`unit/vision`, `unit/ruxd`, `unit/rux_app`, `unit/visualize` and
-`unit/gsplat/cuda`, which need libtorch / TensorRT / `rux_lib` / `ruxd_lib` /
-the PCL-Qt viewer. `reusex_unit_tests` (the light binary) links `rux_qt_core`
+`unit/vision`, `unit/rux_app`, `unit/visualize` and `unit/gsplat/cuda`, which
+need libtorch / TensorRT / `rux_lib` / the PCL-Qt viewer. `reusex_unit_tests`
+(the light binary) links `rux_qt_core`
 unconditionally whenever `BUILD_QT_CLIENT` builds the Qt client at all
 (`apps/rux/qt/CMakeLists.txt`), so `unit/rux_qt` always runs there and costs
 nothing extra on a build without Qt. Test names and `ctest -R` are unaffected
@@ -236,7 +235,7 @@ Two workflows, split by whether they need the nix closure:
 
 | Workflow | Triggers | Jobs |
 |---|---|---|
-| `.github/workflows/lint.yml` | push (main) + PR | clang-format, REUSE/SPDX, docs/gui YAML parse, GUI frontend build + vitest |
+| `.github/workflows/lint.yml` | push (main) + PR | clang-format, REUSE/SPDX |
 | `.github/workflows/ci.yml` | push (main) + PR + `workflow_dispatch` | `nix build .#checks.x86_64-linux.tests` (CPU variant + ctest) |
 
 `ci.yml` is only affordable on GitHub-hosted runners because the dependency
@@ -274,6 +273,24 @@ xdg-open docs/api/html/index.html
 
 ## Architecture
 
+**Repo split (2026-10-09, see `docs/DIRECTION.md`):** this repo is the
+library, the `rux` CLI and its native Qt client only. `ruxd` (the HTTP
+service worker) and the web frontend each moved into their own repo under
+the `ReUse-X` org:
+
+| Repo | Contents |
+|---|---|
+| `ReUseX` (this repo) | library, `rux` CLI, Qt client (`apps/rux/qt`) |
+| `ruxd` | the HTTP server, its tests, the API contract (`docs/gui/`), Postgres migrations, NixOS module, OCI image |
+| `rux-frontend` | the React/Vite web GUI, its nix package, the web half of `design-studio` |
+
+`ruxd` builds against this repo's installed CMake package
+(`find_package(ReUseX CONFIG REQUIRED)`, see "Installing / the ReUseX CMake
+package" above) and serves the web frontend's built bundle from `--assets` or
+`$RUX_GUI_ASSETS`. The Qt client vendors a copy of the frontend's
+`tokens.css` at `apps/rux/qt/theme/tokens.css` (`scripts/sync-tokens.sh`) so
+it needs neither of those repos to build or run.
+
 ### Project Structure
 
 ```
@@ -305,11 +322,9 @@ ReUseX/
 │   ├── include/ + src/             # Subcommands, grouped in subdirs
 │   └── qt/                         # Native Qt client (in progress): rux_qt_core,
 │                                   #   rux_qt_lib, rux-qt-gallery; styles/app.qss;
+│                                   #   theme/tokens.css (vendored from rux-frontend);
 │                                   #   shell (Q1), Database (Q2), 3D, Posegraf,
 │                                   #   Pipeline, Log (Q3)
-├── apps/ruxd/                      # HTTP service worker (ruxd); serves the web GUI
-│   └── src/api/ + include/api/     #   ruxd_api_lib: the GUI's REST + WS API (light);
-│                                   #   the SPA it serves lives in apps/rux/frontend
 ├── apps/blender/reusex_panel/      # Blender add-on
 ├── bindings/python/                # pybind11 bindings (read-only ProjectDB access)
 ├── python/                         # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
@@ -351,13 +366,12 @@ CMake edit assigning it to the CPU or the CUDA half.
 
 The old `ReUseX` / `ReUseX_visualization` target names no longer exist.
 
-**Executables:** `rux` (`apps/rux`), `ruxd` (`apps/ruxd`, HTTP service worker
-and, with `--local`, the web GUI server). ruxd's `main.cpp` is one statement;
-its CLI is `ruxd::run()` in `ruxd_lib` (`src/run.cpp`), with the option
-parsing itself in the light `ruxd_cli_lib` (`src/cli/`). The Morton tile index
-the GUI streams clouds by is built by the clouds stage itself
-(`reusex/pipeline/tile_index.hpp`), whichever front end runs it.
-Both use CLI11 for argument parsing and spdlog as the log sink.
+**Executables:** `rux` (`apps/rux`) is the only one built from this repo —
+`ruxd` (the HTTP service worker and web GUI server) moved to its own repo
+(repo split, P4). `rux` uses CLI11 for argument parsing and spdlog as the log
+sink. The Morton tile index a GUI streams clouds by is built by the clouds
+stage itself (`reusex/pipeline/tile_index.hpp`), whichever front end runs it —
+`ruxd` is one consumer of that, from outside this tree.
 Plain `rux` (no subcommand, optionally `-p x.rux`) opens the **native Qt
 client** when there is a usable display (an existing X or Wayland socket, or
 `QT_QPA_PLATFORM=offscreen`; `rux_qt/launch.hpp`) and prints help otherwise.
@@ -369,16 +383,17 @@ binaries carry no Qt client code. Hidden dev flag:
 The Qt client's 3D workspace and `rux render` share one scene builder,
 `visualize::populate_scene()` (`visualize/scene.hpp`); its Pipeline workspace
 runs stages in-process through `pipeline::JobRunner` with
-`pipeline::stage_executor_with_optimize()` (handed over in `GuiLaunch`; the
-same executor ruxd injects for the web GUI), and "Kopiér som
+`pipeline::stage_executor_with_optimize()` (handed over in `GuiLaunch`; `ruxd`
+injects the same executor for the web GUI, from its own repo), and "Kopiér som
 rux-kommando" (`rux_qt/cli_command.hpp`) is round-trip tested against the real
 CLI (`tests/unit/rux_app/test_cli_command_roundtrip.cpp`, via
 `rux::set_stage_params_sink`). `RUX_QT_PAGE=database|3d|posegraf|pipeline|log`
 lands the smoke run on that page.
 `rux-qt-gallery` (`apps/rux/qt`) renders pages of the native Qt client
 headless to PNG for design review; its theme is generated at run time from
-`apps/rux/frontend/src/tokens.css` (the web GUI's tokens). The loop and its
-gotchas: `.claude/skills/design-studio/references/qt-client.md`.
+`apps/rux/qt/theme/tokens.css`, a vendored copy of rux-frontend's tokens
+(`scripts/sync-tokens.sh`). The loop and its gotchas:
+`.claude/skills/design-studio/references/qt-client.md`.
 
 ### Type System (types.hpp)
 
@@ -428,12 +443,14 @@ and deleted the shims. `include/geometry/` now holds only the real
   current flag list rather than trusting a doc.
 - `JointPairwiseRegistration.hpp`: `rux register`
 - `frame_pair_icp.hpp`: depth-cloud ICP between two stored frames, behind
-  the web GUI's `/posegraph/icp` and the Qt client's pair strip
+  the Qt client's pair strip and (from the `ruxd` repo) the web GUI's
+  `/posegraph/icp`
 - `optimize_parameters.hpp`: the optimize stage's JSON parameters →
-  `PlaneGraphOptions`, the one reader `rux optimize`, the Qt client and the
-  web GUI share. The in-process `optimize` stage itself is the header-only
-  `pipeline/optimize_stage.hpp` (`stage_executor_with_optimize()`), compiled
-  into rux and ruxd because `reusex_pipeline` must not link GTSAM (#464)
+  `PlaneGraphOptions`, the one reader `rux optimize`, the Qt client and
+  (from the `ruxd` repo) the web GUI share. The in-process `optimize` stage
+  itself is the header-only `pipeline/optimize_stage.hpp`
+  (`stage_executor_with_optimize()`), compiled into `rux` and, in its own
+  repo, `ruxd`, because `reusex_pipeline` must not link GTSAM (#464)
 - `PanoramaAlignment.hpp`: content-based 360 pose refinement, `rux align 360`
 - `PanoramaLoopEdges.hpp`: wide-baseline `LoopEdge`s derived from 360
   panoramas (`rux optimize --use-panoramas`, #236). Each panorama is resected
@@ -594,79 +611,12 @@ With **no** subcommand, `rux` launches the Qt client (help without a display).
 Global flags: `-v/-vv/-vvv`, `-V/--version`, `-L/--license`, `-D/--visualize`,
 `-p/--project <path.rux>` (defaults to `./project.rux`).
 
-There is **no `rux gui`** any more: the web GUI is served by `ruxd`.
-
-`ruxd` (`apps/ruxd/`) serves the web GUI in two modes: `ruxd --local` for one
-person (below), and, without `--local`, the **multi-user server** (phase S3):
-users, sessions, API tokens, cases, case membership, jobs and an audit log in
-Postgres (`--pg-url`/`DATABASE_URL`, schema in `apps/ruxd/migrations/NNN_*.sql`,
-embedded at build time and applied at start under an advisory lock), case
-files in `--data-dir` (`<data-dir>/<slug>/project.rux`). Logins are cookie
-sessions (`ruxd_session_<port>`, HttpOnly, SameSite=Strict, Secure unless on
-loopback; only the token's SHA-256 is stored; argon2id passwords via OpenSSL 3
-`EVP_KDF`); scripts use `Authorization: Bearer rxt_…` API tokens; `--auth-token`
-is a superuser token. Roles per case: viewer (GET only), editor (all but
-deleting the case and managing members), owner (all); admins everything; a
-non-member gets 404. The access decision (`api/access.hpp`, `AuthService`)
-runs in a patched Crow header phase, before a request body is read.
-`ruxd admin create-user|set-password|list-users|disable-user|create-token|
-register-case` manages it; passwords come from a prompt or stdin, never argv.
-The Postgres stores are `ruxd_pg_lib` (`apps/ruxd/src/pg/`, light; tests in
-`tests/unit/ruxd_pg/`, tagged `[postgres]` with the ctest label `postgres` —
-`ctest -L postgres` — start an ephemeral cluster with `initdb`, which the
-devshell carries, and skip without it, as in the nix check sandbox).
-API tokens expire (90 days by default), are listed and revoked in the user
-menu, over `/api/v1/auth/tokens`, or with `ruxd admin list-tokens |
-revoke-token`. Failed logins back off per account and per client address
-(IPv6 /64); `--trusted-proxy` makes `X-Forwarded-For` count. Secrets:
-`--auth-token-file`, `--pg-url-file`. Deployment (first admin,
-TLS via a reverse proxy, the Secure cookie): `docs/gui/README.md`. Other
-flags: `--port`, `--threads`, `--pg-pool-size`, `--pg-acquire-timeout-ms`,
-`--cookie-secure`, `--trusted-proxy`, `--audit-retention-days`;
-`--redis-url`/`--s3-*` are accepted but unused yet.
-
-`ruxd --local <file.rux | dir>` serves the web frontend plus the REST +
-WebSocket contract in `docs/gui/openapi.yaml`, with no Postgres, Redis or S3.
-Every `.rux` it is given is a **case** (UI: "sag"): a lone file, or every
-`.rux` directly in a directory plus `<data-dir>/<id>/project.rux` case
-directories, where created and uploaded cases go (`--data-dir`, default the
-`--local` directory; a lone file is read-only). Case ids are slugs of the file
-name (`office_corridor.rux` → `office-corridor`). Every project route lives
-under `/api/v1/cases/{cid}/…`, the events WebSocket too; `/api/v1/cases`,
-`/api/v1/uploads` (chunked), `/health`, `/endpoints` and `/models/sam3/status`
-are server-level. Cases open lazily and close when idle (`ProjectRegistry`,
-`--max-open-cases`, `--case-idle-minutes`); each open case
-(`ProjectContext`) holds its WAL anchor, job queue + writer lock, photo cache
-and socket subscribers. Jobs of every case share one
-`reusex::pipeline::JobScheduler` (`--job-workers`, default 1, at most one
-running job per case); progress is per job via `core::ScopedProgressObserver`,
-not the process-global observer. Deleting a case moves it to
-`<data-dir>/.ruxd/trash/` (the case is tombstoned meanwhile; its job history
-is dropped). Case ids, once assigned, persist in `<data-dir>/.ruxd/cases.json`.
-`GET /cases` carries each card's figures read WITHOUT opening the case
-(`case_meta.hpp`, cached by file stamp); renders are cached the same way and
-never open a case either. Crow is patched (`overlays/crow.nix`) with a
-request-body cap, `CROW_MAX_REQUEST_BODY` (a PUBLIC define of `ruxd_api_lib`,
-72 MiB): bodies are buffered in memory otherwise. After the overlay changes,
-reconfigure with the new `Crow_DIR` (`cmake -B build -UCrow_DIR`). The
-frontend's case screens live under `/sager/:cid/…`. It defaults to `127.0.0.1:8420`; `--bind` beyond loopback is refused
-unless `--auth-token` is set, and the token is then required on every request
-(Bearer header, the per-port `ruxd_token_<port>` cookie, or `?token=`, which
-sets the cookie and 303-redirects to the URL without it); the page's own
-origin is then allowed for mutations. Every request's Host header must name
-the server (DNS-rebinding guard: loopback names on a loopback bind). Crow's
-request log goes through spdlog (`-vv`) with query strings redacted.
-The web GUI's flags serve both modes; only `--open-browser` requires `--local`.
-Others: `--allow-origin`, `--assets`, `--[no-]segment-cuda`, `--sam3-model`,
-`--models-dir`, `--sam3-manifest-url`.
-The API lives in `apps/ruxd/{src,include}/api/` as `ruxd_api_lib`
-(namespace `ruxd::api`), which links only `reusex_core` + `reusex_pipeline` so
-its tests (`tests/unit/ruxd_api/`) stay in the light binary. The heavy pieces
-it needs — SAM3 segmenters, managed-model provider, renderer, ICP, the
-`optimize` stage — are built in `ruxd_lib` (`src/injected.cpp`, `src/icp.cpp`)
-and injected by `src/local.cpp` (`serve_web`, shared by `src/server.cpp`).
-Crow is also patched with a header-phase check (`app.header_check`), and
-`Server.cpp` refuses to compile without both patch sentinels.
+There is **no `rux gui`** any more: the web GUI is served by `ruxd`, which
+moved to its own repo (repo split, P4, 2026-10-09). `ruxd` builds against
+this repo's installed CMake package (`find_package(ReUseX CONFIG REQUIRED)`)
+and serves the `rux-frontend` repo's built bundle. Its own CLAUDE.md covers
+`ruxd --local` vs. the multi-user server, auth, cases, the Postgres schema
+and its API layout — none of that lives here any more.
 
 ## Development Patterns
 
@@ -739,7 +689,8 @@ cross-peer include will fail at link time.
 - **Timing**: `reusex::stopwatch` (a `spdlog::stopwatch` replacement,
   `elapsed()` → seconds as `double`; has an `fmt` formatter)
 
-**CLI applications** (`apps/rux`, `apps/ruxd`) use `spdlog` directly:
+**The `rux` CLI application** (`apps/rux`) uses `spdlog` directly (`ruxd`,
+in its own repo, does the same):
 - Syntax: `spdlog::debug()`, `spdlog::info()`, etc.
 - `rux` installs spdlog as the library's log handler and keeps both levels in
   sync from `-v` (see `apps/rux/src/rux.cpp`)
@@ -849,7 +800,7 @@ Anything not found there is not a dependency.
 
 **Utilities:**
 - CLI11 - command-line parsing
-- spdlog - logging sink used by the `rux`/`ruxd` apps
+- spdlog - logging sink used by the `rux` app
 - fmt - string formatting (the library's logging API is built on it)
 - range-v3 - modern C++ ranges
 - nlohmann_json - JSON
@@ -881,17 +832,22 @@ SAM3 from the path:
   export, the engine-I/O contract, and how the C++ tracker consumes the engines
 - [`docs/sam3.1-export-guide.md`](docs/sam3.1-export-guide.md) — export guide
 
-**`ruxd --local` provisions SAM3 automatically.** The segment endpoints download the
-portable ONNX bundle and build device-specific engines on first use — no manual
-export or engine placement is needed for GUI operation. The managed model root
-resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >
+**`ruxd --local` provisions SAM3 automatically** (code now in the `ruxd`
+repo): its segment endpoints download the portable ONNX bundle and build
+device-specific engines on first use, via this repo's `reusex_vision`
+`EngineBuilder` (`vision/tensor_rt/common/EngineBuilder.hpp`) — no manual
+export or engine placement is needed for GUI operation. The managed model
+root resolves as: `--models-dir` flag > `$REUSEX_MODELS_DIR` >
 `$XDG_CACHE_HOME/reusex/models`. Override the path with `--sam3-model <dir>`
 or point at an existing ONNX export via `$REUSEX_SAM3_ONNX_DIR`. The build
-recipe is `engine-build.json` (emitted by `build_engines.py --emit-profiles`),
-which is the shared source of truth consumed by both the Python `trtexec` driver
-and the C++ `EngineBuilder`. Recipe v2 (`recipe_version: 2`) sizes the
-geometry encoder and decoder so box and point prompts reach SAM3; managed
-engines built from an older recipe are rebuilt once on first use (no download).
+recipe is `engine-build.json` (emitted by `build_engines.py --emit-profiles`
+in `python/`), which is the shared source of truth consumed by both the
+Python `trtexec` driver and the C++ `EngineBuilder`; it is embedded into a
+generated header at build time (`python/reusex_sam3/engine-build.json`), so
+it is the only link between the Python export pipeline and this repo's
+build. Recipe v2 (`recipe_version: 2`) sizes the geometry encoder and decoder
+so box and point prompts reach SAM3; managed engines built from an older
+recipe are rebuilt once on first use (no download).
 See [`models/README.md`](models/README.md) and
 [`docs/sam3.1-tensorrt.md`](docs/sam3.1-tensorrt.md) §9 for the full layout,
 cache-key scheme, status endpoint, and SAM License redistribution posture.

@@ -48,7 +48,6 @@
     echo "  configure [Release|Debug]   cmake + compile_commands.json"
     echo "  build                       cmake --build --parallel"
     echo "  run-tests                   build, then ctest"
-    echo "  gui-dev                     Vite dev server for apps/rux/frontend"
     echo "  clean                       remove build/"
     echo "  format                      clang-format all C++ sources"
     echo "  lint                        cppcheck static analysis"
@@ -73,9 +72,6 @@
     run-tests = pkgs.writeShellScriptBin "run-tests" ''
       cmake --build "$PWD/build" --parallel \
         && ctest --test-dir "$PWD/build" --output-on-failure --parallel "$@"
-    '';
-    gui-dev = pkgs.writeShellScriptBin "gui-dev" ''
-      npm --prefix "$PWD/apps/rux/frontend" run dev "$@"
     '';
     clean = pkgs.writeShellScriptBin "clean" ''
       rm -rf "$PWD/build" && echo "Build directory removed."
@@ -128,10 +124,6 @@ in
         ninja # Faster build system alternative to Make
         bear # Generate compile_commands.json for LSP/clangd
 
-        # Frontend toolchain for apps/rux/frontend (`npm run dev` / `npm test`).
-        # Node 22 matches what package-lock.json and pkgs/reusex-gui-frontend use.
-        nodejs_22
-
         # C++ development tools
         clang-tools # Includes clang-format, clang-tidy, clang-rename
         cppcheck # Static analysis for C++
@@ -159,13 +151,10 @@ in
         #qt6.full
         #qtcreator
 
-        # PDF generation (used at runtime by ruxd for Ressourcekortlægning #456)
+        # PDF generation (core::report_generator, Ressourcekortlægning #456;
+        # `ruxd`, in its own repo, calls it at runtime too) — the
+        # ReportPdf_*_Compiles tests SKIP when typst is not on PATH.
         typst
-
-        # initdb / pg_ctl / postgres for ruxd's [postgres] integration tests
-        # (tests/unit/ruxd_pg), which start an ephemeral server and skip
-        # without one, and for a local server-mode smoke run.
-        postgresql
 
         # DevOps tools
         nix-update

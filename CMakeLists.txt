@@ -130,9 +130,6 @@ option(BUILD_QT_CLIENT "Build the native Qt client (apps/rux/qt)" ON)
 # CLI application
 add_subdirectory(apps/rux)
 
-# HTTP service worker
-add_subdirectory(apps/ruxd)
-
 # Optional Python bindings
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 if(BUILD_PYTHON_BINDINGS)

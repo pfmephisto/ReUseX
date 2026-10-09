@@ -12,9 +12,10 @@
 # See docs/guides/ci-cache.md for what lives in that cache, how big it is, and
 # how to re-seed it from a dev machine.
 #
-# Cheap, cache-free gates (clang-format, REUSE/SPDX, docs/gui YAML sanity, and
-# the GUI frontend build + vitest, moved here in #348) live in
+# Cheap, cache-free gates (clang-format, REUSE/SPDX) live in
 # .github/workflows/lint.yml (#250) and deliberately do not touch nix at all.
+# ruxd's and the web frontend's own CI gates moved with them to their own
+# repos (repo split, P4, 2026-10-09).
 #
 # The local equivalents of this workflow are:
 #   scripts/check.sh                          (fast incremental build + ctest)

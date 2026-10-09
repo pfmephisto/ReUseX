@@ -22,8 +22,9 @@
 #
 # Everything the package needs is in the `ReUseX_Development` install
 # component, so `cmake --install build --component ReUseX_Development` installs
-# the library without the executables (tests/package uses exactly that).
-# Executables (rux, ruxd) install from their own CMakeLists.txt.
+# the library without the `rux` executable (tests/package uses exactly that).
+# `rux` installs from its own CMakeLists.txt (apps/rux); `ruxd` is a separate
+# executable built in its own repo, against this package.
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

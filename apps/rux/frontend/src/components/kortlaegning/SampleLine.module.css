@@ -1,9 +1,0 @@
-/*
- * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
- *
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
-.link {
-  composes: crossLink from '../controls.module.css';
-}

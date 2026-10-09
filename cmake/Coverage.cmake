@@ -10,8 +10,8 @@
 # add_compile_options()/add_link_options(). Because this module is included
 # from the top-level CMakeLists.txt *before* the add_subdirectory() calls,
 # the flags are inherited by every target configured afterwards in this
-# directory scope and below: the reusex library (libs/reusex), the rux/ruxd
-# apps, and the unit test binaries (tests/CMakeLists.txt). Dependencies
+# directory scope and below: the reusex library (libs/reusex), the rux app,
+# and the unit test binaries (tests/CMakeLists.txt). Dependencies
 # consumed as prebuilt Nix packages (PCL, CGAL, libtorch, ...) are unaffected
 # since they are never recompiled from source here.
 #
@@ -43,9 +43,9 @@ if(ENABLE_COVERAGE)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         message(STATUS "Code coverage enabled (--coverage, ${CMAKE_CXX_COMPILER_ID})")
         # CXX only - deliberately NOT applied to CUDA (see below).
-        # -fprofile-update=atomic: rux/ruxd/reusex_unit_tests spawn dozens of
-        # threads before main() even starts (TBB/OpenMP/AWS-SDK thread pools
-        # warming up during static initialization); atomic counter updates
+        # -fprofile-update=atomic: rux/reusex_unit_tests spawn dozens of
+        # threads before main() even starts (TBB/OpenMP thread pools warming
+        # up during static initialization); atomic counter updates
         # avoid a data race on the gcov counters at negligible runtime cost.
         add_compile_options(
             $<$<COMPILE_LANGUAGE:CXX>:--coverage>

@@ -30,8 +30,9 @@
 # without linking each other.
 #
 # The `reusex` target remains a backward-compatible INTERFACE umbrella that
-# links every module, so apps/rux, apps/ruxd, tests and bindings build
-# unchanged.
+# links every module, so apps/rux, tests and bindings build unchanged —
+# `ruxd`, in its own repo, links the exported `ReUseX::reusex` target
+# instead.
 
 # -----------------------------------------------
 # Per-module source discovery

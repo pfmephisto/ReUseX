@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Cheap, cache-free gates: clang-format, REUSE/SPDX compliance, a sanity parse
-# of the GUI OpenAPI YAML, and the GUI frontend build + vitest. None of these
-# need the nix dependency closure, so they run on every push/PR without
+# Cheap, cache-free gates: clang-format and REUSE/SPDX compliance. Neither
+# needs the nix dependency closure, so they run on every push/PR without
 # waiting on the Cachix cache that the heavy build-and-test job in ci.yml
-# needs (#202).
+# needs (#202). The GUI OpenAPI YAML sanity check and the frontend build +
+# vitest job moved with `ruxd`/the frontend to their own repos (repo split,
+# P4, 2026-10-09).
 #
 # clang-format is pinned to 21.1.8 to match the version pre-commit uses
 # (see flake.nix's pre-commit-hooks / the `clang-tools` package in the dev
@@ -57,66 +58,3 @@ jobs:
 
       - name: Check REUSE compliance
         run: reuse lint
-
-  yaml-sanity:
-    name: YAML parse sanity (docs/gui)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install PyYAML
-        run: pip install pyyaml
-
-      # scripts/check-openapi.py does a deeper structural check of the same
-      # file (top-level keys, per-operation summary/response, $ref
-      # resolution), but it runs inside ctest — a full nix build. This step
-      # is deliberately shallow (parse-only) so a malformed openapi.yaml
-      # (the PR #274 incident this guards against) fails fast on every
-      # push/PR without waiting on a build.
-      - name: Parse docs/gui/*.yaml
-        run: |
-          python3 -c "
-          import glob, sys, yaml
-          files = glob.glob('docs/gui/*.yaml') + glob.glob('docs/gui/*.yml')
-          if not files:
-              print('No docs/gui/*.yaml files yet; nothing to check.')
-              sys.exit(0)
-          for f in files:
-              with open(f) as fh:
-                  yaml.safe_load(fh)
-              print(f'OK: {f}')
-          "
-
-  # The GUI frontend (apps/rux/frontend) is plain npm — no nix, no C++ closure —
-  # so it does not depend on the Cachix cache at all. Moved here from ci.yml
-  # in #348 so the one nix lane stays isolated in ci.yml.
-  frontend:
-    name: GUI frontend (build + vitest)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/rux/frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: apps/rux/frontend
-        run: npm ci
-
-      # `npm run build` is `tsc --noEmit && vite build`, so this is the
-      # typecheck gate as well as the bundle gate.
-      - name: Build
-        working-directory: apps/rux/frontend
-        run: npm run build
-
-      - name: Test
-        working-directory: apps/rux/frontend
-        run: npm test

@@ -77,6 +77,10 @@ if(CXX_COMPILER)
     list(APPEND _configure_args -DCMAKE_CXX_COMPILER=${CXX_COMPILER})
 endif()
 run_step("configure consumer" ${CMAKE_COMMAND} ${_configure_args})
+# Configure a second time: a CUDA package's legacy FindCUDA cache state used to
+# make every consumer *reconfigure* fail ("Unknown CMake command
+# find_cuda_helper_libs"); ReUseXConfig.cmake now guards against it.
+run_step("reconfigure consumer" ${CMAKE_COMMAND} ${_configure_args})
 run_step("build consumer"
     ${CMAKE_COMMAND} --build ${_consumer_build} --config ${BUILD_CONFIG})
 

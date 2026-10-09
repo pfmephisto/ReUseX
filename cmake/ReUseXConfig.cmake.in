@@ -57,6 +57,26 @@ set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
 
 include(CMakeFindDependencyMacro)
 
+# OpenCV 4.13 + LibTorch legacy FindCUDA cache pollution (mirrors
+# libs/reusex/cmake/Dependencies.cmake). LibTorch's Caffe2Config caches
+# CUDA_FOUND / CUDA_VERSION; on a consumer's *reconfigure* the
+# find_dependency(OpenCV) below then calls the legacy find_cuda_helper_libs()
+# macro, which is not cached and so does not exist yet. The first configure
+# always works; without this every reconfigure of a CUDA consumer fails.
+unset(CUDA_FOUND CACHE)
+unset(CUDA_VERSION CACHE)
+unset(CUDA_VERSION_STRING CACHE)
+if(NOT COMMAND find_cuda_helper_libs)
+  macro(find_cuda_helper_libs _name)
+    find_library(CUDA_${_name}_LIBRARY
+      NAMES ${_name}
+      PATHS "${CUDAToolkit_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}"
+      PATH_SUFFIXES lib64 lib/x64 lib
+      NO_DEFAULT_PATH)
+    mark_as_advanced(CUDA_${_name}_LIBRARY)
+  endmacro()
+endif()
+
 # --- Public dependencies (reusex_common INTERFACE, reusex_core PUBLIC) ------
 find_dependency(Boost CONFIG)
 find_dependency(TBB)

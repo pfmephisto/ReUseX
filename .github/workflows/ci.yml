@@ -104,12 +104,13 @@ jobs:
         run: nix build .#checks.x86_64-linux.tests --print-build-logs 2>&1 | tee build-warnings.log
 
       # The installable CPU package (headers + libs + CMake config) is what
-      # downstream repos (ReUse-X/ruxd) build against. It has a different
-      # derivation from checks.tests, so build it here on main so the cachix
-      # action pushes it and downstream CI does not recompile ReUseX.
+      # downstream repos (ReUse-X/ruxd) build against. Build it exactly the
+      # way they fetch it - as a github: flake ref of this commit, not from
+      # the checkout (`.#cpu` gives a different source, hence a different
+      # store path) - so the cachix action pushes the path they will ask for.
       - name: Build CPU package for downstream consumers
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: nix build .#cpu --print-build-logs
+        run: nix build "github:${{ github.repository }}/${{ github.sha }}#cpu" --print-build-logs
 
       # Parse GCC/Clang warning lines from the build log and sync them to
       # GitHub issues (create new, close fixed, skip existing).  Only runs on

@@ -50,10 +50,10 @@ enough to act on** and **cheap enough to produce** for a real building.
 - **Solo maintainer plus an agent workforce.** Prefer boring, maintainable,
   well-documented choices over clever ones. Code an agent can safely modify six
   months from now beats code that is 10% faster today.
-- **Library-first.** Logic lives in `libs/reusex`; `rux`, `ruxd`, the Python
-  bindings, the Blender add-on and any future GUI are thin shells over the same
-  entry points. Anything that can only be done through the CLI is a design bug.
-  (STANDARDS §1)
+- **Library-first.** Logic lives in `libs/reusex`; `rux`, `ruxd` (own repo,
+  via the installed CMake package), the Python bindings, the Blender add-on
+  and the web frontend (own repo) are thin shells over the same entry points.
+  Anything that can only be done through the CLI is a design bug. (STANDARDS §1)
 - **Every pipeline stage independently re-runnable against `ProjectDB`.** Re-annotate
   without re-importing; re-mesh without re-segmenting. `.rux` is the only
   handoff between stages. (CONTRACTS.md)
@@ -190,6 +190,32 @@ changelog — that history is the point of keeping it in the repo.
 
 ## Direction changelog
 
+- **2026-10-09** — **Repo split: `ruxd` and the web frontend move out**
+  ([design](superpowers/specs/2026-10-09-repo-split-design.md)). `ruxd` (the
+  HTTP service worker) and the React/Vite web GUI (`apps/rux/frontend`) now
+  live in their own repos under the `ReUse-X` org — `ruxd` and
+  `rux-frontend` — with history preserved via `git filter-repo`. This repo
+  keeps the library, the `rux` CLI and its native Qt client.
+  - **This repo installs a CMake package.** `cmake/Installation.cmake` +
+    `cmake/ReUseXConfig.cmake.in` add `install(EXPORT ReUseXTargets NAMESPACE
+    ReUseX::)`; headers land under `include/reusex/`, static libraries under
+    `lib/`, the config under `lib/cmake/ReUseX/`. `find_package(ReUseX CONFIG
+    REQUIRED)` is now the only supported way to consume the library from
+    outside — `ruxd` builds against it. An in-tree consumer test
+    (`tests/package/`, `ctest -L package`) proves the export doesn't rot.
+  - **Removed from this repo:** `apps/ruxd`, `apps/rux/frontend`,
+    `tests/unit/ruxd{,_api,_cli,_pg}`, `docs/gui/`, the Crow overlay/patches,
+    `pkgs/reusex-gui-frontend`, `modules/ruxd.nix`,
+    `completions/ruxd.fish`, `devshells/services.nix`, and the
+    ruxd-container/nixosModules.ruxd flake outputs.
+  - **The Qt client vendors tokens.css.** `apps/rux/qt/theme/tokens.css` is a
+    checked-in copy of rux-frontend's `src/tokens.css`, refreshed with
+    `scripts/sync-tokens.sh <path-or-url>` (which also re-runs the Qt token
+    ctests). The `design-studio` skill here now covers the Qt half only; the
+    web half moved to rux-frontend's copy of the skill.
+  - **ruxd provisions SAM3 and runs stages via this repo's exported headers**
+    (`EngineBuilder`, `pipeline::JobRunner`, `optimize_stage.hpp`), so none of
+    that logic duplicates across repos.
 - **2026-10-08** — **GUI: Qt client and ruxd server merged; one optimize
   stage** (Stream Q merged onto Stream S). Both GUIs now run `optimize`
   through the same code: `pipeline/optimize_stage.hpp`

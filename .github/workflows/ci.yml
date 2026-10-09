@@ -12,9 +12,10 @@
 # See docs/guides/ci-cache.md for what lives in that cache, how big it is, and
 # how to re-seed it from a dev machine.
 #
-# Cheap, cache-free gates (clang-format, REUSE/SPDX, docs/gui YAML sanity, and
-# the GUI frontend build + vitest, moved here in #348) live in
+# Cheap, cache-free gates (clang-format, REUSE/SPDX) live in
 # .github/workflows/lint.yml (#250) and deliberately do not touch nix at all.
+# ruxd's and the web frontend's own CI gates moved with them to their own
+# repos (repo split, P4, 2026-10-09).
 #
 # The local equivalents of this workflow are:
 #   scripts/check.sh                          (fast incremental build + ctest)
@@ -101,6 +102,14 @@ jobs:
       # tracked.
       - name: Build and run tests
         run: nix build .#checks.x86_64-linux.tests --print-build-logs 2>&1 | tee build-warnings.log
+
+      # The installable CPU package (headers + libs + CMake config) is what
+      # downstream repos (ReUse-X/ruxd) build against. It has a different
+      # derivation from checks.tests, so build it here on main so the cachix
+      # action pushes it and downstream CI does not recompile ReUseX.
+      - name: Build CPU package for downstream consumers
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: nix build .#cpu --print-build-logs
 
       # Parse GCC/Clang warning lines from the build log and sync them to
       # GitHub issues (create new, close fixed, skip existing).  Only runs on

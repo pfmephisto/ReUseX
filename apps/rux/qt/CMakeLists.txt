@@ -62,10 +62,12 @@ add_library(rux_qt_lib STATIC
 set_target_properties(rux_qt_lib PROPERTIES AUTOMOC ON AUTORCC ON)
 target_include_directories(rux_qt_lib PUBLIC include)
 # Where `--dev` reads the live tokens.css and QSS template from. Release
-# binaries embed a snapshot of both through rux_qt.qrc instead.
+# binaries embed a snapshot of both through rux_qt.qrc instead. tokens.css is
+# vendored here (scripts/sync-tokens.sh) rather than read from
+# apps/rux/frontend, which moved to the standalone rux-frontend repo.
 target_compile_definitions(rux_qt_lib PRIVATE
     RUX_QT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-    RUX_QT_TOKENS_CSS="${CMAKE_CURRENT_SOURCE_DIR}/../frontend/src/tokens.css")
+    RUX_QT_TOKENS_CSS="${CMAKE_CURRENT_SOURCE_DIR}/theme/tokens.css")
 target_link_libraries(rux_qt_lib
     PUBLIC
         rux_qt_core

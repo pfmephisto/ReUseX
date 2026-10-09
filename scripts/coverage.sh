@@ -95,7 +95,6 @@ gcovr \
   --root "$repo_root" \
   --filter 'libs/reusex/' \
   --filter 'apps/rux/' \
-  --filter 'apps/ruxd/' \
   --exclude 'extern/' \
   --exclude '/tests/' \
   --exclude 'build[^/]*/' \

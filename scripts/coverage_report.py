@@ -51,8 +51,8 @@ def module_for(file_path: str) -> str:
         rest = posix[idx + len(anchor):]
         parts = rest.split("/", 1)
         return parts[0] if len(parts) > 1 else "(root)"
-    # Anything outside libs/reusex (apps/rux, apps/ruxd, bindings/...) groups
-    # by its own top-level directory so it's still visible.
+    # Anything outside libs/reusex (apps/rux, bindings/...) groups by its
+    # own top-level directory so it's still visible.
     return posix.split("/", 1)[0] if "/" in posix else posix
 
 

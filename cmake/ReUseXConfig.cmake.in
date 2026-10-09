@@ -1,0 +1,180 @@
+# SPDX-FileCopyrightText: 2025 Povl Filip Sonne-Frederiksen
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# ReUseX CMake package config (generated from cmake/ReUseXConfig.cmake.in).
+#
+#   find_package(ReUseX CONFIG REQUIRED)
+#   target_link_libraries(app PRIVATE ReUseX::pipeline)   # or ReUseX::reusex
+#
+# Targets: ReUseX::utils, geometry_common, core, io, vision, segmentation,
+# reconstruction, slam, gsplat_common, pipeline, the umbrella ReUseX::reusex,
+# plus ReUseX::visualize and ReUseX::gsplat when this build had them
+# (ReUseX_HAVE_VISUALIZE / ReUseX_HAVE_GSPLAT).
+#
+# The modules are static libraries, so their PRIVATE dependencies travel as
+# $<LINK_ONLY:...> entries and must resolve in the consumer as well. The lookups
+# below therefore mirror libs/reusex/cmake/Dependencies.cmake for everything
+# that ends up in an exported link interface — keep the two in step.
+
+@PACKAGE_INIT@
+
+# --- What this build was configured with -----------------------------------
+set(ReUseX_WITH_CUDA          @REUSEX_PKG_WITH_CUDA@)
+set(ReUseX_ML_BACKENDS        "@REUSEX_PKG_ML_BACKENDS@")
+set(ReUseX_MIP_SOLVER         "@REUSEX_PKG_MIP_SOLVER@")
+set(ReUseX_HAVE_GSPLAT        @REUSEX_PKG_HAVE_GSPLAT@)
+set(ReUseX_HAVE_VISUALIZE     @REUSEX_PKG_HAVE_VISUALIZE@)
+foreach(_reusex_backend TensorRT LibTorch ONNX OpenVINO)
+    if(_reusex_backend IN_LIST ReUseX_ML_BACKENDS)
+        set(ReUseX_HAVE_${_reusex_backend} ON)
+    else()
+        set(ReUseX_HAVE_${_reusex_backend} OFF)
+    endif()
+endforeach()
+unset(_reusex_backend)
+
+
+# Match the policies the library was configured with (top-level CMakeLists.txt)
+# so the dependency lookups below behave the same in a consumer that declares
+# an older cmake_minimum_required. find_package() gives this file its own
+# policy scope, so none of this leaks into the consumer. Set before including
+# CMakeFindDependencyMacro: a macro records the policies in effect where it is
+# defined, not where it is called.
+foreach(_reusex_policy CMP0167 CMP0148)
+    if(POLICY ${_reusex_policy})
+        cmake_policy(SET ${_reusex_policy} NEW)
+    endif()
+endforeach()
+unset(_reusex_policy)
+# Dependency configs (GTSAM's find_dependency(Boost COMPONENTS ...)) run with
+# their own policy settings; the build gets the NEW default from the top-level
+# CMakeLists.txt, so give them the same for the duration of this file only.
+if(DEFINED CMAKE_POLICY_DEFAULT_CMP0167)
+    set(_reusex_saved_cmp0167 "${CMAKE_POLICY_DEFAULT_CMP0167}")
+endif()
+set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
+
+include(CMakeFindDependencyMacro)
+
+# OpenCV 4.13 + LibTorch legacy FindCUDA cache pollution (mirrors
+# libs/reusex/cmake/Dependencies.cmake). LibTorch's Caffe2Config caches
+# CUDA_FOUND / CUDA_VERSION; on a consumer's *reconfigure* the
+# find_dependency(OpenCV) below then calls the legacy find_cuda_helper_libs()
+# macro, which is not cached and so does not exist yet. The first configure
+# always works; without this every reconfigure of a CUDA consumer fails.
+unset(CUDA_FOUND CACHE)
+unset(CUDA_VERSION CACHE)
+unset(CUDA_VERSION_STRING CACHE)
+if(NOT COMMAND find_cuda_helper_libs)
+  macro(find_cuda_helper_libs _name)
+    find_library(CUDA_${_name}_LIBRARY
+      NAMES ${_name}
+      PATHS "${CUDAToolkit_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}"
+      PATH_SUFFIXES lib64 lib/x64 lib
+      NO_DEFAULT_PATH)
+    mark_as_advanced(CUDA_${_name}_LIBRARY)
+  endmacro()
+endif()
+
+# --- Public dependencies (reusex_common INTERFACE, reusex_core PUBLIC) ------
+find_dependency(Boost CONFIG)
+find_dependency(TBB)
+find_dependency(fmt CONFIG)
+find_dependency(range-v3 CONFIG)
+find_dependency(nlohmann_json 3.11)
+find_dependency(Eigen3)
+find_dependency(OpenCV COMPONENTS core imgproc highgui imgcodecs stitching
+                                  features2d calib3d)
+find_dependency(RTABMap)
+find_dependency(PCL)
+find_dependency(highs)
+find_dependency(embree)
+find_dependency(CGAL COMPONENTS Core)
+include(CGAL_Eigen3_support)
+include(CGAL_TBB_support)
+find_dependency(igraph)
+find_dependency(E57Format)
+find_dependency(opennurbs)
+find_dependency(SQLite3)
+# CMake 4.3 renamed FindSQLite3's target to SQLite3::SQLite3; the build links
+# that name, so provide it on older CMake (the build aliases it the same way).
+if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
+    add_library(SQLite3::SQLite3 INTERFACE IMPORTED)
+    set_target_properties(SQLite3::SQLite3 PROPERTIES
+        INTERFACE_LINK_LIBRARIES SQLite::SQLite3)
+endif()
+if(ReUseX_MIP_SOLVER STREQUAL "CUOPT")
+    find_dependency(cuOpt)
+endif()
+
+# --- Link-only dependencies (PRIVATE deps of the static modules) -----------
+# reusex_private_deps: speckle (CURL/OpenSSL), exif (exiv2), dense MVS (OpenMVS,
+# whose own link interface needs Boost components, jsoncpp and nanoflann).
+find_dependency(CURL)
+find_dependency(OpenSSL)
+find_dependency(exiv2 CONFIG)
+find_dependency(Boost CONFIG COMPONENTS iostreams program_options serialization)
+find_dependency(jsoncpp)
+find_dependency(nanoflann)
+find_dependency(OpenMVS)
+# reusex_slam: factor-graph back-end.
+find_dependency(GTSAM)
+
+# reusex_vision: ML backends compiled into this build.
+find_dependency(absl CONFIG)
+find_dependency(utf8_range CONFIG)
+find_dependency(Protobuf CONFIG)
+# Same pin as Dependencies.cmake: tokenizers_cpp's config re-finds protobuf in
+# MODULE mode, and FindProtobuf's find_path would otherwise hit the prebuilt
+# libtorch's include/ first, which ships protobuf 3.13's headers.
+if(TARGET protobuf::libprotobuf)
+    get_target_property(_reusex_protobuf_includes protobuf::libprotobuf
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    list(GET _reusex_protobuf_includes 0 _reusex_protobuf_include)
+    set(Protobuf_INCLUDE_DIR "${_reusex_protobuf_include}" CACHE PATH
+        "Protobuf headers, pinned to the CONFIG-mode protobuf package" FORCE)
+    unset(_reusex_protobuf_includes)
+    unset(_reusex_protobuf_include)
+endif()
+if(ReUseX_HAVE_TensorRT)
+    find_dependency(trtsam3 CONFIG)
+    find_dependency(tokenizers_cpp CONFIG)
+endif()
+if(ReUseX_HAVE_ONNX)
+    find_dependency(onnxruntime CONFIG)
+    find_dependency(tokenizers_cpp CONFIG)
+endif()
+if(ReUseX_HAVE_LibTorch)
+    find_dependency(Torch 2.9.0 CONFIG)
+endif()
+if(ReUseX_HAVE_OpenVINO)
+    find_dependency(openvino CONFIG)
+endif()
+
+# reusex_visualize: VTK backs the headless render_view().
+if(ReUseX_HAVE_VISUALIZE)
+    find_dependency(VTK COMPONENTS CommonCore CommonDataModel
+                    CommonExecutionModel RenderingCore RenderingOpenGL2)
+endif()
+
+# reusex_gsplat: vendored gsplat CUDA rasterizer (LibTorch-linked).
+if(ReUseX_HAVE_GSPLAT)
+    find_dependency(gsplat-cuda CONFIG)
+endif()
+
+# The CUDA kernels in reusex_vision link the CUDA runtime.
+if(ReUseX_WITH_CUDA)
+    find_dependency(CUDAToolkit)
+endif()
+
+if(DEFINED _reusex_saved_cmp0167)
+    set(CMAKE_POLICY_DEFAULT_CMP0167 "${_reusex_saved_cmp0167}")
+    unset(_reusex_saved_cmp0167)
+else()
+    unset(CMAKE_POLICY_DEFAULT_CMP0167)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/ReUseXTargets.cmake")
+
+check_required_components(ReUseX)

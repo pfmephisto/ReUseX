@@ -31,8 +31,12 @@ The project consists of:
   (`reusex_core`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam`,
   `reusex_io`, `reusex_vision`, …) with a link-enforced layer graph
 - **rux CLI** (`apps/rux/`): command-line interface with subcommands for the
-  whole pipeline
-- **ruxd** (`apps/ruxd/`): HTTP service worker
+  whole pipeline, plus a native Qt client (`apps/rux/qt`)
+
+The HTTP service worker (`ruxd`) and the web GUI frontend live in their own
+repos — `ruxd` and `rux-frontend` — and build against this repo's installed
+CMake package (`find_package(ReUseX CONFIG REQUIRED)`; see "Using ReUseX as a
+library" below).
 
 For details see [ARCHITECTURE.md](ARCHITECTURE.md), the engineering standards in
 [docs/STANDARDS.md](docs/STANDARDS.md), and the pipeline-stage data contracts in
@@ -83,6 +87,7 @@ cmake --build build
 - `-DUSE_CCACHE=ON/OFF` - Use ccache when available (default: ON)
 - `-DENABLE_COVERAGE=ON/OFF` - Code coverage instrumentation (default: OFF)
 - `-DML_BACKENDS=AUTO|NONE|<list>` - Which ML backends to enable, e.g. `-DML_BACKENDS="TensorRT;LibTorch"` (default: `AUTO`)
+- `-DREUSEX_PACKAGE_TEST=ON/OFF` - Register the installed-package consumer ctest (default: ON; see [Using ReUseX as a library](#using-reusex-as-a-library))
 
 **Note on Visualization:** `rux` links PCL visualization unconditionally — it
 is not an optional build. The `reusex_visualize` library module is a separate
@@ -205,11 +210,83 @@ rux assemble <paths...> -o <out.rux>
 Run `rux <command> --help` for the full flag list; the pipeline-stage
 prerequisites are documented in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
-`ruxd` is a separate HTTP service worker binary (`ruxd --help`).
+`ruxd` (the HTTP service worker serving the web GUI) and the web frontend
+live in their own repos — `ruxd` and `rux-frontend` — not in this one.
 
 > **Note:** the Python bindings in `bindings/python/` are built by default
 > (`BUILD_PYTHON_BINDINGS=ON`) and currently expose **read-only** `.rux`
 > inspection (`reusex.ProjectDB` and the summary value types).
+
+## Using ReUseX as a library
+
+ReUseX installs as a CMake package. This is the supported way to use the
+library from another project, such as `ruxd`:
+
+```cmake
+find_package(ReUseX CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE ReUseX::pipeline)   # or ReUseX::core, ...
+```
+
+```cpp
+#include <reusex/core/ProjectDB.hpp>
+#include <reusex/pipeline/stages.hpp>
+```
+
+**Install it.** Without nix, build and install into a prefix, then point
+`CMAKE_PREFIX_PATH` at that prefix:
+
+```shell
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix ~/opt/reusex                                 # everything
+cmake --install build --prefix ~/opt/reusex --component ReUseX_Development  # library only
+
+cmake -B my-build -S my-project -DCMAKE_PREFIX_PATH=~/opt/reusex
+```
+
+With nix, `nix build .#default` installs the library next to the binaries:
+headers, the static libraries, and `lib/cmake/ReUseX/ReUseXConfig.cmake`.
+
+**Targets.** There is one static library per module, named after the module:
+`ReUseX::utils`, `ReUseX::geometry_common`, `ReUseX::core`, `ReUseX::io`,
+`ReUseX::vision`, `ReUseX::segmentation`, `ReUseX::reconstruction`,
+`ReUseX::slam`, `ReUseX::gsplat_common` and `ReUseX::pipeline`.
+`ReUseX::visualize` and `ReUseX::gsplat` exist only when that build had them.
+`ReUseX::reusex` is an umbrella target that links all of them. Link the
+narrowest target that covers what you use. The layering rules in
+[docs/STANDARDS.md §1](docs/STANDARDS.md#1-module-boundaries) apply.
+
+**Build facts.** The config sets these variables, so a consumer can check
+what the installed build contains:
+
+- `ReUseX_WITH_CUDA`
+- `ReUseX_ML_BACKENDS` (for example `TensorRT;LibTorch;ONNX`)
+- `ReUseX_HAVE_TensorRT`, `ReUseX_HAVE_LibTorch`, `ReUseX_HAVE_ONNX`, `ReUseX_HAVE_OpenVINO`
+- `ReUseX_MIP_SOLVER` (`HIGHS` or `CUOPT`)
+- `ReUseX_HAVE_GSPLAT`, `ReUseX_HAVE_VISUALIZE`
+
+Create models through `reusex::vision::create_model_from_path()`. The
+backend-specific headers (`vision/tensor_rt/`, `vision/onnx/`,
+`vision/libtorch/`) need that backend's own SDK headers and are not meant
+for consumers.
+
+**Dependencies.** The modules are static libraries, so a consumer needs
+every dependency the build used, including the private ones: PCL, OpenCV,
+CGAL, Eigen, TBB, Boost, fmt, range-v3, nlohmann_json, igraph, embree, HiGHS
+(or cuOpt), RTABMap, E57Format, OpenNURBS, SQLite3, CURL, OpenSSL, exiv2,
+OpenMVS, GTSAM, VTK, and the ML backends that were compiled in.
+`ReUseXConfig.cmake` finds all of them with `find_dependency`. They must be
+findable, through `CMAKE_PREFIX_PATH` or the nix dev shell. The list
+mirrors `libs/reusex/cmake/Dependencies.cmake`.
+
+**Test.** `tests/package/consumer` is a small external project that opens a
+`ProjectDB` and runs a pipeline stage. The ctest `reusex_package_consumer`
+(label `package`) runs `cmake --install` into a temp prefix, then
+configures, builds and runs that project against the install. The nix
+`checks.tests` build does the same against the installed `$out`, in
+`installCheckPhase`. The test takes a few minutes, mostly the dependency
+lookups. Run it on its own with `ctest -L package`, skip it with
+`ctest -LE package`, or leave it out with `-DREUSEX_PACKAGE_TEST=OFF`.
 
 ## Dependencies
 

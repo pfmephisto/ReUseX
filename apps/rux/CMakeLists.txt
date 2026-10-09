@@ -20,7 +20,8 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 #                 binary (tests/unit/rux_app/)
 #
 # The web GUI backend that used to live here as rux_gui_lib is now
-# ruxd_api_lib in apps/ruxd (`ruxd --local`); `rux gui` is gone.
+# ruxd_api_lib in the standalone `ruxd` repo (`ruxd --local`); `rux gui`
+# is gone.
 #
 # Only rux_core_lib is an explicit source list; rux_lib is globbed, so a new
 # subcommand still needs no CMake edit.

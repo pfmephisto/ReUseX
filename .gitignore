@@ -42,10 +42,6 @@ CMakeLists.txt.user
 bin/
 build*/
 
-# local dev service state (process-compose: postgres/redis/minio data)
-.dev/
-.pc.log
-
 # Generated documentation
 docs/api/
 ReUseX.tag
@@ -202,9 +198,6 @@ scratch/
 
 # superpowers skill session artifacts (never committed)
 .superpowers/
-
-# stray root-level node_modules (e.g. vitest cache when run outside apps/rux/frontend)
-/node_modules/
 
 # design-studio screenshots: a per-phase review artefact, never committed
 /shots/

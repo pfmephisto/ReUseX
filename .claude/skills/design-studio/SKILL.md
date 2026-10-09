@@ -1,31 +1,35 @@
 ---
 name: design-studio
-description: The design workflow for the ReUseX rux GUI — its web frontend (React/Vite/TS + three.js, in apps/rux/frontend) and its native Qt client (apps/rux/qt, in progress: QSS generated from the same tokens, screenshot loop via qt_shot.sh), which share one token-based design system. Use this whenever you design, build, restyle, redesign, or "make it look better/more polished" for any rux GUI screen, page, panel, route or component (Dashboard, Viewport, Pipeline, Graph view, Image/annotation view, Materials, …); whenever you touch a *.module.css, app.qss or a Qt widget/page, or add a new component; whenever you work from docs/Design Review.md; and for one-off mockups, prototypes, slide decks or one-pagers. Also use when matching the existing rux GUI look. Reach for it even when the user only says "build a page", "add a panel" or "wire up a view" — visual quality and token discipline still apply.
+description: The design workflow for the native Qt client of the rux GUI (apps/rux/qt, in progress: QSS generated from tokens.css, screenshot loop via qt_shot.sh). Use this whenever you design, build, restyle, redesign, or "make it look better/more polished" for any Qt client page or workspace (Database, 3D/Viewer, Posegraf, Pipeline, Log, the app shell); whenever you touch styles/app.qss or a Qt widget/page; and whenever you work from docs/Design Review.md for a Qt page. Also use when matching the existing rux GUI look, or when a token in apps/rux/qt/theme/tokens.css needs refreshing from rux-frontend. The web half of the rux GUI (React/Vite/TS, apps/rux/frontend) moved to the standalone rux-frontend repo — its design-studio skill lives there now, not here.
 ---
 
-# Design Studio — ReUseX rux GUI
+# Design Studio — the Qt client (rux GUI)
 
-Claude Code writes good frontend code. What this skill adds is *process* and the
+Claude Code writes good Qt/C++ UI code. What this skill adds is *process* and the
 project's *house rules*: work inside the design system that already exists,
 build in the real stack, **look** at the result, and iterate. The single most
 important step is §5 — never ship a screen you haven't seen, in both themes.
 
-This project has **two surfaces, one design system**:
-- **Now:** the web frontend in `apps/rux/frontend/` — React 19 + Vite + TypeScript
-  + three.js, CSS Modules.
-- **In progress:** a native **Qt 6** client in `apps/rux/qt/` (Stream Q). Its
-  QSS and QPalette are generated at run time from the *same* `tokens.css`, so
-  every visual decision is still a token; it has its own screenshot loop
-  (`qt_shot.sh`). See §Qt and `references/qt-client.md`.
+This repo is **one of two surfaces that share one token-based design system**:
+- **The `rux-frontend` repo:** the web frontend — React 19 + Vite + TypeScript +
+  three.js, CSS Modules. `src/tokens.css` is **owned there** — the
+  `/design-sync` target. Its own `design-studio` skill covers that surface;
+  read it in that repo, not here.
+- **This repo (`ReUseX`):** the native **Qt 6** client, `apps/rux/qt/`
+  (Stream Q). Its QSS and QPalette are generated at run time from a
+  **vendored copy** of rux-frontend's tokens — `apps/rux/qt/theme/tokens.css`,
+  refreshed with `scripts/sync-tokens.sh <path-or-url>` — so every visual
+  decision is still a token. It has its own screenshot loop (`qt_shot.sh`).
+  See §Qt loop below and `references/qt-client.md`.
 
-The system itself — every colour, size, radius, type step — lives in
-**`apps/rux/frontend/src/tokens.css`**, which is **owned by the Claude Design
-project "ReUseX GUI"** and synced with the `DesignSync` tool / `/design-sync`.
-That ownership boundary drives almost everything below.
+The token *names and roles* are the cross-surface contract; the *values* are
+owned by rux-frontend and the Claude Design project "ReUseX GUI". A token
+renamed or removed in rux-frontend is a breaking change here — re-run
+`scripts/sync-tokens.sh` and fix whatever the Qt token ctests then flag.
 
-Deep project specifics (full token inventory, directory map, dev/proxy details,
-Qt mirroring plan) live in `references/reusex-frontend.md`. Read it before your
-first build in this repo.
+Directory map, the full Qt widget inventory, the token-mapping table (CSS →
+QSS), and every recorded gotcha live in `references/qt-client.md` — read it
+before your first Qt change.
 
 ## The loop
 
@@ -35,204 +39,142 @@ Brief → Locate in the system → (Direction, only if greenfield) → Build →
 
 If the request is vague, ask up to 3 short questions, and only ones whose
 answers change the design:
-- Which surface, screen and route? (e.g. a new panel on `ViewportPage`, the
-  Graph view in `docs/Design Review.md`, a fresh route.)
-- Fidelity: throwaway mockup to agree a layout, or production React to merge?
-- Is there a contract for the data? New views usually need `docs/gui/openapi.yaml`
-  + `docs/gui/websocket-events.md` support — the frontend is a *pure client*, so
-  if the endpoint doesn't exist yet, say so and design against the intended shape.
+- Which workspace/page? (e.g. a new panel on the 3D workspace, the Pipeline
+  form, a fresh `rux_qt/pages.hpp` entry.)
+- Fidelity: throwaway mockup to agree a layout, or production Qt/C++ to merge?
+- Does the data already come from `ProjectDB`/`pipeline::JobRunner`, or does
+  this need a new reader? The Qt client never talks to `ruxd`'s REST API —
+  it runs stages and reads the project in-process.
 
-If the user wants speed or has already said enough, state your assumptions in one
-line and proceed. `docs/Design Review.md` is the current design backlog — treat
-its entries as briefs.
+If the user wants speed or has already said enough, state your assumptions in
+one line and proceed. `docs/Design Review.md` is the current design backlog —
+treat its entries as briefs; a Qt-tagged entry is this repo's job, a web-tagged
+one belongs in `rux-frontend`.
 
 ### 2. Locate the work in the existing system (this replaces "invent a design system")
 
 The design system already exists. Your job is to *conform*, not to create one.
 
-- **Read `src/tokens.css` for the token names and their roles** (surfaces,
-  border, text, accent, status, `--label-*`, spacing, type, radius, shadow,
-  layout, motion, z-index). `references/reusex-frontend.md` has the full list.
-- **Find the nearest existing component and copy its patterns.** Grep
-  `src/components/` and `src/routes/` for something similar — a card, a table, a
-  panel, a form. Reuse `DataTable`, `StatCard`, `Sidebar`, `EmptyState`,
-  `ErrorBanner`, `ParameterForm`, `SelectDropdown`, etc. rather than inventing a
-  parallel one. Consistency with the app beats novelty.
-- **Hard rules that come from that ownership boundary:**
-  - **Never hand-edit `src/tokens.css`.** Its values are placeholders until a
-    `/design-sync`; the repo owns token *names/roles*, the design project owns
-    every *value*. If a colour or size feels wrong, that's a re-sync, not an
-    edit. Never create a `design-tokens.md` — this project already has its source
-    of truth.
-  - **No literal colour, radius, spacing or type size anywhere in `src/`** — only
-    `var(--…)`. This is what makes a token change a one-line value swap instead
-    of a refactor. `scripts/token_lint.py` enforces it; run it before you finish.
-  - **SPDX header on every new file** (`.tsx`, `.ts`, `.css`) — copy the two/three
-    line header from any neighbour. The REUSE lint job fails without it.
+- **Read `apps/rux/qt/theme/tokens.css` for the token names and their roles**
+  (surfaces, border, text, accent, status, `--label-*`, spacing, type, radius,
+  shadow, layout, motion). It is a vendored, read-only copy — see §3.
+- **Find the nearest existing widget/page and copy its patterns.** Grep
+  `apps/rux/qt/include/rux_qt/widgets.hpp` and `apps/rux/qt/src/` for something
+  similar — `Panel`, `StatCard`, `NavRail`, `LabelLegend`, `PropertyList`, a
+  table workspace. Reuse before inventing a parallel one.
+- **Hard rules that come from the token ownership boundary:**
+  - **Never hand-edit `apps/rux/qt/theme/tokens.css`.** It is a vendored
+    snapshot of rux-frontend's `src/tokens.css`; a wrong value there is a
+    stale sync, not a local fix — run `scripts/sync-tokens.sh` instead.
+  - **No literal colour, radius, spacing or type size anywhere in
+    `apps/rux/qt/`** — only `var(--…)` in `styles/app.qss`, or
+    `theme().color("--…")` / `theme().px("--…")` in C++.
+    `scripts/token_lint.py apps/rux/qt --qt` enforces it; run it before you
+    finish.
+  - **SPDX header on every new file** (`.cpp`, `.hpp`, `.qss`) — copy the
+    two/three line header from any neighbour. The REUSE lint job fails
+    without it.
 
-### 3. Choose a direction — only for genuinely greenfield work
+### 3. Refresh tokens — only when rux-frontend's tokens changed
 
-Most work here is *additive*: a new panel or route that must look like the rest
-of the app. In that case **skip this step** — the direction is "match the app",
-and §2 is the whole job.
+Most work here is *additive*: a new panel or page that must look like the
+rest of the app, using tokens that already exist locally. Only pull a fresh
+`tokens.css` when rux-frontend's design project actually re-synced:
 
-Only when the brief is open-ended (a brand-new kind of surface, or the user is
-explicitly exploring) sketch 2–3 directions, a few lines each — palette drawn
-from the *existing* tokens, layout as a one-line ASCII wireframe, and the one
-memorable move. Even then, stay inside the established feel:
-- **Light-default.** The workbench (`:root`) is light; `[data-theme='dark']`
-  re-points the themed roles. The 3D viewport canvas stays near-black in
-  *both* themes — that one surface is dark-first regardless of the workbench
-  theme.
-- **Dense, technical, calm.** This is an engineering tool over a `.rux` project —
-  tabular numbers (`.mono`, `tabular-nums`), tight rhythm, restraint. Not
-  marketing polish.
+```bash
+scripts/sync-tokens.sh ../rux-frontend/src/tokens.css   # local checkout
+scripts/sync-tokens.sh https://raw.githubusercontent.com/.../src/tokens.css
+```
 
-Avoid the usual AI tells (identical rounded cards with the same soft shadow,
-tracked-out ALL-CAPS eyebrows on everything, fade-up on every section, gradient
-hero). They read as templated and clash with a tool UI.
+This copies the file to `apps/rux/qt/theme/tokens.css` and runs the Qt token
+ctests, which fail loudly if `app.qss` or a C++ `theme().color(...)` call
+names a token that no longer exists. Fix those before building anything new.
 
 ### 4. Build
 
-**Production deliverable = the real stack**, not a self-contained HTML file:
-- One `Foo.tsx` + one `Foo.module.css` per component, in the right directory
-  (`components/` = presentational + contract-agnostic; `routes/` = page
-  compositions; `viewport/` = three.js; `pipeline/` = pure stage logic; `api/` =
-  contract layer). See the layout in `references/reusex-frontend.md`.
-- **CSS Modules, tokens only.** Every colour/spacing/radius/type value is a
-  `var(--…)`. Class names are local; compose with `styles.foo`.
-- **Real copy**, specific to the domain ("Back-project depth frames", "Loop
-  closures", "Unlabeled points") — not "Feature one". Buttons name the action.
-- **Contract-faithful.** Types mirror `docs/gui/openapi.yaml` in `src/api/types.ts`;
-  never invent fields. If the data doesn't exist yet, stub it behind the intended
-  shape and flag the missing endpoint.
-- **Quality floor:** keyboard focus visible (`:focus-visible` is themed), body
-  contrast ≥ 4.5:1 in *both* themes, `prefers-reduced-motion` respected (the
-  motion tokens already zero out under it), tap targets ≥ 44px, no horizontal
-  overflow.
+**Production deliverable = the real Qt/C++ stack**, not a mockup:
+- Compose from `apps/rux/qt/include/rux_qt/widgets.hpp`; style by
+  `objectName` / `kind` / `tone` / `role` dynamic properties in
+  `styles/app.qss`; read any value code needs from the Theme
+  (`theme().color("--x")`, `theme().px(...)`, `theme().font(...)`).
+- **Real copy**, in Danish, specific to the domain ("Ingen punktsky endnu —
+  kør rux create clouds") — not "Feature one". See `qt-client.md` §6 for the
+  shape of a new page.
+- **Quality floor:** focus visible on buttons and fields, body contrast
+  ≥ 4.5:1 in *both* themes, tap targets sized for a desktop pointer, no
+  clipped/overlapping content, no stock-Fusion chrome leaking through.
 
-**Throwaway mockups are allowed** to agree a layout fast — a single HTML file is
-fine — but it **must `@import "../src/tokens.css"`** so it uses the real system,
-and it is a sketch, not the deliverable. Convert the agreed layout to React
-before handing off.
+**Throwaway mockups** are rarely useful here (QSS has no live-reload outside
+the gallery/`--dev` loop below) — iterate directly against `qt_shot.sh`
+instead.
 
 ### 5. Look at it (mandatory), in both themes
 
-Run the app and screenshot it. The frontend is a client of `ruxd --local`, so bring
-the backend up first (fixture project provided):
-
 ```bash
-# one command: starts `ruxd --local` on a COPY of the fixture (never the tracked file) + the Vite dev server, prints URLs; state in .superpowers/dev-env/
-bash <skill-dir>/scripts/dev_env.sh start
-# then capture the route you changed, BOTH themes. Case screens live under
-# /sager/<case id>/ (the fixture's id is office-corridor); /sager is the list:
-bash <skill-dir>/scripts/shot.sh http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme dark
-bash <skill-dir>/scripts/shot.sh http://localhost:5173/sager/office-corridor/viewport --out shots/ --theme light
-bash <skill-dir>/scripts/dev_env.sh stop
+# Every page x both themes, 1440x900 at 2x, into shots/qt/
+bash <skill-dir>/scripts/qt_shot.sh --all
+# One page, one theme
+bash <skill-dir>/scripts/qt_shot.sh --page components --theme dark
 ```
 
-`--theme` sets the app's own `reusex-theme` preference before load, so you see
-the real resolved theme — not just `prefers-color-scheme`. For a standalone
-mockup file, pass the file path instead of the URL.
+Then **open every PNG with your Read tool and actually look.** It **fails on
+any missing token** (magenta pixel = unresolved `var(--x)`). `--help` for
+`--size`, `--scale`, `--project`, `--gl` (the real VTK widget under Xvfb).
+Full timing table, fixture handling and failure modes: `qt-client.md` §2.
 
-Then **open every PNG with your Read tool and actually look.** Defaults: desktop
-1440×900, tablet 768×1024, mobile 390×844, full-page. `--help` for `--selector`,
-`--viewports`, `--pdf`, `--wait`.
-
-**Headless:** Playwright's headless Chromium renders without any display, so this
-works over SSH or in a worktree with no monitor. A monitor being attached is
-fine but never required — do not skip the screenshot because "there's no
-display". `shot.sh` wraps `screenshot.py` (same arguments) and, when the host python
-cannot import Playwright, borrows nixpkgs' Playwright + matching browsers — so
-no pip install is needed on NixOS. If that's genuinely impossible, say so and ask the
-user for a screenshot — never skip review silently.
+**Headless:** `QT_QPA_PLATFORM=offscreen` renders without any display — VTK's
+EGL offscreen window stands in for the 3D pane — so this works over SSH or in
+a worktree with no monitor. Never skip the screenshot because "there's no
+display".
 
 ### 6. Critique and fix
 
-Review the screenshots against `references/critique-checklist.md` (it has a
-ReUseX section). Write down the 3–5 biggest problems, fix them, re-screenshot.
-Expect 2–3 rounds; stop when what's left is taste, not defects. Before finishing:
-- Run `python <skill-dir>/scripts/token_lint.py <the files you changed>` and fix
-  every literal it flags. (Some older components carry pre-existing violations, so
-  lint your changed files, not the whole tree — fixing unrelated drift is a
-  separate, opt-in cleanup. It also catches typo'd tokens like a
-  `var(--color-status-ok, …)` that no longer exists.)
-- Run `npm --prefix apps/rux/frontend run typecheck` and, if you touched
-  pure-logic modules, `npm --prefix apps/rux/frontend test`.
+Review the screenshots against `references/critique-checklist.md`'s "Qt
+client" section. Write down the 3–5 biggest problems, fix them, re-screenshot.
+Expect 2–3 rounds; stop when what's left is taste, not defects. Before
+finishing:
+- Run `python <skill-dir>/scripts/token_lint.py apps/rux/qt --qt` and fix
+  every literal it flags — `.qss` literals, unknown `var(--x)` names, and Qt
+  C++ literals (`QColor(…)`, `Qt::red`, hex strings, `setPixelSize(12)`,
+  `setStyleSheet("…")`).
+- Build and run `tests/unit/rux_qt` (light binary): `ctest -R rux_qt` (or the
+  specific token/page test you touched).
 - Remove one decorative element that isn't earning its place.
 
 ### 7. Hand off
 
-In a few lines: what changed and where, which existing components you reused,
-which tokens the look depends on (so a future `/design-sync` knows what it
-drives), any missing API endpoint the view needs, and known gaps. Leave
-screenshots in `shots/`. If the look needs a *new* token name or role, note it
-for the design project rather than hardcoding a value.
+In a few lines: what changed and where, which existing widgets you reused,
+which tokens the look depends on (so a `sync-tokens.sh` refresh doesn't
+silently break it), and known gaps. Leave screenshots in `shots/qt/`. If the
+look needs a *new* token name or role, flag it for rux-frontend's design
+project — add it there first, then `sync-tokens.sh`, never invent a
+Qt-only value.
 
 ## Iterating on feedback
 
-Treat comments like inline notes on a canvas: find the exact element, change it,
-re-screenshot, confirm. If a comment implies a *system* change ("this accent is
-too loud", "cards need more air"), it is a token concern — do **not** patch the
-one instance with a literal. Either it's already a token (re-sync territory,
-flag it) or it reveals a missing token (note it for the design project). Keeping
-the fix at the token layer is what keeps the two surfaces (web + Qt) in step.
-
-## Qt (the second surface) — in progress
-
-The native client lives in `apps/rux/qt/` and is styled by **`styles/app.qss`,
-a QSS template written with the same `var(--token)` syntax as the CSS
-Modules**. `rux::qt::Theme` reads `tokens.css` at run time, fills the template,
-generates the QPalette and loads the bundled fonts. One design system, two
-renderers: a token change reaches both surfaces with no code edit. Read
-`references/qt-client.md` before your first Qt change.
-
-**The Qt loop** (same shape as §4–§6; Brief/Locate are unchanged):
-1. **Build**: compose the shared widgets in `rux_qt/widgets.hpp`; style by
-   `objectName` / `kind` / `tone` / `role` properties in `app.qss`; read any
-   value code needs from the Theme (`theme().color("--…")`, `px`, `font`).
-2. **Look**: `bash <skill-dir>/scripts/qt_shot.sh --page <name>` (or `--all`)
-   renders both themes at 1440x900, 2x, headless (`QT_QPA_PLATFORM=offscreen`;
-   3D panes through VTK's EGL offscreen window; `--gl` runs the real VTK
-   widget under xvfb). It **fails on any missing token**. Read every PNG.
-   A QSS/token edit re-shoots in ~1.3 s with no build; a C++ edit rebuilds
-   only `rux-qt-gallery` (~10 s inside `nix develop`).
-3. **Critique**: `references/critique-checklist.md`, including its Qt section.
-4. **Lint**: `python <skill-dir>/scripts/token_lint.py apps/rux/qt --qt` —
-   literals in `.qss`, unknown `var(--x)` names, and Qt C++ literals
-   (`QColor(…)`, `Qt::red`, hex strings, `setPixelSize(12)`,
-   `setStyleSheet("…")`).
-
-**Gotchas** (details in `references/qt-client.md` §5):
-- `&` in a button/action/checkbox label is a **mnemonic marker** — write
-  `&&` (`NavItem::escape_mnemonic()`), or "Miljø & prøver" shows "Miljø _prøver".
-- **QSS cannot do** `letter-spacing`, `text-transform`, `box-shadow`,
-  transitions, `calc()`/`color-mix()`, line-height or `:focus-visible`. Caps
-  and tracking are `CapsLabel` (painted from `--tracking-*`); elevation is a
-  border, not a shadow; per-instance colours are painted (`Swatch`), never a
-  per-widget `setStyleSheet`.
-- A dynamic property changed after polish needs `repolish(widget)`.
-- Never hardcode a colour or size in C++: a value only Qt knows breaks the
-  shared look exactly like a literal in a `.module.css` does.
-
-When you add a visual concept the system cannot yet express, add it as a
-*named token/role* (flag it for the design project) — never a value that
-only one renderer knows about. See `references/reusex-frontend.md` §7.
+Treat comments like inline notes on a canvas: find the exact widget, change
+it, re-screenshot, confirm. If a comment implies a *system* change ("this
+accent is too loud", "cards need more air"), it is a token concern — do
+**not** patch the one instance with a literal. Either the token already
+exists (check spelling/role) or it's missing from rux-frontend's system —
+flag it there. Keeping the fix at the token layer is what keeps the two
+surfaces (web + Qt) in step.
 
 ## Correctness constraints (not taste)
 
 Two token groups are correctness, not aesthetics — do not "improve" them away:
-- **The viewport canvas stays near-black** (`--color-canvas`) in *both* themes.
-  Point clouds are additive light on a dark field; a light canvas destroys the
-  depth read.
-- **`--label-0..7` is a colourblind-safe categorical scale** (Okabe-Ito). Users
-  read semantic segmentation classes off these colours. If a redesign touches
-  them, the replacement must stay distinguishable under deuteranopia/protanopia/
-  tritanopia.
+- **The 3D viewport canvas stays near-black** (`--color-canvas`) in *both*
+  themes. Point clouds are additive light on a dark field; a light canvas
+  destroys the depth read.
+- **`--label-0..7` is a colourblind-safe categorical scale** (Okabe-Ito).
+  Users read semantic segmentation classes off these colours. If a change
+  touches them, the replacement must stay distinguishable under
+  deuteranopia/protanopia/tritanopia — and must match what rux-frontend
+  shows for the same classes.
 
-## Slides and print
+## Qt loop reference
 
-For the occasional deck or one-pager (design reviews, issue write-ups): one HTML
-file, `@import "../src/tokens.css"` so it's on-brand, each slide a 1920×1080
-section, arrow-key nav, one idea per slide. Screenshot with `--selector .slide`;
-export a one-pager with `--pdf`.
+Directory map, every widget/workspace file, the token-mapping table
+(CSS → QSS units), the full gotcha list (mnemonics, locale, VTK offscreen,
+QSS specificity, …), and how to build a new page end to end:
+`references/qt-client.md`.

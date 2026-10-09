@@ -74,8 +74,7 @@ Or view online: [GitHub Pages](https://pfmephisto.github.io/ReUseX/) (published 
 ```
 ReUseX/
 ├── libs/reusex/        # The library (one target per module)
-├── apps/rux/           # CLI application
-├── apps/ruxd/          # HTTP service worker
+├── apps/rux/           # CLI application, plus the native Qt client (apps/rux/qt)
 ├── apps/blender/       # Blender add-on
 ├── bindings/python/    # pybind11 bindings (read-only ProjectDB access)
 ├── python/             # reusex_sam3 SAM 3.1 export pipeline (standalone)
@@ -90,6 +89,10 @@ ReUseX/
 ├── overlays/ pkgs/    # Nix packaging
 └── tools/ scripts/    # Development tools
 ```
+
+`ruxd` (the HTTP service worker / web GUI server) and the web frontend each
+live in their own repo — `ruxd` and `rux-frontend` — not in this tree
+(repo split, 2026-10-09; see `docs/DIRECTION.md`).
 
 ## Quick Links
 

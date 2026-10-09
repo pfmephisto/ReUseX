@@ -37,13 +37,11 @@ endif()
 # loader spent ~1.9 s per process before main() even ran. Multiplied by ~360
 # test cases that was ~11 minutes of pure relocation work.
 #
-# Only tests/unit/vision needs the ML stack, tests/unit/ruxd needs ruxd_lib
-# (which links `reusex` PRIVATE — for a static library that still propagates
-# to the final executable link), tests/unit/rux_app needs rux_lib (the `rux`
-# CLI minus main(), which links the `reusex` umbrella and the PCL viewer), and
-# tests/unit/visualize needs the PCL/Qt viewer module. Those directories get
-# their own "heavy" binary; everything else links just the modules it actually
-# uses and starts an order of magnitude faster.
+# Only tests/unit/vision needs the ML stack, tests/unit/rux_app needs rux_lib
+# (the `rux` CLI minus main(), which links the `reusex` umbrella and the PCL
+# viewer), and tests/unit/visualize needs the PCL/Qt viewer module. Those
+# directories get their own "heavy" binary; everything else links just the
+# modules it actually uses and starts an order of magnitude faster.
 #
 # The app layer splits the same way the library does (#249): `tests/unit/rux/`
 # is LIGHT and covers `rux_core_lib` — the app logic that stops at reusex_core
@@ -72,7 +70,7 @@ file(GLOB_RECURSE UNIT_TEST_SOURCES CONFIGURE_DEPENDS
 
 set(HEAVY_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER HEAVY_TEST_SOURCES INCLUDE REGEX
-     "/unit/(vision|ruxd|rux_app|visualize)/|/unit/gsplat/cuda/")
+     "/unit/(vision|rux_app|visualize)/|/unit/gsplat/cuda/")
 
 # tests/unit/gsplat/cuda exercises reusex_gsplat, which only exists when CUDA
 # and the vendored gsplat rasterizer were both found. Drop those sources
@@ -114,7 +112,7 @@ endif()
 
 set(LIGHT_TEST_SOURCES ${UNIT_TEST_SOURCES})
 list(FILTER LIGHT_TEST_SOURCES EXCLUDE REGEX
-     "/unit/(vision|ruxd|rux_app|visualize)/|/unit/gsplat/cuda/")
+     "/unit/(vision|rux_app|visualize)/|/unit/gsplat/cuda/")
 
 # -----------------------------------------------
 # Create unit test executables
@@ -126,17 +124,12 @@ add_executable(reusex_unit_tests ${LIGHT_TEST_SOURCES})
 # binary. Adding a test that needs vision means moving it to
 # tests/unit/vision/, not widening this list.
 #
-# ruxd_api_lib (the web GUI's API, served by `ruxd --local`; formerly
-# `rux gui`'s rux_gui_lib, #265) is deliberately in the LIGHT binary. It links
-# reusex_pipeline rather than the `reusex` umbrella, so it pulls no vision/ML
-# closure -- tests/unit/ruxd_api costs nothing extra here, and keeping it out
-# of the heavy binary preserves the fast start-up this split bought. Only
-# tests/unit/ruxd (ruxd_lib: backend clients, auth, and the injected SAM3 /
-# renderer / ICP / optimize pieces) is heavy.
-#
 # rux_core_lib (#249) is here for the same reason: it stops at reusex_core, so
 # tests/unit/rux gets the app layer's pure logic -- path_parser, filter_utils --
 # under test at light-binary start-up cost.
+#
+# ruxd and its API/CLI/Postgres libraries moved to the standalone ruxd repo
+# (repo split, P4) along with tests/unit/ruxd{,_api,_cli,_pg}.
 target_link_libraries(reusex_unit_tests
     PRIVATE
         reusex_core
@@ -153,13 +146,6 @@ target_link_libraries(reusex_unit_tests
         # gsplat tests can live in this binary.
         reusex_gsplat_common
         rux_core_lib
-        ruxd_api_lib
-        # ruxd's option parsing (tests/unit/ruxd_cli): CLI11 + ruxd_api_lib.
-        ruxd_cli_lib
-        # Server mode's Postgres stores (tests/unit/ruxd_pg): libpqxx only;
-        # the [postgres] tests start an ephemeral server with initdb and skip
-        # when it is not on PATH.
-        ruxd_pg_lib
         Catch2::Catch2WithMain
         fmt::fmt
         OpenSSL::Crypto
@@ -190,20 +176,17 @@ target_include_directories(reusex_unit_tests PRIVATE
 target_compile_definitions(reusex_unit_tests
     PRIVATE REUSEX_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
-# Vision + ruxd tests: these genuinely need the ML backends and the HTTP
-# routing/auth logic, so they carry the full dependency closure.
+# Vision tests: these genuinely need the ML backends, so they carry the full
+# dependency closure.
 if(HEAVY_TEST_SOURCES)
     add_executable(reusex_unit_tests_vision ${HEAVY_TEST_SOURCES})
 
-    # ruxd_lib carries the ruxd HTTP routing/auth logic (everything but
-    # main()), so tests/unit/ruxd can exercise it directly. rux_lib is the same
-    # arrangement for the `rux` CLI (#249): every subcommand, every
+    # rux_lib carries the `rux` CLI (#249): every subcommand, every
     # database/*_router.cpp and rux::run() itself, minus the `main` symbol,
     # reachable from tests/unit/rux_app.
     target_link_libraries(reusex_unit_tests_vision
         PRIVATE
             reusex
-            ruxd_lib
             rux_lib
             Catch2::Catch2WithMain
             fmt::fmt
@@ -333,34 +316,13 @@ include(Catch)
 # Two calls on one target are safe: catch_discover_tests derives its generated
 # file names from a hash of TEST_SPEC, so the two sets do not overwrite each
 # other. Total discovered test count is unchanged.
-# [postgres] tests (tests/unit/ruxd_pg) start an ephemeral PostgreSQL and
-# SKIP without `initdb`; they carry the ctest label `postgres` (and a `Pg`
-# name prefix), so `ctest -L postgres` runs exactly them.
 function(reusex_discover_tests target)
-    catch_discover_tests(${target} TEST_SPEC "~[gpu]~[postgres]")
+    catch_discover_tests(${target} TEST_SPEC "~[gpu]")
     catch_discover_tests(${target} TEST_SPEC "[gpu]"
                          PROPERTIES RESOURCE_LOCK reusex_gpu)
-    catch_discover_tests(${target} TEST_SPEC "[postgres]"
-                         PROPERTIES LABELS postgres)
 endfunction()
 
 reusex_discover_tests(reusex_unit_tests)
-
-# -----------------------------------------------
-# Contract documents (#265)
-# -----------------------------------------------
-# docs/gui/openapi.yaml is a deliverable other code is generated from, so a
-# parse failure there is a broken build, not a docs nit -- PR #274 shipped it
-# unparseable. The check is a script rather than a C++ test so pre-commit and
-# CI can run it without building anything.
-find_package(Python3 COMPONENTS Interpreter)
-if(Python3_Interpreter_FOUND)
-    add_test(NAME gui_api_contract_parses
-             COMMAND ${Python3_EXECUTABLE}
-                     ${CMAKE_SOURCE_DIR}/scripts/check-openapi.py)
-else()
-    message(STATUS "Python3 not found: skipping the GUI contract parse test")
-endif()
 
 if(HEAVY_TEST_SOURCES)
     reusex_discover_tests(reusex_unit_tests_vision)
@@ -368,6 +330,38 @@ endif()
 
 if(INTEGRATION_TEST_SOURCES)
     catch_discover_tests(reusex_integration_tests)
+endif()
+
+# -----------------------------------------------
+# Installed-package consumer (repo split, P1)
+# -----------------------------------------------
+# `cmake --install`s the ReUseX_Development component into a temp prefix, then
+# configures, builds and runs tests/package/consumer against it with
+# find_package(ReUseX CONFIG REQUIRED). This is what keeps the exported CMake
+# package (cmake/Installation.cmake, cmake/ReUseXConfig.cmake.in) from rotting
+# now that ruxd consumes the library from outside this tree. It needs a
+# complete build (it installs the built archives) and re-runs every
+# find_package of the dependency closure, so it takes on the order of a minute;
+# `ctest -L package` runs it alone, `-LE package` skips it.
+option(REUSEX_PACKAGE_TEST
+       "Register the installed-package consumer ctest (tests/package)" ON)
+if(REUSEX_PACKAGE_TEST)
+    add_test(NAME reusex_package_consumer
+             COMMAND ${CMAKE_COMMAND}
+                     -DREUSEX_BUILD_DIR=${CMAKE_BINARY_DIR}
+                     -DCONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/package/consumer
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/package_test
+                     -DBUILD_CONFIG=$<CONFIG>
+                     -DGENERATOR=${CMAKE_GENERATOR}
+                     -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+                     "-DOUTER_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/package/run_package_test.cmake)
+    set_tests_properties(reusex_package_consumer PROPERTIES
+        LABELS package
+        TIMEOUT 1800
+        # Its own work dir, but a long multi-process configure+link: keep it
+        # from competing with itself if ctest is re-run concurrently.
+        RESOURCE_LOCK reusex_package_test)
 endif()
 
 message(STATUS "Unit tests configured successfully")

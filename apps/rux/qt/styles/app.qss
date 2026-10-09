@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * The Qt client's stylesheet TEMPLATE. Every value is var(--token) from
- * apps/rux/frontend/src/tokens.css, substituted at run time by rux::qt::Theme
+ * apps/rux/qt/theme/tokens.css (vendored from rux-frontend's
+ * src/tokens.css), substituted at run time by rux::qt::Theme
  * (rem -> px, CSS4 rgb() -> rgba()). An unknown token renders magenta and
  * fails qt_shot.sh. Never write a literal colour, radius, spacing or type
  * size here — token_lint.py checks .qss too.

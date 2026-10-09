@@ -50,8 +50,9 @@ struct StageName {
 };
 
 // Single source of truth for stage identity. The `name` column is the token
-// used in the HTTP contract (docs/gui/openapi.yaml) and `contract` selects the
-// input check run before the stage executes (docs/CONTRACTS.md).
+// used in `ruxd`'s HTTP contract (docs/gui/openapi.yaml, in its own repo) and
+// `contract` selects the input check run before the stage executes
+// (docs/CONTRACTS.md).
 constexpr std::array<StageName, 6> kStages{{
     {JobStage::clouds, "clouds", "cloud_reconstruction",
      core::PipelineStage::clouds, false},
@@ -691,8 +692,9 @@ StageResult run_stage(ProjectDB &db, const StageContext &ctx) {
     // Open the log row BEFORE validating inputs, so a run that is refused for
     // an unsatisfied contract still leaves a durable record of the attempt and
     // its reason. `pipeline_log` is what the GUI's history view reads
-    // (docs/gui/openapi.yaml), and a rejection that vanishes without trace is
-    // exactly the silent failure STANDARDS §5 forbids.
+    // (`ruxd`'s docs/gui/openapi.yaml, in its own repo), and a rejection that
+    // vanishes without trace is exactly the silent failure STANDARDS §5
+    // forbids.
     //
     // The job id is folded into the logged parameters (rather than needing a
     // schema migration) so the durable history can be joined back to the job

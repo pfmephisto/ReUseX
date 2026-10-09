@@ -4,11 +4,12 @@
 // Unit tests for the Qt client's design-token reader (Stream Q, phase Q0).
 //
 // The native client takes every colour and size from
-// apps/rux/frontend/src/tokens.css at run time, the same file the web GUI
-// uses. These functions are the Qt-free half of that: parse the CSS custom
-// properties for a theme, normalise each value into something QSS accepts,
-// and substitute var(--x) in a stylesheet template. They live in
-// `rux_qt_core` (no Qt), so they run in the light test binary.
+// apps/rux/qt/theme/tokens.css at run time — a vendored copy of the
+// rux-frontend repo's src/tokens.css (scripts/sync-tokens.sh). These
+// functions are the Qt-free half of that: parse the CSS custom properties
+// for a theme, normalise each value into something QSS accepts, and
+// substitute var(--x) in a stylesheet template. They live in `rux_qt_core`
+// (no Qt), so they run in the light test binary.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -175,7 +176,7 @@ TEST_CASE("ParseTokensCss_RealTokensFile_HasEveryRoleTheQtClientUses",
   // The real file, so a rename on the design side shows up here rather than
   // as a magenta widget in a screenshot nobody looked at.
   std::ifstream in(std::string(REUSEX_SOURCE_DIR) +
-                   "/apps/rux/frontend/src/tokens.css");
+                   "/apps/rux/qt/theme/tokens.css");
   REQUIRE(in);
   std::stringstream ss;
   ss << in.rdbuf();
@@ -281,7 +282,7 @@ TEST_CASE("AppQss_EveryVarReference_ResolvesAgainstRealTokens",
           "[rux_qt][tokens]") {
   // CI does not run qt_shot.sh or token_lint, so this is the guard against a
   // design-side rename leaving app.qss with a token that renders magenta.
-  const std::string css = slurp(kSource / "apps/rux/frontend/src/tokens.css");
+  const std::string css = slurp(kSource / "apps/rux/qt/theme/tokens.css");
   const std::string qss = slurp(kSource / "apps/rux/qt/styles/app.qss");
   REQUIRE_FALSE(css.empty());
   REQUIRE_FALSE(qss.empty());
@@ -306,7 +307,7 @@ TEST_CASE("QtSources_EveryTokenStringLiteral_ExistsInRealTokens",
   // magenta at run time just like the QSS. Only strings in a token family
   // (--color-, --space-, …) are checked: "--page" is a CLI flag.
   const TokenMap t = parse_tokens_css(
-      slurp(kSource / "apps/rux/frontend/src/tokens.css"), ThemeMode::dark);
+      slurp(kSource / "apps/rux/qt/theme/tokens.css"), ThemeMode::dark);
   std::set<std::string> families;
   for (const auto &[name, value] : t)
     families.insert(name.substr(0, name.find('-', 2)));

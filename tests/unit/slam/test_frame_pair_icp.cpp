@@ -4,8 +4,8 @@
 // Synthetic tests for slam::refine_frame_pair_icp (#465): a real ProjectDB
 // with synthetic sensor frames whose geometry and relative pose are known, so
 // the recovered transform can be checked within tolerance. The web GUI's
-// IcpRefineFn (apps/ruxd/src/icp.cpp, tests/unit/ruxd/test_icp.cpp) and the
-// Qt client's pair strip both call this function.
+// IcpRefineFn (ruxd's own src/icp.cpp and test_icp.cpp, in its own repo) and
+// the Qt client's pair strip both call this function.
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

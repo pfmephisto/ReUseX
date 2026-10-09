@@ -91,7 +91,7 @@ TEST_CASE("LabelPalette_Default_MatchesTheDesignTokens",
   // --label-* scale to the file, so a design sync that changes the scale
   // fails here until the table follows (and render, web and Qt keep agreeing).
   const std::string css = read_file(std::string(REUSEX_SOURCE_DIR) +
-                                    "/apps/rux/frontend/src/tokens.css");
+                                    "/apps/rux/qt/theme/tokens.css");
   REQUIRE_FALSE(css.empty());
   for (const auto mode :
        {rux::qt::ThemeMode::light, rux::qt::ThemeMode::dark}) {

@@ -51,8 +51,9 @@ struct SceneBounds {
 /// (Okabe-Ito, colourblind-safe) and `--label-unlabeled`, so a `rux render`,
 /// the web viewport and the Qt client colour a label the same way and their
 /// legends agree. `tests/unit/visualize/test_scene.cpp` pins these values to
-/// `apps/rux/frontend/src/tokens.css`; a design sync that changes the scale
-/// fails that test until this table follows.
+/// `apps/rux/qt/theme/tokens.css` (a vendored copy of rux-frontend's
+/// `src/tokens.css`); a design sync that changes the scale fails that test
+/// until this table follows.
 struct LabelPalette {
   std::vector<std::array<std::uint8_t, 3>> colors; ///< labels 1..N, cyclic
   std::array<std::uint8_t, 3> unlabeled{0, 0, 0};  ///< label 0 (STANDARDS §3)

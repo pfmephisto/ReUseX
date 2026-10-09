@@ -5,8 +5,9 @@
 #pragma once
 
 /// Wire form of one stored report PDF version — the `ReportPdfVersion` schema
-/// in docs/gui/openapi.yaml. The servers that answer it (`ruxd`) serialise
-/// through this one function so their responses cannot drift.
+/// in `ruxd`'s API contract (`docs/gui/openapi.yaml`, in the `ruxd` repo).
+/// The servers that answer it (`ruxd`) serialise through this one function so
+/// their responses cannot drift.
 
 #include "reusex/core/ProjectDB.hpp"
 

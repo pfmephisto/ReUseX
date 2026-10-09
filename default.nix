@@ -51,19 +51,6 @@
   libe57format,
   cli11,
   curl,
-  crow,
-  asio,
-  # Static React/Vite bundle served by `ruxd --local` (pkgs/reusex-gui-frontend).
-  # Not a link-time dependency: it is copied into share/reusex/gui by
-  # postInstall below. Kept as its own derivation so the two build graphs stay
-  # independent — an npm/lockfile change must not invalidate the multi-hour C++
-  # build, and editing a .cpp must not re-run the npm build.
-  reusex-gui-frontend,
-  libpqxx,
-  libpq,
-  redis-plus-plus,
-  hiredis,
-  aws-sdk-cpp-s3,
   nlohmann_json,
   openssl,
   # Prebuilt libtorch (pkgs/libtorch: 2.9.0+cu128, CUDA 12.x), replacing the
@@ -121,24 +108,19 @@ in
         ./LICENSE.md
         # C++ library source, headers, and CMake config
         ./libs
-        # Applications: rux CLI and ruxd service worker.
+        # Applications: the rux CLI (incl. the native Qt client, apps/rux/qt).
         # apps/blender has no CMakeLists.txt and is not part of the C++ build.
+        # ruxd (the HTTP service worker) moved to its own repo (repo split, P4).
         ./apps/rux
-        ./apps/ruxd
         # Python bindings (pybind11, BUILD_PYTHON_BINDINGS)
         ./bindings
         # Tests: unit, integration, benchmarks, support, and binary fixtures
         ./tests
-        # ctest registers this as the gui_api_contract_parses test
-        ./scripts/check-openapi.py
         # Accessed at test runtime via REUSEX_SOURCE_DIR (test_stage_contract.cpp)
         ./docs/CONTRACTS.md
         # Embedded into a generated header by reusexLibrary.cmake (the native
         # TensorRT EngineBuilder's default SAM 3.1 recipe)
         ./python/reusex_sam3/engine-build.json
-        # Accessed at test runtime by scripts/check-openapi.py
-        ./docs/gui/openapi.yaml
-        ./docs/gui/events.schema.json
       ];
     };
 
@@ -218,18 +200,6 @@ in
         blender.pythonPackages.pybind11
 
         curl
-        # Crow HTTP server (+ asio backend) for the `ruxd` service worker
-        crow
-        asio
-        # Backend clients for the `ruxd` service worker:
-        #   libpqxx        — PostgreSQL (job/metadata store)
-        #   redis-plus-plus — Redis (cache / queue), built on hiredis
-        #   aws-sdk-cpp-s3  — S3 object storage (s3-only build, see overlay)
-        libpqxx
-        libpq
-        redis-plus-plus
-        hiredis
-        aws-sdk-cpp-s3
         nlohmann_json
         openssl
         exiv2
@@ -274,6 +244,11 @@ in
     cmakeFlags =
       [
         (lib.cmakeBool "WITH_CUDA" cudaSupport)
+        # The `reusex_package_consumer` ctest installs the build tree into a
+        # temp prefix with `cmake --install --prefix`, which the absolute
+        # CMAKE_INSTALL_*DIR nixpkgs' cmake hook passes would ignore. Here the
+        # same consumer runs against the real $out instead (installCheckPhase).
+        (lib.cmakeBool "REUSEX_PACKAGE_TEST" false)
       ]
       # Without libtorch, pin the backend list instead of relying on AUTO: an
       # explicit list makes a missing TensorRT/ONNX dependency a configure
@@ -301,18 +276,32 @@ in
     passthru.cudaToolkitPackages =
       lib.optionals cudaSupport ([cudaPackages.cuda_nvcc] ++ cudaLibraries);
 
-    # Drop the prebuilt GUI bundle next to the binaries. `ruxd --local` falls
-    # back to <install prefix>/share/reusex/gui when neither --assets nor
-    # $RUX_GUI_ASSETS is set (apps/ruxd/src/api/assets.cpp), so this is what
-    # makes `nix shell .#default -c ruxd --local scan.rux` serve a UI at all.
-    #
-    # Nothing here interacts with the postFixup runpath loop below: that loop
-    # only walks $out/bin and $out/lib and additionally guards on isELF, while
-    # these are static web assets under $out/share.
+    # The library installs as a CMake package (cmake/Installation.cmake):
+    # headers under include/reusex/, the per-module static libraries in lib/,
+    # and lib/cmake/ReUseX/ReUseXConfig.cmake, so another derivation (ruxd,
+    # after the repo split) can `find_package(ReUseX CONFIG REQUIRED)` against
+    # this one. Fail here, not in a downstream build, if that ever stops being
+    # installed.
     postInstall = ''
-      mkdir -p $out/share/reusex/gui
-      cp -r ${reusex-gui-frontend}/share/reusex/gui/. $out/share/reusex/gui/
-      chmod -R u+w $out/share/reusex/gui
+      test -f $out/lib/cmake/ReUseX/ReUseXConfig.cmake \
+        || { echo "ReUseX CMake package config was not installed" >&2; exit 1; }
+    '';
+
+    # Build and run tests/package/consumer against the installed $out with
+    # find_package(ReUseX CONFIG REQUIRED): the installed CMake package is only
+    # proven by consuming it. Off by default (it re-runs the whole dependency
+    # lookup, minutes on the CUDA variant); `checks.tests` in flake.nix turns
+    # it on for the CPU variant CI builds.
+    doInstallCheck = false;
+    installCheckPhase = ''
+      runHook preInstallCheck
+      cmake -DINSTALLED_PREFIX=$out \
+        -DCONSUMER_SOURCE_DIR=$NIX_BUILD_TOP/$sourceRoot/tests/package/consumer \
+        -DWORK_DIR=$TMPDIR/reusex-package-test \
+        "-DGENERATOR=Unix Makefiles" \
+        -DBUILD_CONFIG=Release \
+        -P $NIX_BUILD_TOP/$sourceRoot/tests/package/run_package_test.cmake
+      runHook postInstallCheck
     '';
 
     # Patch the installed binaries and shared libraries so the dynamic loader
@@ -331,8 +320,8 @@ in
       # Plain `rux` is the native Qt client (apps/rux/qt), so the installed
       # binary must find Qt's platform plugins (xcb, wayland) outside the dev
       # shell. dontWrapQtApps above keeps the hook from wrapping every binary
-      # (ruxd and the tools need no Qt plugins); only rux is wrapped, after
-      # the runpath loop so patchelf sees the real ELF, not the wrapper.
+      # (the other tools need no Qt plugins); only rux is wrapped, after the
+      # runpath loop so patchelf sees the real ELF, not the wrapper.
       + ''
         wrapQtApp $out/bin/rux
       '';

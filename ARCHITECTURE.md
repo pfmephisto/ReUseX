@@ -37,8 +37,8 @@ ReUseX/
 │   ├── cmake/                  # reusexLibrary.cmake, Dependencies.cmake, ...
 │   └── extern/                 # Vendored headers
 ├── apps/
-│   ├── rux/                    # CLI tool (include/ + src/, grouped by command)
-│   ├── ruxd/                   # HTTP service worker
+│   ├── rux/                    # CLI tool (include/ + src/, grouped by command),
+│   │                           #   plus the native Qt client (apps/rux/qt)
 │   └── blender/reusex_panel/   # Blender add-on (standalone)
 ├── bindings/python/            # pybind11 bindings (read-only ProjectDB access)
 ├── python/                     # reusex_sam3: SAM 3.1 -> ONNX -> TensorRT export
@@ -50,6 +50,12 @@ ReUseX/
 ├── overlays/ pkgs/ devshells/  # Nix packaging
 └── tools/ scripts/ completions/
 ```
+
+**Repo split (2026-10-09):** `ruxd` (the HTTP service worker / web GUI
+server) and the web frontend each moved into their own repo — `ruxd` and
+`rux-frontend` under the `ReUse-X` org. `ruxd` consumes this repo through its
+installed CMake package (`find_package(ReUseX CONFIG REQUIRED)`). See
+`docs/DIRECTION.md` for the changelog entry.
 
 ## Modules and layering
 
@@ -64,7 +70,7 @@ Layer 3:  segmentation  reconstruction  slam  io  vision  (peers — MUST NOT li
 Layer 2:  core                                         (ProjectDB, logging, materials, stages)
 Layer 1½: geometry_common                              (shared CGAL/PCL primitives)
 Layer 1:  utils, types.hpp                             (no internal dependencies)
-External: apps/rux, apps/ruxd                          (may use everything; keep logic thin)
+External: apps/rux, and ruxd (own repo, via find_package) (may use everything; keep logic thin)
 ```
 
 See [`STANDARDS.md` §1](docs/STANDARDS.md#1-module-boundaries) for the rules and
@@ -80,7 +86,7 @@ the two documented cross-peer exceptions (`io -> reconstruction`,
 | `reusex_utils`, `reusex_geometry_common`, `reusex_core`, `reusex_io`, `reusex_vision`, `reusex_segmentation`, `reusex_reconstruction`, `reusex_slam` | STATIC | One per module |
 | `reusex_visualize` | STATIC | Only when `src/visualize/` has sources |
 | `reusex` | INTERFACE | Umbrella linking every module, for backward compatibility |
-| `rux`, `ruxd` | executables | `apps/rux`, `apps/ruxd` |
+| `rux` | executable | `apps/rux` (`ruxd` is a separate executable in its own repo) |
 
 The historical `ReUseX` and `ReUseX_visualization` target names no longer exist.
 

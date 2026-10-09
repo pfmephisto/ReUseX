@@ -30,8 +30,9 @@
 # without linking each other.
 #
 # The `reusex` target remains a backward-compatible INTERFACE umbrella that
-# links every module, so apps/rux, apps/ruxd, tests and bindings build
-# unchanged.
+# links every module, so apps/rux, tests and bindings build unchanged —
+# `ruxd`, in its own repo, links the exported `ReUseX::reusex` target
+# instead.
 
 # -----------------------------------------------
 # Per-module source discovery
@@ -43,6 +44,10 @@
 # CGAL/PCL helpers (reusex_geometry_common) still live under src/geometry/ and
 # are listed explicitly below.
 set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# CMAKE_INSTALL_INCLUDEDIR is referenced by the $<INSTALL_INTERFACE> include
+# paths below; cmake/Installation.cmake installs the tree at the same place.
+include(GNUInstallDirs)
 
 # Layer 1 — utils (no internal dependencies)
 file(GLOB_RECURSE REUSEX_UTILS_SOURCES CONFIGURE_DEPENDS "${SRC}/utils/*.cpp")
@@ -204,7 +209,13 @@ target_include_directories(reusex_common INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/extern/include>
     # Flat access for internal library code: core/..., geometry/...
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    # Installed package (cmake/Installation.cmake): public headers live under
+    # include/reusex/ (so <reusex/core/...> resolves from include/), and the
+    # vendored extern headers under include/reusex/extern/ — public headers
+    # include them as <pcl/planar_region_growing.hpp>, and keeping them out of
+    # a shared include/pcl/ avoids colliding with the real PCL in /usr/local.
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/reusex/extern>
 )
 
 target_link_libraries(reusex_common INTERFACE
@@ -232,6 +243,11 @@ target_link_libraries(reusex_common INTERFACE
     fmt::fmt
     # JSON serialization
     nlohmann_json::nlohmann_json
+    # Ranges — header-only, and included by public headers
+    # (geometry/utils.hpp, reconstruction/*.hpp), so it must be PUBLIC: as a
+    # private dep it would only reach consumers as $<LINK_ONLY:...>, without
+    # its include directories.
+    range-v3::range-v3
     # Graph algorithms
     igraph::igraph
     # Computer Vision
@@ -244,9 +260,13 @@ target_link_libraries(reusex_common INTERFACE
     ${COMMON_LINKER_FLAGS}
 )
 
+# BUILD_INTERFACE only: these are this build's warning/OpenMP/sanitizer flags
+# (-Wall -Wextra [-Werror] -fopenmp ...). An installed-package consumer must not
+# inherit our -Werror or warning set; the OpenMP runtime still reaches it
+# through COMMON_LINKER_FLAGS (-lgomp) above.
 target_compile_options(reusex_common INTERFACE
-    $<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>
-    $<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>
+    $<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILER_FLAGS}>>
+    $<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:C>:${COMMON_COMPILER_FLAGS}>>
 )
 
 # MIP solver compile definition (USE_HIGHS / USE_CUOPT) attaches to the shared
@@ -271,8 +291,6 @@ endif()
 # so we can attach them to the specific owning module(s) below.
 add_library(reusex_private_deps INTERFACE)
 target_link_libraries(reusex_private_deps INTERFACE
-    # Ranges
-    range-v3::range-v3
     # Speckle upload support (io/speckle.cpp)
     CURL::libcurl
     OpenSSL::Crypto
@@ -483,6 +501,35 @@ if(TARGET reusex_gsplat)
 endif()
 
 # -----------------------------------------------
+# Package names: ReUseX::<module>
+# -----------------------------------------------
+# The installed package (cmake/Installation.cmake) exports every target under
+# the ReUseX:: namespace with the `reusex_` prefix dropped — reusex_core is
+# ReUseX::core, the umbrella stays ReUseX::reusex. The same names are aliased
+# here so in-tree code can already be written the way an external consumer
+# (`find_package(ReUseX CONFIG REQUIRED)`) writes it.
+set(REUSEX_PACKAGE_TARGETS
+    reusex reusex_common reusex_private_deps
+    reusex_utils reusex_geometry_common reusex_core reusex_io reusex_vision
+    reusex_segmentation reusex_reconstruction reusex_slam
+    reusex_gsplat_common reusex_pipeline)
+foreach(_opt reusex_visualize reusex_gsplat)
+    if(TARGET ${_opt})
+        list(APPEND REUSEX_PACKAGE_TARGETS ${_opt})
+    endif()
+endforeach()
+foreach(_tgt IN LISTS REUSEX_PACKAGE_TARGETS)
+    if(_tgt STREQUAL "reusex")
+        set(_export_name reusex)
+    else()
+        string(REGEX REPLACE "^reusex_" "" _export_name "${_tgt}")
+    endif()
+    set_target_properties(${_tgt} PROPERTIES EXPORT_NAME ${_export_name})
+    add_library(ReUseX::${_export_name} ALIAS ${_tgt})
+endforeach()
+unset(_export_name)
+
+# -----------------------------------------------
 # Diagnostics
 # -----------------------------------------------
 foreach(mod utils geometry_common core io vision segmentation reconstruction slam pipeline visualize gsplat_common gsplat)
@@ -501,4 +548,5 @@ if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     set(USE_MIP_SOLVER ${USE_MIP_SOLVER} PARENT_SCOPE)
     set(ENABLED_ML_BACKENDS ${ENABLED_ML_BACKENDS} PARENT_SCOPE)
     set(REUSEX_HAVE_GSPLAT ${REUSEX_HAVE_GSPLAT} PARENT_SCOPE)
+    set(REUSEX_PACKAGE_TARGETS ${REUSEX_PACKAGE_TARGETS} PARENT_SCOPE)
 endif()

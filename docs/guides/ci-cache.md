@@ -141,15 +141,15 @@ source-touching PRs still take ~25 min.
 
 `default.nix` uses `lib.fileset.toSource` to include only the files the C++
 build actually needs: `CMakeLists.txt`, `cmake/`, `libs/`, `apps/rux/`,
-`apps/ruxd/`, `bindings/`, `tests/`, `scripts/check-openapi.py` (a ctest),
-and two specific docs files the test suite reads at runtime
-(`docs/CONTRACTS.md`, `docs/gui/openapi.yaml`, `docs/gui/events.schema.json`).
+`bindings/`, `tests/`, and specific docs files the test suite reads at
+runtime (`docs/CONTRACTS.md`). `apps/ruxd/` and `docs/gui/` moved to the
+standalone `ruxd` repo (repo split, P4, 2026-10-09) and no longer appear here.
 
 Everything else — `docs/`, `.github/`, `*.md`, `apps/blender/`, `tools/`,
-`.claude/`, `overlays/`, `pkgs/`, `python/`, `scripts/` (except the one ctest
-entry) — is excluded. A PR that only touches those paths produces the same
-`ReUseX-tests` derivation hash, so CI resolves the entire build from the
-Cachix cache in ~38 s instead of recompiling for ~20 min.
+`.claude/`, `overlays/`, `pkgs/`, `python/`, `scripts/` — is excluded. A PR
+that only touches those paths produces the same `ReUseX-tests` derivation
+hash, so CI resolves the entire build from the Cachix cache in ~38 s instead
+of recompiling for ~20 min.
 
 **Verification performed in #357:**
 

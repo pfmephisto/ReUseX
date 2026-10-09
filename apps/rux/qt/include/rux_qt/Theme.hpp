@@ -6,9 +6,10 @@
 // The Qt client's theme: tokens.css -> QSS + QPalette, applied to the whole
 // application, with hot reload in dev mode.
 //
-// One design system, two renderers. The values come from
-// apps/rux/frontend/src/tokens.css (owned by the Claude Design project) and
-// are substituted into styles/app.qss, a QSS template written with the same
+// One design system, two renderers. The values come from tokens.css (owned
+// by the Claude Design project in the rux-frontend repo, vendored here at
+// apps/rux/qt/theme/tokens.css via scripts/sync-tokens.sh) and are
+// substituted into styles/app.qss, a QSS template written with the same
 // `var(--x)` syntax as the web's CSS Modules. Code never names a colour or a
 // size: it asks the Theme for a token (`color("--color-canvas")`).
 //

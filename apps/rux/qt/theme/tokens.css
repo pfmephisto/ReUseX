@@ -1,0 +1,302 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Povl Filip Sonne-Frederiksen
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * ============================================================================
+ * OWNED BY the Claude Design project "ReUseX GUI"
+ * (project id 19f0cf0f-1f7c-43a7-8311-1fd67e34bbb7).
+ *
+ * Values: the prototype-v2 identity (docs/design/gui-kortlaegning-redesign.md),
+ * adopted 2026-09-30 ahead of the first /design-sync. The repo owns the token
+ * *names* and roles; the design project owns every value on the right-hand
+ * side. Push these to the design project with /design-sync rather than
+ * letting the two drift.
+ *
+ * Rule for everything else in src/: no colour, radius, spacing or type size is
+ * ever written literally in a component. Only var(--...).
+ * ============================================================================
+ *
+ * Correctness constraints for whoever authors values:
+ *  - --color-canvas stays near-black in BOTH themes. Point clouds are additive
+ *    light on a dark field; a light canvas destroys the depth read.
+ *  - --label-N is a CATEGORICAL, colourblind-safe scale (Okabe-Ito). A
+ *    replacement must keep that property; it is never overridden per theme.
+ *  - --circ-* is the waste hierarchy (affaldshierarki), ordered from best
+ *    (bevaring) to worst (bortskaffelse). It is read as a ranked category.
+ */
+
+:root {
+  /* Light is the default theme. `data-theme` on <html> carries the resolved
+     value; the dark block below overrides at equal specificity and wins on
+     source order when it applies. */
+  color-scheme: light;
+
+  /* ---------------------------------------------------------- surfaces -- */
+  --color-canvas: #171c24; /* the 3D viewport — near-black in both themes */
+  --color-surface: #e9e9e7; /* the workbench (page background) */
+  --color-surface-raised: #ffffff; /* panels, cards */
+  --color-surface-overlay: #ffffff; /* menus, toasts, hover */
+  --color-surface-sunken: #f2f2f0; /* inputs, table headers, wells */
+  --color-scrim: #1d2d3d; /* modal backdrop, used at reduced opacity */
+
+  /* ------------------------------------------------------------ chrome -- */
+  /* The navy title bar and sidebar. */
+  --color-chrome: #1d2d3d;
+  --color-chrome-raised: #24374b; /* active nav row, chrome buttons */
+  --color-chrome-border: #35495e;
+  --color-on-chrome: #f2f2f3;
+  --color-on-chrome-muted: #93a3b3;
+
+  /* ------------------------------------------------------------ border -- */
+  --color-border: #d8d8d4;
+  --color-border-strong: #b9bcbf;
+  --color-border-focus: #5980a6;
+
+  /* -------------------------------------------------------------- text -- */
+  --color-text: #1c2530;
+  --color-text-muted: #5a6470;
+  --color-text-faint: #8b939d; /* decoration and disabled only (3.1:1) */
+  --color-text-inverse: #f2f2f3;
+
+  /* ------------------------------------------------------------ accent -- */
+  --color-accent: #5980a6; /* bars, markers, focus, active dots */
+  --color-accent-hover: #3e5f80;
+  --color-accent-muted: #e4ebf2; /* selected row, soft fills */
+  --color-accent-deep: #3e5f80; /* accent text; filled primary buttons */
+  --color-on-accent: #ffffff; /* text on --color-accent-deep */
+  --color-star: #b98a1d; /* "vigtig" ★ */
+
+  /* -------------------------------------------------------------- tone -- */
+  /* Background/ink pairs for pills and notices. */
+  --tone-good-bg: #deebe2;
+  --tone-good-ink: #2c5c40;
+  --tone-warn-bg: #f3e9cb;
+  --tone-warn-ink: #6e5313;
+  --tone-wait-bg: #e3e6ea;
+  --tone-wait-ink: #4a5563;
+  --tone-crit-bg: #f3dcd7;
+  --tone-crit-ink: #8a2f23;
+  --tone-accent-bg: #e4ebf2;
+  --tone-accent-ink: #3e5f80;
+
+  /* ----------------------------------------- categorical: affaldshierarki */
+  --circ-bevaring: #24374b;
+  --circ-genbrug: #5980a6;
+  --circ-genanvendelse: #6f9080;
+  --circ-nyttiggoerelse: #c09a46;
+  --circ-bortskaffelse: #8a6a55;
+
+  /* ------------------------------------------------ categorical: chips -- */
+  /* Tag chips for select/multiselect columns (Materialedata). bg/ink pairs,
+     ≥4.5:1 in both themes. */
+  --chip-blue-bg: #dde9f7;
+  --chip-blue-ink: #1f5f99;
+  --chip-red-bg: #f6dedc;
+  --chip-red-ink: #9a3530;
+  --chip-green-bg: #dcede3;
+  --chip-green-ink: #2c6b48;
+  --chip-purple-bg: #eee0f3;
+  --chip-purple-ink: #6f3f80;
+  --chip-yellow-bg: #f5ebd0;
+  --chip-yellow-ink: #72561a;
+  --chip-gray-bg: #e6e7e9;
+  --chip-gray-ink: #4a5260;
+
+  /* ------------------------------------------------------------ status -- */
+  /* Job/stage lifecycle. Distinct in luminance as well as hue. */
+  --color-status-queued: #55606f;
+  --color-status-running: #0072b2;
+  --color-status-succeeded: #007a59;
+  --color-status-failed: #b8460b;
+  --color-status-cancelled: #838d9c;
+
+  /* --------------------------------------------- categorical: labels ---- */
+  /* Okabe-Ito. Consumed by the viewport's label colour mode and the legend. */
+  --label-0: #e69f00;
+  --label-1: #56b4e9;
+  --label-2: #009e73;
+  --label-3: #f0e442;
+  --label-4: #0072b2;
+  --label-5: #d55e00;
+  --label-6: #cc79a7;
+  --label-7: #999999;
+  --label-count: 8;
+  /* Points whose label is 0 (unlabeled, STANDARDS §3) render in this. */
+  --label-unlabeled: #4a505c;
+  /* Points whose label is out of contract — a -1 that wrapped to 0xFFFFFFFF
+     in a point cloud (STANDARDS §3.1) — render in this. Not a class, so not
+     on the categorical scale: must recede against the near-black 3D canvas
+     (STANDARDS: an "invalid" state should recede, not shout), not compete
+     with the vivid Okabe-Ito scale. PROVISIONAL — hand-added outside
+     /design-sync (never edit tokens.css otherwise); value owed by the design
+     project (see reusex-frontend.md's token inventory and
+     .github/issue-drafts/). Derived from --color-border-strong, a muted
+     neutral distinct from --label-unlabeled. */
+  --label-invalid: #b9bcbf;
+
+  /* ------------------------------------------------- viewport: geometry -- */
+  --mesh-surface: #8a8f99;
+
+  /* ------------------------------------------------------------ typography */
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-sans: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  /* Data tables are monospace by design brief — figures must align. */
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+
+  --font-size-2xs: 0.625rem; /* uppercase field labels, table headers */
+  --font-size-xs: 0.6875rem; /* pills, captions */
+  --font-size-sm: 0.75rem; /* secondary text, controls */
+  --font-size-md: 0.84375rem; /* body (13.5px) */
+  --font-size-lg: 1rem; /* card titles */
+  --font-size-xl: 1.45rem; /* view headings */
+  --font-size-2xl: 1.65rem; /* KPI figures */
+  --font-size-3xl: 1.9rem; /* page headings */
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+
+  --line-height-tight: 1.15;
+  --line-height-normal: 1.45;
+
+  --tracking-caps: 0.08em; /* uppercase labels */
+  --tracking-wide: 0.18em; /* the sidebar's PROJEKT eyebrow */
+
+  /* -------------------------------------------------------------- space -- */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* ------------------------------------------------------------- radius -- */
+  --radius-sm: 3px; /* pills, kbd */
+  --radius-md: 4px; /* buttons, inputs */
+  --radius-lg: 6px; /* panels, cards */
+  --radius-xl: 8px; /* dialogs */
+  --radius-pill: 999px;
+
+  /* ------------------------------------------------------------ shadow --- */
+  --shadow-sm: 0 1px 2px rgb(29 45 61 / 10%);
+  --shadow-md: 0 4px 12px rgb(29 45 61 / 12%);
+  --shadow-lg: 0 14px 44px rgb(0 0 0 / 40%);
+  --shadow-panel: 0 1px 2px rgb(29 45 61 / 10%), 0 4px 12px rgb(29 45 61 / 7%);
+
+  /* ------------------------------------------------------------ layout --- */
+  --layout-titlebar-height: 44px;
+  --layout-nav-width: 13.5rem; /* the navy sidebar */
+  --layout-panel-width: 280px;
+  --layout-bench-aside-width: 21.5rem; /* Kortlægning's evidence/detail column */
+
+  /* ------------------------------------------------------------- motion -- */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ------------------------------------------------------------ z-index -- */
+  --z-panel: 10;
+  --z-titlebar: 20;
+  --z-toast: 30;
+}
+
+/*
+ * Dark theme — derived from the navy chrome. Re-points the themed roles only:
+ * the canvas and the --label-* scale are left alone (see the header).
+ * `[data-theme='dark']` and `:root` share specificity (0,1,0); this block wins
+ * only because it comes later in the file. Keep it after `:root`.
+ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-canvas: #171c24; /* unchanged: the viewport stays near-black in both themes */
+  --color-surface: #141c25;
+  --color-surface-raised: #1b2530;
+  --color-surface-overlay: #22303d;
+  --color-surface-sunken: #10161d;
+  --color-scrim: #05080c;
+
+  --color-chrome: #0f1822;
+  --color-chrome-raised: #172433;
+  --color-chrome-border: #26384a;
+  --color-on-chrome: #eef1f4;
+  --color-on-chrome-muted: #8698aa;
+
+  --color-border: #2c3a48;
+  --color-border-strong: #3e4f60;
+  --color-border-focus: #7fa3c6;
+
+  --color-text: #e6eaef;
+  --color-text-muted: #a3aebb;
+  --color-text-faint: #74808d;
+  --color-text-inverse: #141c25;
+
+  --color-accent: #7fa3c6;
+  --color-accent-hover: #9bb8d4;
+  --color-accent-muted: #1f3346;
+  --color-accent-deep: #9bb8d4;
+  --color-on-accent: #0f1720;
+  --color-star: #e0b34a;
+
+  --tone-good-bg: #1d3527;
+  --tone-good-ink: #8fd1a6;
+  --tone-warn-bg: #3a3017;
+  --tone-warn-ink: #e3c779;
+  --tone-wait-bg: #26303b;
+  --tone-wait-ink: #b4bfcb;
+  --tone-crit-bg: #3d2220;
+  --tone-crit-ink: #f0a094;
+  --tone-accent-bg: #1f3346;
+  --tone-accent-ink: #9bb8d4;
+
+  /* PROVISIONAL (see the :root comment) — a dim neutral that sits near the
+     near-black canvas rather than the light --color-surface value, so an
+     invalid point recedes instead of becoming the scene's brightest thing.
+     Derived from --color-border (not --color-surface-raised: the legend
+     swatch sits on a panel using that exact background in dark mode, which
+     made the swatch invisible there — this is a shade lighter so it still
+     reads as a chip). */
+  --label-invalid: #2c3a48;
+
+  /* Lifted so the ranked scale still reads on a dark field. */
+  --circ-bevaring: #8fa7c0;
+  --circ-genbrug: #7fa3c6;
+  --circ-genanvendelse: #8fb3a1;
+  --circ-nyttiggoerelse: #d6b366;
+  --circ-bortskaffelse: #b08e77;
+
+  --chip-blue-bg: #1c2e42;
+  --chip-blue-ink: #8cc3f0;
+  --chip-red-bg: #3a2323;
+  --chip-red-ink: #f0a39c;
+  --chip-green-bg: #1d3427;
+  --chip-green-ink: #8fd1a6;
+  --chip-purple-bg: #33243a;
+  --chip-purple-ink: #d4a6e6;
+  --chip-yellow-bg: #3a3018;
+  --chip-yellow-ink: #e3c779;
+  --chip-gray-bg: #2a3139;
+  --chip-gray-ink: #c1c9d2;
+
+  --color-status-queued: #9aa3b2;
+  --color-status-running: #56b4e9;
+  --color-status-succeeded: #009e73;
+  --color-status-failed: #d55e00;
+  --color-status-cancelled: #7a828f;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 25%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+  }
+}

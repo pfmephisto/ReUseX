@@ -83,7 +83,7 @@ if [[ $BUILD -eq 1 && -x "$GALLERY" ]]; then
   pattern=( -name '*.cpp' -o -name '*.hpp' -o -name 'CMakeLists.txt' -o -name '*.qrc' -o -name '*.ttf' )
   [[ $EMBEDDED -eq 1 ]] && pattern+=( -o -name '*.qss' )
   if [[ -z "$(find "$ROOT/apps/rux/qt" \( "${pattern[@]}" \) -newer "$GALLERY" -print -quit)" ]] &&
-     { [[ $EMBEDDED -eq 0 ]] || [[ ! "$ROOT/apps/rux/frontend/src/tokens.css" -nt "$GALLERY" ]]; }; then
+     { [[ $EMBEDDED -eq 0 ]] || [[ ! "$ROOT/apps/rux/qt/theme/tokens.css" -nt "$GALLERY" ]]; }; then
     BUILD=0
   fi
 fi

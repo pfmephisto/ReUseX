@@ -5,11 +5,12 @@
 
 // Design tokens for the native Qt client — the Qt-free half.
 //
-// apps/rux/frontend/src/tokens.css is the single source of every design value
-// for both surfaces: the web GUI reads it through CSS, the Qt client parses it
-// at run time with these functions and substitutes the values into a QSS
-// template written with the same `var(--x)` syntax as the CSS Modules. The
-// repo owns the token *names*; the Claude Design project owns the values.
+// tokens.css is the single source of every design value for both surfaces:
+// the web GUI (rux-frontend repo) reads it through CSS, this Qt client
+// vendors a copy at apps/rux/qt/theme/tokens.css (scripts/sync-tokens.sh) and
+// parses it at run time with these functions, substituting the values into a
+// QSS template written with the same `var(--x)` syntax as the CSS Modules.
+// The repo owns the token *names*; the Claude Design project owns the values.
 //
 // Nothing here includes Qt, so the parsing rules are unit-tested in the light
 // test binary (tests/unit/rux_qt/).
